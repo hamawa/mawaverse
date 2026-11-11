@@ -13,7 +13,7 @@ import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
 import { buildDefaultMap, buildPortalGarden, portalNear, sanitizeMap, isWalkable, isWater, roomAt, findFreeTile, nearZone, type MapData, type Zone } from './map';
 import { MAIN_MAP_ID, playerMapId } from '../shared/maps';
-import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, primaryOnlyRoom, PRIMARY_ONLY_ROOM_MSG } from './portal';
+import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { Net } from './net';
 import { Chat } from './chat';
 import { Rooms } from './rooms';
@@ -564,7 +564,7 @@ export class World implements WorldCtx {
     this.fishing.cancel(); // 맵을 읽는 사이 자동 낚시가 옛 맵 물에 다시 던졌을 수 있다
     this.bugs.clear(); this.toss.clear(); this.pets.forget(this.uid);
     for (const rp of this.players.values()) rp.bubble = null;
-    this.lastHint = null;
+    // lastHint 는 그대로 둔다: 여기서 비우면 화면의 '이동 중…' 안내와 어긋나, 도착한 칸에 안내가 없을 때 그 문구가 지워지지 않는다. 다음 프레임의 updateHint 가 새 맵 기준으로 맞춘다
     this.events.emit('players');
   }
 
@@ -593,13 +593,15 @@ export class World implements WorldCtx {
       return { x: ma.spot.x, y: ma.spot.y - 1, text: this.mafia.holding() ? `${ma.spot.def.verb} 중… 움직이지 마세요` : `F ${ma.spot.def.verb} (5초 버티기)`, kind: 'mafia' };
     }
     if (this.boardZone && nearZone(this.boardZone, me.x, me.y, 1)) return { x: this.boardZone.x + 1, y: this.boardZone.y - 1, text: 'F 게시판 보기', kind: 'board' };
-    const portal = portalNear(this.map, me.x, me.y);
+    const fv = this.fishing.view();
+    const bug = this.bugs.targetView();
+    // 포탈 옆이라도 하던 낚시·바로 옆 벌레·삽질·발밑 보물 자리가 먼저다 (2026-11-11: 포탈 옆에 잡힌 보물 자리를 팔 수 없던 문제). 그 일이 끝나면 다시 포탈 안내가 뜬다
+    const yields = portalYields({ fishing: !!fv, autoFishing: !!fv?.auto, bug: !!bug, digging: this.dig.active, digSpot: !!this.dig.spotHere() });
+    const portal = yields ? undefined : portalNear(this.map, me.x, me.y);
     if (portal) return { x: portal.x, y: portal.y - 1, text: `F 포탈 이동${portal.label ? `: ${portal.label}` : ''}`, kind: 'portal' };
     const room = this.map.zones.find((z) => primaryOnlyRoom(this.mapId, z) && nearZone(z, me.x, me.y, 1));
     if (room) return { x: room.x, y: room.y - 1, text: PRIMARY_ONLY_ROOM_MSG, kind: 'sign' };
-    const fv = this.fishing.view();
     if (fv) { if (fv.auto) return null; return { x: fv.x, y: fv.y, text: fv.bite ? 'F 당겨!' : '찌를 기다리는 중… (이동하면 취소)', kind: 'fishing' }; } // 자동 낚시 중에는 안내를 띄우지 않는다 (2026-11-09, 사용자: 두 군데 뜨는 게 거슬림)
-    const bug = this.bugs.targetView();
     if (bug) return { x: bug.x, y: bug.y, text: 'F 채집', kind: 'bug' };
     const t = this.fishing.targetTile();
     if (t) return { x: t.x, y: t.y, text: 'F 낚시', kind: 'cast' };

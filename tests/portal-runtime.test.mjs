@@ -29,7 +29,7 @@ registerHooks({
     return { format: 'module', source: stripTypeScriptTypes(readFileSync(fileURLToPath(url), 'utf8'), { mode: 'transform' }), shortCircuit: true };
   },
 });
-const { mapSource, parseSavedMap, arrivalTile, lastPosOf, savedMapId, mapSwitchUpdate, portalBlock } = await import('../src/game/portal.ts');
+const { mapSource, parseSavedMap, arrivalTile, lastPosOf, savedMapId, mapSwitchUpdate, portalBlock, portalYields } = await import('../src/game/portal.ts');
 const { emptyMap, buildDefaultMap, buildPortalGarden, portalNear, isWalkable, isWater, roomAt, G, O } = await import('../src/game/map.ts');
 
 test('맵 id 마다 읽는 곳이 정해져 있고 이상한 id 는 거부한다', () => {
@@ -101,6 +101,16 @@ test('포탈을 못 쓰는 경우: 마피아 참가·이동 중·같은 맵·잘
   assert.ok(portalBlock({ ...base, target: 'main' }));
   assert.ok(portalBlock({ ...base, target: 'a/b' }));
   assert.ok(portalBlock({ ...base, target: undefined }));
+});
+
+test('포탈 옆의 F: 하던 낚시·옆 벌레·삽질·발밑 보물 자리가 포탈보다 먼저, 자동 낚시는 포탈을 막지 않는다', () => {
+  const none = { fishing: false, autoFishing: false, bug: false, digging: false, digSpot: false };
+  assert.equal(portalYields(none), false);
+  assert.equal(portalYields({ ...none, digSpot: true }), true);  // 포탈 옆에 잡힌 보물 자리를 팔 수 있어야 한다
+  assert.equal(portalYields({ ...none, digging: true }), true);  // 삽질 중에 F 를 눌러도 맵을 옮기지 않는다
+  assert.equal(portalYields({ ...none, bug: true }), true);
+  assert.equal(portalYields({ ...none, fishing: true }), true);  // 입질이 왔을 때 F 는 당기기
+  assert.equal(portalYields({ ...none, fishing: true, autoFishing: true }), false);
 });
 
 test('기본 맵 ↔ 포탈 정원 왕복: 양쪽 포탈의 도착 칸이 걸을 수 있는 땅이다', () => {

@@ -54,6 +54,12 @@ export function primaryOnlyRoom(mapId: string, z: { kind: string } | null | unde
   return !!z && (z.kind === 'room' || z.kind === 'casino') && mapId !== MAIN_MAP_ID;
 }
 
+// 포탈 옆에서 F 를 다른 일에 양보하나: 직접 던진 낚시·바로 옆 벌레·삽질 중·발밑 보물 자리가 있으면 그쪽이 먼저다.
+// 자동 낚시는 안내도 F 동작도 없으므로 양보하지 않는다 (양보하면 물가 옆 포탈을 탈 방법이 없어진다)
+export function portalYields(s: { fishing: boolean; autoFishing: boolean; bug: boolean; digging: boolean; digSpot: boolean }): boolean {
+  return (s.fishing && !s.autoFishing) || s.bug || s.digging || s.digSpot;
+}
+
 // 지금 포탈을 쓸 수 없으면 그 이유 (쓸 수 있으면 null). entering: 방에 들어가는 중 (그 응답이 맵을 옮긴 뒤에 오면 옛 맵 좌표로 걷게 된다)
 export function portalBlock(s: { from: string; target: unknown; switching: boolean; entering: boolean; locked: boolean; moving: boolean; mafia: boolean }): string | null {
   if (s.switching) return '이동 중입니다.';
