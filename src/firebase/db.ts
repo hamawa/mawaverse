@@ -60,6 +60,11 @@ export async function readOwn<T>(path: string): Promise<T | null> {
 export function rememberOwn(path: string, v: unknown): void { ownCache.set(path, v); }
 export function forgetOwn(path: string): void { ownCache.delete(path); }
 
+// 평일 근무시간 이용 차단이 켜져 있나 (관리자 설정 config/hoursBlock. 이 칸만은 로그인 전에도 읽을 수 있다: 가입·로그인 화면이 미리 알아야 하므로)
+export async function hoursBlockOn(): Promise<boolean> {
+  try { return (await get(ref(db, 'config/hoursBlock'))).val() === true; } catch { return false; }
+}
+
 export function mergeConfig(raw: Partial<ServerConfig> | null | undefined): ServerConfig {
   const c = raw || {};
   return {

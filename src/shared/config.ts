@@ -46,4 +46,5 @@ export const DEFAULT_CONFIG: ServerConfig = {
   allCooldownSec: 10,
   boardRetention: 300,
   contest: { ...DEFAULT_CONTEST },
+  hoursBlock: false,
 };

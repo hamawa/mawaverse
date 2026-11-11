@@ -701,6 +701,7 @@ function tabConfig(main: HTMLElement): void {
   const maxPlayers = el('input', { type: 'number', min: '1', max: '95' });
   const maint = el('select'); maint.innerHTML = '<option value="0">정상 운영</option><option value="1">점검 모드 (관리자만 입장)</option>';
   const maintMsg = el('input', { type: 'text' });
+  const hoursSel = el('select'); hoursSel.innerHTML = '<option value="0">끔 (언제나 이용 가능)</option><option value="1">켬 (평일 09:00~18:00 차단)</option>';
   const ann = el('input', { type: 'text', placeholder: '공지 내용 (비우면 공지 없음)' });
   const strength = el('input', { type: 'number', min: '0', max: '5', step: '0.5' });
   const retChat = el('input', { type: 'number', min: '100' });
@@ -716,7 +717,7 @@ function tabConfig(main: HTMLElement): void {
   const priceInputs = new Map<string, HTMLInputElement>();
   const priceBox = el('div', { class: 'price-grid' });
   for (const it of ALL_ITEMS) { const inp = el('input', { type: 'number', min: '0' }); priceInputs.set(it.id, inp); priceBox.append(el('label', { text: `${it.icon} ${it.name}` }), inp); }
-  form.append(f('최대 동시 접속자 (무료 플랜 연결 한도 100)', maxPlayers), f('운영 상태', maint), f('점검 안내 문구', maintMsg), f('공지 (상단 배너)', ann),
+  form.append(f('최대 동시 접속자 (무료 플랜 연결 한도 100)', maxPlayers), f('운영 상태', maint), f('점검 안내 문구', maintMsg), f('평일 근무시간 이용 차단 (관리자 제외. 주말·공휴일은 종일 허용)', hoursSel), f('공지 (상단 배너)', ann),
     f('커피 내기 가중치 강도 (0=균등, 1=선형, 2=강하게)', strength), f('채팅 로그 보존 개수', retChat), f('입퇴장 로그 보존 개수', retConn), f('게시글 보존 개수', boardRet), f(`최소 클라이언트 버전 (지금 배포본은 ${CLIENT_VERSION}. 이보다 낮은 접속자는 자동으로 새로고침)`, minVer), f(`경마 한 번 최대 배팅 (100 단위, 기본 ${BET_MAX_DEFAULT}. 규칙이 서버에서 강제)`, casinoMax), f('활성 맵', activeMap), f('낚시 대회 (점수·코인 2배, 대회 한정 어종)', conOn), el('div', { class: 'row' }, [f('대회 요일', conDay), f('시작 시각 (시)', conHour), f('길이 (분)', conMin)]), f('상점 가격 (코인)', priceBox));
   const save = el('button', { class: 'btn primary', text: '저장' });
   const reduce = el('button', { class: 'btn', text: '🔻 사용량 절감 모드 적용' });
@@ -725,7 +726,7 @@ function tabConfig(main: HTMLElement): void {
   let cfg: ServerConfig;
   const load = async () => {
     cfg = mergeConfig((await get(ref(db, 'config'))).val());
-    maxPlayers.value = String(cfg.maxPlayers); maint.value = cfg.maintenance.on ? '1' : '0'; maintMsg.value = cfg.maintenance.message; ann.value = cfg.announcement?.text || '';
+    maxPlayers.value = String(cfg.maxPlayers); maint.value = cfg.maintenance.on ? '1' : '0'; hoursSel.value = cfg.hoursBlock ? '1' : '0'; maintMsg.value = cfg.maintenance.message; ann.value = cfg.announcement?.text || '';
     strength.value = String(cfg.lossStrength); retChat.value = String(cfg.logRetention.chat); retConn.value = String(cfg.logRetention.conn); boardRet.value = String(cfg.boardRetention); casinoMax.value = String(cfg.casinoMax ?? BET_MAX_DEFAULT); minVer.value = String(cfg.minVersion ?? 0);
     const maps = (await get(ref(db, 'maps'))).val() as Record<string, { name?: string }> | null;
     activeMap.innerHTML = '<option value="default">기본 맵 (내장)</option>' + Object.entries(maps || {}).map(([id, m]) => `<option value="${id}">${escapeHtml(m.name || id)} (${id})</option>`).join('');
@@ -738,6 +739,7 @@ function tabConfig(main: HTMLElement): void {
     const next: ServerConfig = {
       maxPlayers: Number(maxPlayers.value) || 60,
       maintenance: { on: maint.value === '1', message: maintMsg.value },
+      hoursBlock: hoursSel.value === '1',
       announcement: annText ? { text: annText, ts: annText === cfg.announcement?.text ? cfg.announcement!.ts : Date.now() } : null,
       activeMap: activeMap.value,
       lossStrength: Number(strength.value),

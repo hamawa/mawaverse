@@ -30,7 +30,11 @@
     },
     "config": {
       ".read": "auth != null",
-      ".write": "auth != null && root.child('admins/' + auth.uid).val() === true"
+      ".write": "auth != null && root.child('admins/' + auth.uid).val() === true",
+      "hoursBlock": {
+        ".read": true,
+        ".validate": "newData.isBoolean()"
+      }
     },
     "maps": {
       ".read": "auth != null",

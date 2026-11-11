@@ -88,6 +88,7 @@ export interface ServerConfig {
   contest?: ContestCfg;            // 낚시 대회 일정
   casinoMax?: number;              // 경마 한 번 최대 배팅 (규칙이 강제. 없으면 10000)
   minVersion?: number;             // 이 값보다 낮은 CLIENT_VERSION 의 접속자는 스스로 새로고침한다
+  hoursBlock?: boolean;            // 평일 09:00~18:00 KST 이용 차단을 켤지 (관리자 설정, 기본 꺼짐). 켜져 있으면 보안 규칙이 서버 시각으로 막는다
 }
 
 export interface ConnLog { u: string; n: string; type: 'join' | 'leave'; ts: number }

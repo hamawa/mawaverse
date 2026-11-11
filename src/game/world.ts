@@ -1,4 +1,4 @@
-import { ref, get } from 'firebase/database';
+import { ref, get, onValue } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { changeNick, changePassword, logout, idPathKey, withdraw } from '../firebase/auth';
@@ -179,15 +179,22 @@ export class World implements WorldCtx {
     this.hud.setAnnouncement(this.config.announcement?.text || null, this.config.announcement?.ts || 0);
     this.chat.systemMessage(`${this.profile.nick} 님, MawaVerse에 오신 것을 환영합니다! Enter 로 채팅, F 로 상호작용, 물가에서 F 로 낚시, 풀밭 벌레 옆에서 F 로 채집, G 로 앞사람에게 말랑이 던지기, 0 으로 밀치기, R 로 끌기, 우클릭(모바일은 캐릭터 터치)으로 메뉴, 도움말 버튼이나 Space 로 키 가이드.`);
     this.engine.start((dt, now) => this.tick(dt, now));
-    // 평일 근무시간 차단: 08:55 에 안내하고 09:00 에 내보낸다 (관리자 제외). 08:55~09:00 에 들어온 사람도 바로 안내를 본다
-    if (!this.isAdmin) { this.hoursTimer = window.setInterval(() => this.checkHours(), 1000); this.checkHours(); }
+    // 평일 근무시간 차단(관리자 설정으로 켰을 때): 08:55 에 안내하고 09:00 에 내보낸다 (관리자 제외). 08:55~09:00 에 들어온 사람도 바로 안내를 본다
+    // 차단 설정은 따로 구독한다: 이 칸은 누구나 읽을 수 있어서, 관리자가 차단을 켜는 순간에도 값이 확실히 온다 (config 전체는 차단되면 읽을 수 없다)
+    if (!this.isAdmin) {
+      this.hoursUnsub = onValue(ref(db, 'config/hoursBlock'), (s) => { this.hoursBlock = s.val() === true; this.checkHours(); }, () => {});
+      this.hoursTimer = window.setInterval(() => this.checkHours(), 1000);
+    }
   }
 
   // 이용 시간 확인 (1초마다, 서버 시각 기준). 실제 차단은 보안 규칙이 하고, 여기는 안내와 퇴장 처리
   private hoursTimer = 0;
   private hoursWarned = false;
+  private hoursBlock = false;                    // 관리자 설정 config/hoursBlock
+  private hoursUnsub: (() => void) | null = null;
   private checkHours(): void {
     if (this.stopped) return;
+    if (!this.hoursBlock) { this.hoursWarned = false; return; } // 관리자 설정에서 차단을 켰을 때만
     const now = serverNow();
     if (clientBlocked(now, HOLIDAYS)) { void this.forceLogout(BLOCK_MESSAGE); return; }
     if (hoursState(now, HOLIDAYS) !== 'warn') { this.hoursWarned = false; return; }
@@ -761,7 +768,7 @@ export class World implements WorldCtx {
   private async stop(replaced = false): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
-    clearInterval(this.hoursTimer);
+    clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
     this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.wallet.stop(); this.contest.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.casinoPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});

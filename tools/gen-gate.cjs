@@ -5,6 +5,7 @@
 //   시간 조건 TIME : 관리자이거나, 이용 시간                                ← 가입 신청에 필요한 경로 (내 프로필·아이디·닉네임·신청서, 내 승인 표시 지우기)
 //   그대로   NONE : 로그인만                                                ← 내가 관리자인지·승인됐는지 읽기 (화면이 어떤 안내를 띄울지 정하는 데 쓴다)
 // 이용 시간 = 평일(월~금) 09:00~18:00 KST 가 아닐 때, 또는 공휴일(holidays/{KST 날짜 번호} 가 있을 때). 판정은 서버 시각(now)으로 한다.
+// 시간 차단은 관리자 설정 config/hoursBlock 이 true 일 때만 건다 (기본 꺼짐: 값이 없거나 false 면 언제나 이용 시간으로 본다). 가입 승인 조건은 설정과 무관하게 늘 건다.
 //
 // 공휴일은 holidays.json 하나로 관리한다. 이 스크립트가 DB 에 올릴 holidays.deploy.json 도 같이 만든다 (npm run deploy:holidays 가 올린다).
 // 규칙 시험용 database.rules.test.json 도 만든다: 조건식은 같고, 시각만 now 대신 _test/now 에서 읽는다 (tests/rules-gate.test.mjs 가 시각을 넣어 본다).
@@ -20,8 +21,9 @@ function gates(NOW) {
   const T = `(${NOW} + 32400000)`;                                   // KST 시각
   const MS = `${T} % 86400000`;                                      // 자정부터 지난 ms
   const DAY = `((${T} - ${MS}) / 86400000)`;                         // KST 날짜 번호 (1970-01-01 = 0, 목요일)
-  // 09:00 전이거나 18:00 이후이거나, 주말((날짜+4)%7 이 0=일 또는 6=토)이거나, 공휴일
-  const OPEN = `(${MS} < 32400000 || ${MS} >= 64800000 || ((${DAY} + 4) % 7) % 6 == 0 || root.child('holidays/' + ${DAY}).exists())`;
+  // 주말은 (날짜+4)%7 이 0=일 또는 6=토
+  // 차단 설정이 꺼져 있거나(config/hoursBlock != true), 09:00 전이거나 18:00 이후이거나, 주말이거나, 공휴일
+  const OPEN = `(root.child('config/hoursBlock').val() != true || ${MS} < 32400000 || ${MS} >= 64800000 || ((${DAY} + 4) % 7) % 6 == 0 || root.child('holidays/' + ${DAY}).exists())`;
   const ADMIN = `root.child('admins/' + auth.uid).val() === true`;
   const APPROVED = `root.child('approved/' + auth.uid).val() === true`;
   return {
@@ -60,8 +62,10 @@ function build(node, p, G, count) {
 }
 
 const deploy = { rules: build(src.rules, [], gates('now'), true) };
-// 로그인 조건 없이 열려 있는 읽기·쓰기 규칙이 있으면 차단을 비켜 가므로 멈춘다 (false 로 닫힌 것은 괜찮다)
-const open = noAuth.filter((s) => !/: false$/.test(s));
+// 로그인 조건 없이 열려 있는 읽기·쓰기 규칙이 있으면 차단을 비켜 가므로 멈춘다 (false 로 닫힌 것은 괜찮다).
+// 일부러 열어 둔 것: config/hoursBlock 읽기 (차단 설정 여부. 로그인 전의 가입·로그인 화면이 읽는다)
+const PUBLIC = new Set(['config/hoursBlock .read: true']);
+const open = noAuth.filter((s) => !/: false$/.test(s) && !PUBLIC.has(s));
 if (open.length) { console.error('로그인 조건이 없는 규칙이 있습니다 (차단이 걸리지 않음):\n  ' + open.join('\n  ')); process.exit(1); }
 
 const test = { rules: build(src.rules, [], gates(`root.child('_test/now').val()`), false) };

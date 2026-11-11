@@ -42,7 +42,7 @@ await root.ref().set({
   nicknames: { '승인됨': 'OK', '대기중': 'PEND' },
   signups: { OK: { name: '김승인', reason: '친구 소개', at: 1 }, PEND: { name: '이대기', reason: '궁금해서', at: 2 } },
   holidays: { [dayNo('2026-12-25')]: '2026-12-25 성탄절' },
-  config: { maxPlayers: 50 },
+  config: { maxPlayers: 50, hoursBlock: true }, // 시각별 시험은 차단 설정을 켠 상태로 한다
 });
 
 // ---------- 1. 시각별: 승인된 사용자 / 대기 중 / 관리자 ----------
@@ -124,6 +124,22 @@ await expect('탈퇴: 남의 신청서 삭제(있는 것)', 'deny', () => ok.ref
 // ---------- 4. 공휴일 목록은 관리자만 읽고 아무도 못 쓴다 ----------
 await expect('공휴일: 사용자가 쓰기', 'deny', () => ok.ref('holidays/1').set('x'));
 await expect('공휴일: 관리자도 쓰기 불가(배포로만)', 'deny', () => admin.ref('holidays/1').set('x'));
+
+// ---------- 5. 차단 설정(config/hoursBlock): 꺼져 있으면(기본) 평일 낮에도 이용할 수 있다. 가입 승인은 그대로 필요하다 ----------
+await setNow('2026-11-11 12:00:00');
+await expect('설정 켬: 평일 12:00 승인된 사용자 → 차단', 'deny', () => ok.ref('config').get());
+await expect('설정: 일반 사용자가 차단 설정을 바꾸기', 'deny', () => ok.ref('config/hoursBlock').set(false));
+await expect('설정: 로그인 안 한 사람도 차단 설정 여부는 읽는다', 'allow', () => anon.ref('config/hoursBlock').get());
+await expect('설정: 로그인 안 한 사람이 다른 설정 읽기', 'deny', () => anon.ref('config/maxPlayers').get());
+await expect('설정: 차단 시간에도 관리자는 설정을 끌 수 있다', 'allow', () => admin.ref('config/hoursBlock').set(false));
+await expect('설정 끔: 평일 12:00 승인된 사용자가 설정 읽기', 'allow', () => ok.ref('config').get());
+await expect('설정 끔: 평일 12:00 승인된 사용자가 접속 표시 쓰기', 'allow', () => ok.ref('players/OK').set({ ...presence, hb: ServerValue.TIMESTAMP }));
+await expect('설정 끔: 평일 12:00 새 사람이 가입 신청서 쓰기', 'allow', () => as('NEWOFF').ref('signups/NEWOFF').set({ name: '박신청', reason: '가입 사유', at: ServerValue.TIMESTAMP }));
+await expect('설정 끔: 승인 안 된 사용자는 여전히 못 들어옴', 'deny', () => as('NEWOFF').ref('players/NEWOFF').set({ ...presence, hb: ServerValue.TIMESTAMP }));
+await expect('설정: 불리언이 아닌 값', 'deny', () => admin.ref('config/hoursBlock').set('yes'));
+await root.ref('config/hoursBlock').remove();
+await expect('설정 없음(기본): 평일 12:00 승인된 사용자가 설정 읽기', 'allow', () => ok.ref('config').get());
+await expect('설정 없음(기본): 승인 안 된 사용자는 못 들어옴', 'deny', () => as('NEWOFF').ref('config').get());
 
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
 process.exit(fail ? 1 : 0);

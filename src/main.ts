@@ -2,7 +2,7 @@ import './styles.css';
 import { ref, get } from 'firebase/database';
 import { isConfigured, auth, db } from './firebase/app';
 import { waitForAuth, login, signup, logout, loadProfile, isApproved, withdraw, dropOrphanAccount } from './firebase/auth';
-import { isAdmin, readConfig, serverNow, serverTimeReady } from './firebase/db';
+import { isAdmin, readConfig, serverNow, serverTimeReady, hoursBlockOn } from './firebase/db';
 import { showLoginScreen, showAdminChoice, showMessageScreen, toast, promptModal, confirmModal, closeOverlays } from './game/ui';
 import { World } from './game/world';
 import { Net } from './game/net';
@@ -23,8 +23,10 @@ async function boot(): Promise<void> {
   else showLogin();
 }
 
-// 평일 09:00~18:00 KST 차단 중인가 (서버 시각 기준. 실제로 막는 것은 보안 규칙이고 여기는 화면 안내용). 관리자는 부르는 쪽에서 건너뛴다
+// 평일 09:00~18:00 KST 차단 중인가. 관리자 설정(config/hoursBlock)이 켜져 있을 때만 차단한다 (기본 꺼짐).
+// 서버 시각 기준이고, 실제로 막는 것은 보안 규칙이다(여기는 화면 안내용). 관리자는 부르는 쪽에서 건너뛴다
 async function blockedNow(): Promise<boolean> {
+  if (!(await hoursBlockOn())) return false;
   await serverTimeReady();
   return clientBlocked(serverNow(), HOLIDAYS);
 }
