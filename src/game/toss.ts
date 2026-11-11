@@ -1,0 +1,129 @@
+import { ref, get, update, serverTimestamp } from 'firebase/database';
+import { db } from '../firebase/app';
+import { weekKey } from '../shared/fish';
+import { dirVec, frontTiles } from './area';
+import { petGuardOf } from '../shared/shop';
+import type { Net } from './net';
+import type { WorldCtx, RemotePlayer } from './state';
+import type { TossMsg } from '../shared/types';
+
+export const TOSS_COOLDOWN_MS = 3000;
+export const TOSS_RANGE = 3;      // 앞으로 몇 칸까지 (보따리 없을 때)
+export const TOSS_FLY_MS = 400;   // 날아가는 시간. 이 안에 옆으로 피하면 빗나간다
+export const TOSS_STUN_MS = 1000; // 맞으면 이만큼 못 움직인다
+
+// 렌더용 (타일 좌표, performance.now). icon 이 있으면 그 글자를 직선으로(장풍 💨), 없으면 🧸 포물선
+export interface TossView { fx: number; fy: number; tx: number; ty: number; start: number; icon?: string }
+export interface TossWeekEntry { n: string; h: number; t: number; at: number }             // toss/week/{wk}/{uid}: 닉, 명중, 던짐, 마지막
+type Shot = { uid: string; m: Omit<TossMsg, 't'> };
+
+// 말랑이 던지기: 바라보는 방향 3칸 안의 첫 사람에게 G. 0.4초 날아가 맞으면 😵 1초 스턴(낚시 중이면 취소).
+// 맞았는지는 날아간 뒤 그 사람이 아직 그 칸에 있는지로 각 클라이언트가 판단한다 (서버 코드 없음).
+// 말랑이 보따리(상점 장비)가 있으면 앞 4칸 × 옆 4칸(area.ts) 안의 모두에게 한꺼번에. 푹신 갑옷(presence ta)을 입은 사람은 맞아도 🛡 만 뜨고 스턴이 없다.
+export class TossMgr {
+  private flying: TossView[] = [];
+  private lastThrow = -1e9;
+
+  constructor(private w: WorldCtx, private net: Net, private hooks: { cancelFishing: () => void }) {}
+
+  views(now: number): TossView[] {
+    this.flying = this.flying.filter((t) => now - t.start < TOSS_FLY_MS + 80);
+    return this.flying;
+  }
+  cooldownLeft(): number { return Math.max(0, TOSS_COOLDOWN_MS - (performance.now() - this.lastThrow)); }
+  // 장풍 💨 효과 (미는 쪽과 밀리는 쪽이 각자 그린다)
+  wave(fx: number, fy: number, tx: number, ty: number): void { this.flying.push({ fx, fy, tx, ty, start: performance.now(), icon: '💨' }); }
+  // 갈고리 ⚓ 효과: 끄는 사람에게서 끌려올 사람 쪽으로 줄이 날아간다 (끄는 쪽과 끌리는 쪽이 각자 그린다)
+  hook(fx: number, fy: number, tx: number, ty: number): void { this.flying.push({ fx, fy, tx, ty, start: performance.now(), icon: '⚓' }); }
+
+  // 겨냥 범위 안의 사람들. 보따리가 없으면 앞 3칸 안의 첫 사람 하나
+  private targets(): RemotePlayer[] {
+    const w = this.w, me = w.me;
+    const [dx, dy] = dirVec(me.dir);
+    if (!w.profile.own?.tossbag) {
+      for (let i = 1; i <= TOSS_RANGE; i++) { const rp = w.playerAt(me.x + dx * i, me.y + dy * i); if (rp) return [rp]; }
+      return [];
+    }
+    const out: RemotePlayer[] = [];
+    for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = w.playerAt(x, y); if (rp && !out.includes(rp)) out.push(rp); }
+    return out;
+  }
+
+  // G: true 면 던졌다
+  throwAt(): boolean {
+    const w = this.w, me = w.me, now = performance.now();
+    if (me.roomId) return false;
+    const left = this.cooldownLeft();
+    if (left > 0) { w.toast(`말랑이는 ${Math.ceil(left / 1000)}초 후에 다시 던질 수 있어요.`, true); return false; }
+    const bag = !!w.profile.own?.tossbag;
+    const targets = this.targets();
+    if (!targets.length) { w.toast(bag ? '앞 4칸 안에 아무도 없어요. 상대 쪽을 바라보고 던지세요.' : '앞 3칸 안에 아무도 없어요. 상대를 바라보고 던지세요.', true); return false; }
+    this.lastThrow = now;
+    const shots: Shot[] = targets.map((t) => ({ uid: t.uid, m: { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(t.x), ty: Math.round(t.y) } }));
+    for (const s of shots) this.flying.push({ fx: s.m.fx, fy: s.m.fy, tx: s.m.tx, ty: s.m.ty, start: now });
+    if (shots.length === 1) this.net.toss(shots[0].uid, shots[0].m); else this.net.tossMany(shots);
+    window.setTimeout(() => {
+      let hits = 0, blocked = 0;
+      for (const s of shots) {
+        const rp = w.players.get(s.uid);
+        if (!rp || Math.round(rp.x) !== s.m.tx || Math.round(rp.y) !== s.m.ty) continue;
+        if (rp.st.ta || petGuardOf(rp.st)) { rp.blockAt = performance.now(); blocked++; } else { rp.hitAt = performance.now(); hits++; }
+      }
+      const one = w.nickOf(shots[0].uid);
+      const text = shots.length === 1
+        ? (hits ? `🧸 ${one} 명중!` : blocked ? `🛡 ${one} 이(가) 막았다!` : `🧸 ${one} 이(가) 피했다!`)
+        : `🎁 말랑이 보따리! ${shots.length}명 중 ${hits}명 명중` + (blocked ? `, ${blocked}명은 막음` : '');
+      w.note(text); // 채팅에는 안 남긴다 (2026-11-09)
+      void this.record(hits > 0);
+    }, TOSS_FLY_MS);
+    return true;
+  }
+
+  // 다른 사람이 던진 것 (상대의 presence 로 전파). 내가 던진 건 이미 그렸으므로 제외
+  onRemote(targetUid: string, m: TossMsg): void {
+    if (m.f === this.w.uid) return;
+    this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now() });
+    window.setTimeout(() => {
+      const rp = this.w.players.get(targetUid);
+      if (!rp || Math.round(rp.x) !== m.tx || Math.round(rp.y) !== m.ty) return;
+      if (rp.st.ta || petGuardOf(rp.st)) rp.blockAt = performance.now(); else rp.hitAt = performance.now();
+    }, TOSS_FLY_MS);
+  }
+
+  // 나한테 날아온 것
+  onHitMe(m: TossMsg): void {
+    const w = this.w;
+    this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now() });
+    window.setTimeout(() => {
+      const me = w.me, now = performance.now();
+      if (me.x !== m.tx || me.y !== m.ty) { w.toast('🧸 휙! 피했다.'); return; }
+      if (w.profile.eq?.ta) { me.blockAt = now; w.toast(`🧥 푹신 갑옷이 ${w.nickOf(m.f)} 의 말랑이를 튕겨냈다.`); return; }
+      if (w.petGuard()) {
+        // 펫 방어 (Lv8, 2026-11-10): 튕겨내고, 80% 확률로 던진 사람에게 되던진다 (r 표시: 되돌아온 건 다시 안 튕긴다)
+        me.blockAt = now;
+        const thrower = w.players.get(m.f);
+        if (!m.r && thrower && w.petReflect()) {
+          const back: Omit<TossMsg, 't'> = { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(thrower.x), ty: Math.round(thrower.y), r: true };
+          this.flying.push({ ...back, start: now });
+          this.net.toss(m.f, back);
+          window.setTimeout(() => { const rp = w.players.get(m.f); if (rp && Math.round(rp.x) === back.tx && Math.round(rp.y) === back.ty) { if (rp.st.ta || petGuardOf(rp.st)) rp.blockAt = performance.now(); else rp.hitAt = performance.now(); } }, TOSS_FLY_MS);
+          w.toast(`🛡 펫이 ${w.nickOf(m.f)} 의 말랑이를 되던졌다!`);
+        } else w.toast(`🛡 펫이 ${w.nickOf(m.f)} 의 말랑이를 튕겨냈다.`);
+        return;
+      }
+      me.hitAt = now; me.stunUntil = now + TOSS_STUN_MS;
+      this.hooks.cancelFishing();
+      w.toast(m.r ? `😵 ${w.nickOf(m.f)} 의 펫이 되던진 말랑이에 맞았다!` : `😵 ${w.nickOf(m.f)} 의 말랑이에 맞았다!`);
+    }, TOSS_FLY_MS);
+  }
+
+  private async record(hit: boolean): Promise<void> {
+    const w = this.w;
+    try {
+      const path = `toss/week/${weekKey()}/${w.uid}`;
+      const cur = (await get(ref(db, path))).val() as TossWeekEntry | null;
+      await update(ref(db), { [path]: { n: w.profile.nick, h: (cur?.h || 0) + (hit ? 1 : 0), t: (cur?.t || 0) + 1, at: serverTimestamp() } });
+      this.net.stat('toss');
+    } catch (e) { console.warn('toss record failed', e); }
+  }
+}

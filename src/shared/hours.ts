@@ -1,0 +1,46 @@
+// 이용 시간 판정: 평일(월~금) 09:00~18:00 KST 에는 이용할 수 없다. 주말과 공휴일(holidays.json)은 종일 허용. 관리자는 예외(부르는 쪽에서 건너뛴다).
+// 순수 함수라 시각을 인자로 받는다 (테스트에서 시각을 넣어 본다). 실제로 막는 것은 보안 규칙이고(tools/gen-gate.cjs 가 같은 조건을 넣는다),
+// 여기는 화면 안내와 08:55 알림·09:00 종료 타이머에 쓴다. 부를 때는 기기 시계가 아니라 서버 시각(serverNow)을 넘길 것.
+// 이 파일은 다른 파일을 불러오지 않는다 (Node 내장 테스트가 그대로 불러 쓴다).
+
+export const BLOCK_START_MIN = 9 * 60;   // 09:00 부터
+export const BLOCK_END_MIN = 18 * 60;    // 18:00 전까지 차단
+export const WARN_MIN = 5;               // 차단 5분 전(08:55)부터 안내
+
+export const BLOCK_MESSAGE = 'MawaVerse는 평일 오전 9시~오후 6시에는 이용할 수 없어요. 오후 6시 이후에 만나요!';
+export const WARN_MESSAGE = '5분 뒤 이용 시간이 종료됩니다';
+
+const KST_MS = 9 * 3600000;
+const DAY_MS = 86400000;
+
+// KST 기준 날짜 번호(1970-01-01 = 0), 요일(0=일 … 6=토), 자정부터 지난 분, 날짜 열쇠 "YYYY-MM-DD"
+export function kstParts(ts: number): { day: number; dow: number; min: number; key: string } {
+  const t = ts + KST_MS;
+  const day = Math.floor(t / DAY_MS);
+  return { day, dow: (day + 4) % 7, min: Math.floor((t - day * DAY_MS) / 60000), key: new Date(t).toISOString().slice(0, 10) };
+}
+
+// "YYYY-MM-DD" → KST 날짜 번호 (규칙이 보는 holidays/{번호} 의 열쇠)
+export function dayNumberOf(key: string): number {
+  const [y, m, d] = key.split('-').map(Number);
+  return Date.UTC(y, m - 1, d) / DAY_MS;
+}
+
+// 클라이언트는 차단 3초 전부터 차단으로 본다. 09:00 정각이 지나면 규칙이 쓰기를 거부해서 퇴장 처리(접속 표시·자리 지우기)까지 막히기 때문에,
+// 그 전에 내보내고 들여보내지 않는다. 18:00 쪽은 당기지 않는다 (규칙이 열리기 전에 들여보내면 입장이 거부된다)
+export const CLIENT_EARLY_MS = 3000;
+export function clientBlocked(ts: number, holidays: Record<string, unknown>): boolean {
+  return hoursState(ts, holidays) === 'blocked' || hoursState(ts + CLIENT_EARLY_MS, holidays) === 'blocked';
+}
+
+export type HoursState = 'open' | 'warn' | 'blocked';
+
+// open: 이용 가능, warn: 곧 차단(08:55~09:00), blocked: 차단 중
+export function hoursState(ts: number, holidays: Record<string, unknown>): HoursState {
+  const p = kstParts(ts);
+  if (p.dow === 0 || p.dow === 6) return 'open';
+  if (Object.prototype.hasOwnProperty.call(holidays, p.key)) return 'open';
+  if (p.min >= BLOCK_START_MIN && p.min < BLOCK_END_MIN) return 'blocked';
+  if (p.min >= BLOCK_START_MIN - WARN_MIN && p.min < BLOCK_START_MIN) return 'warn';
+  return 'open';
+}

@@ -1,0 +1,14 @@
+node_modules
+dist
+.env.local
+.env.*.local
+serviceAccount*.json
+firebase-debug.log
+database-debug.log
+ui-debug.log
+.firebase
+*.log
+# tools/gen-gate.cjs 가 만드는 배포용 파일
+database.rules.deploy.json
+database.rules.test.json
+holidays.deploy.json
