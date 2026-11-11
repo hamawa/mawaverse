@@ -30,6 +30,10 @@ export class TossMgr {
     this.flying = this.flying.filter((t) => now - t.start < TOSS_FLY_MS + 80);
     return this.flying;
   }
+  // 다른 맵으로 옮겼다: 날아가던 효과를 지우고, 착지 판정(명중·스턴·낚시 취소·기록)도 버린다
+  private gen = 0;
+  clear(): void { this.flying = []; this.gen++; }
+  private land(fn: () => void): void { const g = this.gen; window.setTimeout(() => { if (g === this.gen) fn(); }, TOSS_FLY_MS); }
   cooldownLeft(): number { return Math.max(0, TOSS_COOLDOWN_MS - (performance.now() - this.lastThrow)); }
   // 장풍 💨 효과 (미는 쪽과 밀리는 쪽이 각자 그린다)
   wave(fx: number, fy: number, tx: number, ty: number): void { this.flying.push({ fx, fy, tx, ty, start: performance.now(), icon: '💨' }); }
@@ -62,7 +66,7 @@ export class TossMgr {
     const shots: Shot[] = targets.map((t) => ({ uid: t.uid, m: { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(t.x), ty: Math.round(t.y) } }));
     for (const s of shots) this.flying.push({ fx: s.m.fx, fy: s.m.fy, tx: s.m.tx, ty: s.m.ty, start: now });
     if (shots.length === 1) this.net.toss(shots[0].uid, shots[0].m); else this.net.tossMany(shots);
-    window.setTimeout(() => {
+    this.land(() => {
       let hits = 0, blocked = 0;
       for (const s of shots) {
         const rp = w.players.get(s.uid);
@@ -75,7 +79,7 @@ export class TossMgr {
         : `🎁 말랑이 보따리! ${shots.length}명 중 ${hits}명 명중` + (blocked ? `, ${blocked}명은 막음` : '');
       w.note(text); // 채팅에는 안 남긴다 (2026-11-09)
       void this.record(hits > 0);
-    }, TOSS_FLY_MS);
+    });
     return true;
   }
 
@@ -83,18 +87,18 @@ export class TossMgr {
   onRemote(targetUid: string, m: TossMsg): void {
     if (m.f === this.w.uid) return;
     this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now() });
-    window.setTimeout(() => {
+    this.land(() => {
       const rp = this.w.players.get(targetUid);
       if (!rp || Math.round(rp.x) !== m.tx || Math.round(rp.y) !== m.ty) return;
       if (rp.st.ta || petGuardOf(rp.st)) rp.blockAt = performance.now(); else rp.hitAt = performance.now();
-    }, TOSS_FLY_MS);
+    });
   }
 
   // 나한테 날아온 것
   onHitMe(m: TossMsg): void {
     const w = this.w;
     this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now() });
-    window.setTimeout(() => {
+    this.land(() => {
       const me = w.me, now = performance.now();
       if (me.x !== m.tx || me.y !== m.ty) { w.toast('🧸 휙! 피했다.'); return; }
       if (w.profile.eq?.ta) { me.blockAt = now; w.toast(`🧥 푹신 갑옷이 ${w.nickOf(m.f)} 의 말랑이를 튕겨냈다.`); return; }
@@ -106,7 +110,7 @@ export class TossMgr {
           const back: Omit<TossMsg, 't'> = { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(thrower.x), ty: Math.round(thrower.y), r: true };
           this.flying.push({ ...back, start: now });
           this.net.toss(m.f, back);
-          window.setTimeout(() => { const rp = w.players.get(m.f); if (rp && Math.round(rp.x) === back.tx && Math.round(rp.y) === back.ty) { if (rp.st.ta || petGuardOf(rp.st)) rp.blockAt = performance.now(); else rp.hitAt = performance.now(); } }, TOSS_FLY_MS);
+          this.land(() => { const rp = w.players.get(m.f); if (rp && Math.round(rp.x) === back.tx && Math.round(rp.y) === back.ty) { if (rp.st.ta || petGuardOf(rp.st)) rp.blockAt = performance.now(); else rp.hitAt = performance.now(); } });
           w.toast(`🛡 펫이 ${w.nickOf(m.f)} 의 말랑이를 되던졌다!`);
         } else w.toast(`🛡 펫이 ${w.nickOf(m.f)} 의 말랑이를 튕겨냈다.`);
         return;
@@ -114,7 +118,7 @@ export class TossMgr {
       me.hitAt = now; me.stunUntil = now + TOSS_STUN_MS;
       this.hooks.cancelFishing();
       w.toast(m.r ? `😵 ${w.nickOf(m.f)} 의 펫이 되던진 말랑이에 맞았다!` : `😵 ${w.nickOf(m.f)} 의 말랑이에 맞았다!`);
-    }, TOSS_FLY_MS);
+    });
   }
 
   private async record(hit: boolean): Promise<void> {

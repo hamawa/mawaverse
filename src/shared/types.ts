@@ -13,7 +13,7 @@ export interface UserProfile {
   lastLoss?: { room: string; round: number } | null;
   lastMsg?: number;
   lastAll?: number;
-  lastPos?: { x: number; y: number; d?: Dir } | null; // d: 바라보던 방향 (다시 들어올 때 복원)
+  lastPos?: { x: number; y: number; d?: Dir; m?: string } | null; // d: 바라보던 방향 (다시 들어올 때 복원), m: 맵 id (없으면 기본 맵)
   own?: Record<string, true>;      // 상점에서 산 꾸미기 (품목 id)
   eq?: Equip | null;                // 착용 중인 꾸미기
   gifts?: Record<string, true>;    // 선물로 받은 품목 (보낸 사람이 own 과 함께 적는다)
@@ -53,11 +53,12 @@ export interface PlayerState {
   ta?: boolean | null;  // 푹신 갑옷 입는 중 (말랑이 무효)
   z?: boolean | null;   // 탭이 뒤에 있어 자리 비움 (💤 표시)
   v?: number;           // 클라이언트 버전 (CLIENT_VERSION). 규칙이 입장할 때 config/minVersion 이상인지 본다
+  m?: string | null;    // 있는 맵 id (shared/maps.ts). 없으면 기본 맵 (옛 클라이언트와 같다)
 }
 
 export type Channel = 'near' | 'all' | 'w' | 'sys' | 'notice' | 'g'; // g: 마피아 유령 채팅. (파티 채팅 'p' 는 2026-11-10 파티 기능과 함께 삭제)
 
-export interface ChatMsg { u: string; n: string; t: string; c: 'near' | 'all'; x: number; y: number; ts: number }
+export interface ChatMsg { u: string; n: string; t: string; c: 'near' | 'all'; x: number; y: number; ts: number; m?: string } // m: 보낸 맵 (없으면 기본 맵)
 export interface WhisperMsg { f: string; fn: string; t: string; ts: number; x: number; y: number }
 export interface GhostMsg { u: string; n: string; t: string; ts: number } // 마피아 유령 채팅 (mafia/chat)
 

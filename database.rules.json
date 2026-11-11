@@ -97,6 +97,7 @@
       "$uid": {
         ".write": "auth != null && ((auth.uid == $uid && !root.child('bans/' + $uid).exists()) || root.child('admins/' + auth.uid).val() === true || (!newData.exists() && data.exists() && (!data.child('hb').exists() || data.child('hb').val() < now - 120000)))",
         ".validate": "!newData.exists() || (newData.hasChildren(['n', 'a', 'x', 'y', 'd', 's']) && newData.child('x').isNumber() && newData.child('y').isNumber() && newData.child('d').isNumber() && newData.child('n').isString() && newData.child('a').isString() && (!newData.hasChild('hb') || newData.child('hb').isNumber()) && (data.exists() || !root.child('config/minVersion').isNumber() || (newData.child('v').isNumber() && newData.child('v').val() >= root.child('config/minVersion').val())))",
+        "m": { ".validate": "newData.isString() && newData.val().matches(/^[a-zA-Z0-9_-]{1,20}$/) && (newData.val() == 'main' || newData.val() == 'portal-garden' || root.child('maps/' + newData.val()).exists())" },
         "h": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" },
         "nc": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" },
         "fx": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" },
@@ -107,26 +108,26 @@
         "pl": { ".validate": "newData.isNumber() && newData.parent().child('pt').isString() && newData.val() <= root.child('wallet/' + $uid + '/px/' + newData.parent().child('pt').val()).val()" },
         "push": {
           ".write": "auth != null",
-          ".validate": "!newData.exists() || (newData.child('f').val() == auth.uid && newData.child('dx').isNumber() && newData.child('dy').isNumber() && newData.child('t').isNumber() && (!newData.hasChild('n') || (newData.child('n').val() == 2 && root.child('users/' + auth.uid + '/own/wave').val() === true)))"
+          ".validate": "!newData.exists() || (root.child('players/' + auth.uid).exists() && (root.child('players/' + auth.uid + '/m').exists() ? root.child('players/' + auth.uid + '/m').val() : 'main') == (newData.parent().child('m').exists() ? newData.parent().child('m').val() : 'main') && newData.child('f').val() == auth.uid && newData.child('dx').isNumber() && newData.child('dy').isNumber() && newData.child('t').isNumber() && (!newData.hasChild('n') || (newData.child('n').val() == 2 && root.child('users/' + auth.uid + '/own/wave').val() === true)))"
         },
         "toss": {
           ".write": "auth != null",
-          ".validate": "!newData.exists() || (newData.child('f').val() == auth.uid && newData.child('fx').isNumber() && newData.child('fy').isNumber() && newData.child('tx').isNumber() && newData.child('ty').isNumber() && newData.child('t').isNumber())"
+          ".validate": "!newData.exists() || (root.child('players/' + auth.uid).exists() && (root.child('players/' + auth.uid + '/m').exists() ? root.child('players/' + auth.uid + '/m').val() : 'main') == (newData.parent().child('m').exists() ? newData.parent().child('m').val() : 'main') && newData.child('f').val() == auth.uid && newData.child('fx').isNumber() && newData.child('fy').isNumber() && newData.child('tx').isNumber() && newData.child('ty').isNumber() && newData.child('t').isNumber())"
         },
         "pull": {
           ".write": "auth != null",
-          ".validate": "!newData.exists() || (newData.child('f').val() == auth.uid && newData.child('x').isNumber() && newData.child('y').isNumber() && newData.child('t').isNumber() && (!newData.hasChild('k') || (newData.child('k').val() == 'hook' && root.child('users/' + auth.uid + '/own/hook').val() === true)))"
+          ".validate": "!newData.exists() || (root.child('players/' + auth.uid).exists() && (root.child('players/' + auth.uid + '/m').exists() ? root.child('players/' + auth.uid + '/m').val() : 'main') == (newData.parent().child('m').exists() ? newData.parent().child('m').val() : 'main') && newData.child('f').val() == auth.uid && newData.child('x').isNumber() && newData.child('y').isNumber() && newData.child('t').isNumber() && (!newData.hasChild('k') || (newData.child('k').val() == 'hook' && root.child('users/' + auth.uid + '/own/hook').val() === true)))"
         },
         "tp": {
-          ".validate": "!newData.exists() || (root.child('admins/' + auth.uid).val() === true && newData.child('f').val() == auth.uid && newData.child('x').isNumber() && newData.child('y').isNumber() && newData.child('t').isNumber())"
+          ".validate": "!newData.exists() || (root.child('admins/' + auth.uid).val() === true && root.child('players/' + auth.uid).exists() && (root.child('players/' + auth.uid + '/m').exists() ? root.child('players/' + auth.uid + '/m').val() : 'main') == (newData.parent().child('m').exists() ? newData.parent().child('m').val() : 'main') && newData.child('f').val() == auth.uid && newData.child('x').isNumber() && newData.child('y').isNumber() && newData.child('t').isNumber())"
         }
       }
     },
     "occ": {
       "$key": {
         ".read": "auth != null",
-        ".write": "auth != null",
-        ".validate": "newData.val() == auth.uid && (!data.exists() || data.val() == auth.uid || !root.child('players/' + data.val()).exists() || root.child('players/' + data.val() + '/x').val() + '_' + root.child('players/' + data.val() + '/y').val() != $key || (root.child('mafia/game/st').exists() && root.child('mafia/game/st').val() != 'lobby' && (root.child('mafia/game/players/' + data.val()).exists() && root.child('mafia/game/players/' + data.val() + '/alive').val() != true) != (root.child('mafia/game/players/' + auth.uid).exists() && root.child('mafia/game/players/' + auth.uid + '/alive').val() != true)))"
+        ".write": "auth != null && (newData.exists() || !data.exists() || data.val() == auth.uid || !root.child('players/' + data.val()).exists() || ((root.child('players/' + data.val() + '/m').exists() && root.child('players/' + data.val() + '/m').val() != 'main') ? root.child('players/' + data.val() + '/m').val() + '~' : '') + root.child('players/' + data.val() + '/x').val() + '_' + root.child('players/' + data.val() + '/y').val() != $key || ((!root.child('players/' + auth.uid + '/m').exists() || root.child('players/' + auth.uid + '/m').val() == 'main') && (!root.child('players/' + data.val() + '/m').exists() || root.child('players/' + data.val() + '/m').val() == 'main') && root.child('players/' + auth.uid + '/x').val() + '_' + root.child('players/' + auth.uid + '/y').val() == $key && root.child('mafia/game/st').exists() && root.child('mafia/game/st').val() != 'lobby' && (root.child('mafia/game/players/' + data.val()).exists() && root.child('mafia/game/players/' + data.val() + '/alive').val() != true) != (root.child('mafia/game/players/' + auth.uid).exists() && root.child('mafia/game/players/' + auth.uid + '/alive').val() != true)))",
+        ".validate": "newData.val() == auth.uid && newData.parent().parent().child('players/' + auth.uid).exists() && ((newData.parent().parent().child('players/' + auth.uid + '/m').exists() && newData.parent().parent().child('players/' + auth.uid + '/m').val() != 'main') ? newData.parent().parent().child('players/' + auth.uid + '/m').val() + '~' : '') + newData.parent().parent().child('players/' + auth.uid + '/x').val() + '_' + newData.parent().parent().child('players/' + auth.uid + '/y').val() == $key && (!data.exists() || data.val() == auth.uid || !root.child('players/' + data.val()).exists() || ((root.child('players/' + data.val() + '/m').exists() && root.child('players/' + data.val() + '/m').val() != 'main') ? root.child('players/' + data.val() + '/m').val() + '~' : '') + root.child('players/' + data.val() + '/x').val() + '_' + root.child('players/' + data.val() + '/y').val() != $key || ((!newData.parent().parent().child('players/' + auth.uid + '/m').exists() || newData.parent().parent().child('players/' + auth.uid + '/m').val() == 'main') && root.child('mafia/game/st').exists() && root.child('mafia/game/st').val() != 'lobby' && (root.child('mafia/game/players/' + data.val()).exists() && root.child('mafia/game/players/' + data.val() + '/alive').val() != true) != (root.child('mafia/game/players/' + auth.uid).exists() && root.child('mafia/game/players/' + auth.uid + '/alive').val() != true)))"
       }
     },
     "sessions": {
@@ -157,7 +158,7 @@
         ],
         "$id": {
           ".write": "auth != null && ((!data.exists() && newData.child('u').val() == auth.uid && (!root.child('users/' + auth.uid + '/lastMsg').exists() || root.child('users/' + auth.uid + '/lastMsg').val() < now - 300) && (newData.child('c').val() != 'all' || !root.child('users/' + auth.uid + '/lastAll').exists() || root.child('users/' + auth.uid + '/lastAll').val() < now - 9000)) || (data.exists() && !newData.exists() && (root.child('admins/' + auth.uid).val() === true || data.child('ts').val() < now - 600000)))",
-          ".validate": "!newData.exists() || (newData.hasChildren(['u', 'n', 't', 'c', 'ts']) && newData.child('t').isString() && newData.child('t').val().length <= 120 && (newData.child('c').val() == 'near' || newData.child('c').val() == 'all') && newData.child('ts').isNumber())"
+          ".validate": "!newData.exists() || (newData.hasChildren(['u', 'n', 't', 'c', 'ts']) && newData.child('t').isString() && newData.child('t').val().length <= 120 && (newData.child('c').val() == 'near' || newData.child('c').val() == 'all') && newData.child('ts').isNumber() && (newData.child('m').exists() ? newData.child('m').val() : 'main') == (root.child('players/' + auth.uid + '/m').exists() ? root.child('players/' + auth.uid + '/m').val() : 'main'))"
         }
       },
       "whisper": {

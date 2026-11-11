@@ -5,6 +5,7 @@ import { uidByNick } from '../firebase/auth';
 import { CHAT_MAX_LEN, MSG_MIN_INTERVAL_MS } from '../shared/config';
 import type { ChatMsg, WhisperMsg, GhostMsg } from '../shared/types';
 import type { WorldCtx } from './state';
+import { MAIN_MAP_ID } from '../shared/maps';
 
 export class Chat {
   private unsubs: (() => void)[] = [];
@@ -34,27 +35,31 @@ export class Chat {
     clearInterval(this.trimTimer);
   }
 
-  private senderTile(uid: string, fx: number, fy: number): [number, number] {
-    const p = this.w.players.get(uid);
-    return p ? [p.toX, p.toY] : [fx, fy];
+  // 말풍선을 띄울 보낸 사람 자리: 지금 나와 같은 맵에 있을 때만 (다른 맵 좌표가 내 화면에 겹쳐 보이지 않게)
+  private senderTile(uid: string, fx: number, fy: number, sentOn?: { m?: string | null }): [number, number] | null {
+    const w = this.w;
+    if (sentOn && !w.onMyMap(sentOn)) return null;
+    const p = w.players.get(uid);
+    if (!p) return sentOn ? [fx, fy] : null;
+    return w.onMyMap(p.st) ? [p.toX, p.toY] : null;
   }
 
-  // 기본 채팅은 거리와 상관없이 접속자 모두에게 보인다 (2026-11-03, 사용자 결정: 전체 채팅 채널을 따로 두지 않는다).
-  // 말풍선은 보낸 사람이 화면 안에 있을 때만. 옛 클라이언트가 보낸 c:'all' 도 같은 취급
+  // 기본 채팅은 거리·맵과 상관없이 접속자 모두에게 보인다 (2026-11-03, 사용자 결정: 전체 채팅 채널을 따로 두지 않는다).
+  // 말풍선은 보낸 사람이 같은 맵의 화면 안에 있을 때만. 옛 클라이언트가 보낸 c:'all' 도 같은 취급. m 이 없으면 기본 맵에서 보낸 것
   private onPublic(m: ChatMsg): void {
     const w = this.w;
     const self = m.u === w.uid;
-    const [sx, sy] = this.senderTile(m.u, m.x, m.y);
     w.events.emit('log', { channel: 'near', uid: m.u, from: m.n, text: m.t, ts: m.ts, self });
-    if (!self && w.isTileVisible(sx, sy)) w.setBubble(m.u, { text: m.t, kind: 'near', at: performance.now() });
+    const at = this.senderTile(m.u, m.x, m.y, m);
+    if (!self && at && w.isTileVisible(at[0], at[1])) w.setBubble(m.u, { text: m.t, kind: 'near', at: performance.now() });
   }
 
   private onWhisper(m: WhisperMsg): void {
     const w = this.w;
     this.lastWhisperFrom = m.fn;
     w.events.emit('log', { channel: 'w', uid: m.f, from: m.fn, to: w.profile.nick, text: m.t, ts: m.ts });
-    const [sx, sy] = this.senderTile(m.f, m.x, m.y);
-    if (w.isTileVisible(sx, sy)) w.setBubble(m.f, { text: m.t, kind: 'w', at: performance.now() });
+    const at = this.senderTile(m.f, m.x, m.y);
+    if (at && w.isTileVisible(at[0], at[1])) w.setBubble(m.f, { text: m.t, kind: 'w', at: performance.now() });
   }
 
   async send(raw: string): Promise<void> {
@@ -80,6 +85,8 @@ export class Chat {
       }
     } else if (text.startsWith('/')) { w.toast('알 수 없는 명령어입니다. (/w /r)', true); return; }
     if (!text) return;
+    // 포탈로 맵을 옮기는 중: 공개 채팅의 m 이 presence 의 맵과 어긋날 수 있어(규칙이 거부) 보내지 않는다. 귓속말은 맵과 무관
+    if (channel === 'near' && w.switching) { w.toast('맵을 옮기는 중이라 보내지 않았습니다. 잠시 후 다시 보내 주세요.', true); return; }
     if (text.length > CHAT_MAX_LEN) text = text.slice(0, CHAT_MAX_LEN);
     const base = { u: w.uid, n: w.profile.nick, ts: serverTimestamp() };
     const logKey = push(ref(db, 'logs/chat')).key!;
@@ -93,7 +100,7 @@ export class Chat {
       w.setBubble(w.uid, { text, kind: 'near', at: performance.now() });
     } else if (channel === 'near') {
       const key = push(ref(db, 'chat/public')).key!;
-      upd[`chat/public/${key}`] = { ...base, t: text, c: channel, x: w.me.x, y: w.me.y };
+      upd[`chat/public/${key}`] = { ...base, t: text, c: channel, x: w.me.x, y: w.me.y, ...(w.mapId === MAIN_MAP_ID ? {} : { m: w.mapId }) }; // m: 규칙이 내 presence 의 맵과 대조 (없으면 기본 맵)
       upd[`logs/chat/${logKey}`] = { ...base, c: channel, t: text };
       upd[`users/${w.uid}/lastMsg`] = serverTimestamp();
       // 내 말풍선은 즉시 표시

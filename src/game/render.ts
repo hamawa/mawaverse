@@ -106,6 +106,11 @@ export function render(eng: Engine, st: RenderState): void {
     const rs = st.rooms[z.id];
     if (rs && rs.state === 'result') { ctx.fillStyle = 'rgba(255, 200, 60, 0.25)'; ctx.fillRect(z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE); }
   }
+  // ---- 포탈 바닥 효과 (오브젝트·캐릭터 아래) ----
+  for (const z of map.zones) if (z.kind === 'portal') {
+    if (!eng.isTileVisible(z.x + z.w / 2 - 0.5, z.y + z.h / 2 - 0.5, TILE * 2)) continue;
+    drawPortalGround(ctx, z, st.now);
+  }
   // ---- 마피아 미션 자리 테두리 (바닥 위, 오브젝트 아래) ----
   if (st.marks) {
     const pulse = 0.55 + 0.45 * Math.sin(st.now / 220);
@@ -258,6 +263,12 @@ export function render(eng: Engine, st: RenderState): void {
   const s = eng.scale;
   // 방 간판
   for (const z of map.zones) if (z.kind === 'room' || z.kind === 'casino') drawRoomSign(eng, z, st.rooms[z.id], st.serverNow);
+  // 포탈 간판/라벨
+  for (const z of map.zones) if (z.kind === 'portal') {
+    if (!eng.isTileVisible(z.x + z.w / 2 - 0.5, z.y + z.h / 2 - 0.5, TILE * 2)) continue;
+    const [sx, sy] = eng.worldToScreen((z.x + z.w / 2) * TILE, z.y * TILE);
+    drawLabel(ctx, `🌀 ${z.label || '포탈'}`, sx, sy - 6 * s, '#dbeafe', 'rgba(15, 23, 42, 0.75)', 11, '#60a5fa');
+  }
   // 마피아 미션: 화면 밖의 내 미션은 가장자리 화살표 + 이름 (2026-11-10)
   if (st.marks?.mine) for (const m of st.marks.spots) if (!eng.isTileVisible(m.x + m.w / 2 - 0.5, m.y + m.h / 2 - 0.5, -TILE / 2)) drawEdgeArrow(eng, (m.x + m.w / 2) * TILE, (m.y + m.h / 2) * TILE, m.label, st.now);
   // 힌트
@@ -472,4 +483,64 @@ function drawRoomSign(eng: Engine, z: Zone, rs: RoomState | undefined, serverNow
   ctx.strokeStyle = inResult ? '#ffd84d' : 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.stroke();
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   lines.forEach((l, i) => { ctx.fillStyle = l.color; ctx.fillText(l.text, sx, sy - h + 4 + i * lh); });
+}
+
+function drawPortalGround(ctx: CanvasRenderingContext2D, z: Zone, now: number): void {
+  const cx = (z.x + z.w / 2) * TILE;
+  const cy = (z.y + z.h / 2) * TILE;
+  const rx = Math.max(8, (z.w * TILE) / 2 - 3);
+  const ry = Math.max(6, (z.h * TILE) / 2 - 3);
+  const t = now / 1000;
+  const pulse = 0.5 + 0.5 * Math.sin(t * 3.5);
+
+  ctx.save();
+  // 어두운 신비로운 베이스 원
+  ctx.fillStyle = 'rgba(18, 12, 44, 0.7)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 내부 소용돌이 / 마법진 (에메랄드/시안 그라데이션)
+  const grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, rx);
+  grad.addColorStop(0, `rgba(165, 243, 252, ${0.85 + 0.15 * pulse})`);
+  grad.addColorStop(0.45, `rgba(56, 189, 248, ${0.65 + 0.2 * pulse})`);
+  grad.addColorStop(0.8, `rgba(99, 102, 241, ${0.45 + 0.15 * pulse})`);
+  grad.addColorStop(1, 'rgba(67, 56, 202, 0.1)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx - 2, ry - 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 회전하는 룬 대시 테두리
+  ctx.strokeStyle = `rgba(147, 197, 253, ${0.7 + 0.3 * pulse})`;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 4]);
+  ctx.lineDashOffset = -t * 18;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx - 1, ry - 1, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 내부 룬 링
+  ctx.strokeStyle = `rgba(196, 181, 253, ${0.5 + 0.3 * pulse})`;
+  ctx.setLineDash([3, 5]);
+  ctx.lineDashOffset = t * 14;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, rx * 0.55, ry * 0.55, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 피어오르는 미세 반짝이 파티클
+  for (let i = 0; i < 4; i++) {
+    const seed = z.x * 17 + z.y * 31 + i * 23;
+    const pLife = (now * 0.05 + seed) % 30;
+    const pFrac = pLife / 30;
+    const pAng = (seed % 10) + t * 2 + i * 1.5;
+    const px = cx + Math.cos(pAng) * (rx * 0.5 * (1 - pFrac * 0.3));
+    const py = cy - pFrac * 16 + Math.sin(pAng) * (ry * 0.3);
+    const alpha = (1 - pFrac) * (0.6 + 0.4 * pulse);
+    ctx.fillStyle = i % 2 === 0 ? `rgba(165, 243, 252, ${alpha})` : `rgba(224, 231, 255, ${alpha})`;
+    ctx.fillRect(Math.round(px) - 1, Math.round(py) - 1, 2, 2);
+  }
+
+  ctx.restore();
 }

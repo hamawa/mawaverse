@@ -89,7 +89,7 @@ export class Fishing {
   }
 
   cast(): boolean {
-    if (this.active || this.saving) return false;
+    if (this.active || this.saving || this.w.switching) return false; // 맵을 옮기는 중: 옛 맵 물에 던지지 않는다
     const t = this.targetTile();
     if (!t) return false;
     this.target = t;
@@ -117,6 +117,7 @@ export class Fishing {
 
   // 자동 낚시 버프 중: 물가에 서 있으면 알아서 던지고, 입질·회수 시각이 지났으면 처리한다 (타이머가 늦어도 여기서 잡힌다)
   private autoTick(): void {
+    if (this.w.switching) return; // 포탈로 맵을 옮기는 중 (목적지를 읽는 동안 옛 맵에 다시 던지지 않게). 끝나면 다음 주기에 새 맵 기준으로
     const auto = this.w.wallet.autoReelActive();
     // 띄워 둔 찌 정리: 자동 버프가 끝났거나, 자리를 뜨거나 돌아서서 다음에 던질 곳이 달라졌으면 거둔다
     if (this.state === 'idle' && this.shown && !this.saving) { const t = auto ? this.targetTile() : null; if (!t || t.x !== this.target.x || t.y !== this.target.y) this.show(null); }

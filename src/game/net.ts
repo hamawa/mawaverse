@@ -11,6 +11,8 @@ import { dayKey } from '../shared/util';
 import { poseForEmote } from './render';
 import { inFront, dirVec } from './area';
 import type { WorldCtx, RemotePlayer } from './state';
+import { MAIN_MAP_ID, occupancyKey, playerMapId } from '../shared/maps';
+import { lastPosOf, mapSwitchUpdate } from './portal';
 
 // 착용 중인 꾸미기를 presence 에 싣는다 (짧은 키). 규칙이 "가진 것만" 허용하므로 보유 목록에 없는 건 뺀다 (어긋난 데이터로 입장이 막히지 않게)
 // pl: 데리고 있는 펫의 누적 먹이 (지갑 px 값. 규칙이 지갑과 대조). 펫이 없으면 싣지 않는다
@@ -42,24 +44,31 @@ export class Net {
   constructor(private w: WorldCtx) {}
 
   private playerRef() { return ref(db, `players/${this.w.uid}`); }
-  static occKey(x: number, y: number) { return `${x}_${y}`; }
+  // 지금 맵에서의 내 자리 키
+  private occKey(x: number, y: number) { return occupancyKey(this.w.mapId, x, y); }
+  private mapField(): Pick<PlayerState, 'm'> { return this.w.mapId === MAIN_MAP_ID ? {} : { m: this.w.mapId }; }
+  private pendingSteps = 0;  // 서버 답을 기다리는 걸음 수
+  private changing = false;  // 맵 이동 쓰기 중 (재등록이 옛 맵 상태로 덮어쓰지 않게)
+  // 지금 칸의 occ 가 내 것인가. 입장·재등록 때 자리를 못 잡았으면(남이 먼저) false: 그 칸을 지우려 하면 규칙이 쓰기를 통째로 거부한다
+  private ownsOcc = false;
+  get stepping(): boolean { return this.pendingSteps > 0 || this.changing; }
 
   private currentState(): PlayerState {
     const w = this.w;
-    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION };
+    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField() };
   }
 
   // 월드 입장: 현재 접속자 스냅샷을 읽고 빈 타일을 잡은 뒤 presence 등록
   async join(spawnX: number, spawnY: number, dir: Dir = 0): Promise<void> {
     const w = this.w;
     const st: PlayerState = {
-      n: w.profile.nick, a: w.profile.avatar, x: spawnX, y: spawnY, d: dir, s: w.sessionId, e: null, r: null, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), v: CLIENT_VERSION,
+      n: w.profile.nick, a: w.profile.avatar, x: spawnX, y: spawnY, d: dir, s: w.sessionId, e: null, r: null, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), v: CLIENT_VERSION, ...this.mapField(),
     };
     await onDisconnect(this.playerRef()).remove();
     // 자리(occ)와 presence 를 한 번에 올린다. 자리는 규칙이 지킨다(비었거나, 내 것이거나, 적힌 사람이 거기 없을 때만). 방금 누가 그 자리를 잡아 거부되면 자리 없이 들어가고 다음 걸음에서 잡는다
     const node = { ...st, hb: serverTimestamp() };
-    try { await update(ref(db), { [`occ/${Net.occKey(spawnX, spawnY)}`]: w.uid, [`players/${w.uid}`]: node }); }
-    catch { await set(this.playerRef(), node); }
+    try { await update(ref(db), { [`occ/${this.occKey(spawnX, spawnY)}`]: w.uid, [`players/${w.uid}`]: node }); this.ownsOcc = true; }
+    catch { await set(this.playerRef(), node); this.ownsOcc = false; }
     await set(ref(db, `sessions/${w.uid}`), w.sessionId);
     // 입퇴장 로그 (퇴장 로그는 onDisconnect 로 예약)
     const joinLog = push(ref(db, 'logs/conn'));
@@ -135,7 +144,7 @@ export class Net {
   // 나간 사람의 점유 타일을 서버 값이 그 사람일 때만 비운다 (occ 에는 onDisconnect 가 없어 강제 종료 시 남는다).
   // 트랜잭션은 로컬 캐시가 비어 있으면 서버에 묻지 않고 중단되므로 get 후 remove 로 처리
   private clearOccOf(rp: RemotePlayer): void {
-    const occRef = ref(db, `occ/${Net.occKey(rp.toX, rp.toY)}`);
+    const occRef = ref(db, `occ/${occupancyKey(playerMapId(rp.st), rp.toX, rp.toY)}`);
     get(occRef).then((s) => { if (s.val() === rp.uid) return remove(occRef); }).catch(() => {});
   }
 
@@ -150,12 +159,14 @@ export class Net {
     this.reclaimTimer = window.setTimeout(async () => {
       this.reclaimTimer = 0;
       if (this.leaving) return;
+      if (this.changing) { this.reclaim(); return; } // 맵 이동 쓰기가 끝난 뒤에 새 맵 상태로
       const w = this.w;
       try {
         await onDisconnect(this.playerRef()).remove();
+        if (this.changing) { this.reclaim(); return; }
         const node = { ...this.currentState(), hb: serverTimestamp() };
-        try { await update(ref(db), { [`occ/${Net.occKey(w.me.x, w.me.y)}`]: w.uid, [`players/${w.uid}`]: node }); }
-        catch { await set(this.playerRef(), node); await w.teleportTo(w.me.x, w.me.y); } // 내 자리를 그새 다른 사람이 잡았다: 옆 빈 칸으로
+        try { await update(ref(db), { [`occ/${this.occKey(w.me.x, w.me.y)}`]: w.uid, [`players/${w.uid}`]: node }); this.ownsOcc = true; }
+        catch { await set(this.playerRef(), node); this.ownsOcc = false; await w.teleportTo(w.me.x, w.me.y); } // 내 자리를 그새 다른 사람이 잡았다: 옆 빈 칸으로
       } catch { /* 다음 정리 주기에 다시 시도됨 */ }
     }, 1500);
   }
@@ -173,7 +184,10 @@ export class Net {
         w.players.set(uid, rp);
       } else {
         const prev = rp.st;
-        if (st.x !== rp.toX || st.y !== rp.toY) {
+        if (playerMapId(prev) !== playerMapId(st)) {
+          // 다른 맵으로 옮겼다: 보간·펫 자리·말풍선·동작을 옛 맵에서 끌고 오지 않는다
+          Object.assign(rp, { x: st.x, y: st.y, fromX: st.x, fromY: st.y, toX: st.x, toY: st.y, prevX: st.x, prevY: st.y, moveStart: 0, lastMoveAt: 0, fishAt: 0, pose: 'none', poseAt: 0, emoteId: 0, bubble: null, pushAt: -1 });
+        } else if (st.x !== rp.toX || st.y !== rp.toY) {
           const dist = Math.abs(st.x - rp.toX) + Math.abs(st.y - rp.toY);
           rp.prevX = rp.toX; rp.prevY = rp.toY; // 떠난 칸 (펫이 따라올 자리)
           if (dist > 1) { rp.x = st.x; rp.y = st.y; rp.fromX = st.x; rp.fromY = st.y; }
@@ -190,7 +204,7 @@ export class Net {
           rp.pose = poseForEmote(st.e.t); rp.poseAt = now; rp.emoteId = st.e.t;
         }
         if (st.f && (!prev.f || prev.f.x !== st.f.x || prev.f.y !== st.f.y)) rp.fishAt = now; // 찌 던지는 동작 재생용
-        if (st.toss && (!prev.toss || st.toss.t !== prev.toss.t) && serverNow() - st.toss.t < 5000) w.events.emit('toss', uid, st.toss); // 말랑이가 날아간다
+        if (st.toss && (!prev.toss || st.toss.t !== prev.toss.t) && serverNow() - st.toss.t < 5000 && w.onMyMap(st)) w.events.emit('toss', uid, st.toss); // 말랑이가 날아간다 (내 맵에서만)
         rp.st = st;
       }
       w.events.emit('players');
@@ -237,7 +251,8 @@ export class Net {
       if (!s.exists()) return;
       const m = s.val() as TossMsg;
       remove(ref(db, `players/${w.uid}/toss`)).catch(() => {});
-      if (serverNow() - m.t < 5000) w.events.emit('toss', w.uid, m);
+      const thrower = w.players.get(m.f);
+      if (serverNow() - m.t < 5000 && thrower && w.onMyMap(thrower.st)) w.events.emit('toss', w.uid, m); // 다른 맵에서 날아온 건 무시
     }));
     this.unsubs.push(onValue(ref(db, `players/${w.uid}/push`), (s) => {
       const p = s.val() as PushEvent | null;
@@ -245,7 +260,7 @@ export class Net {
       remove(ref(db, `players/${w.uid}/push`)).catch(() => {});
       if (serverNow() - p.t > 4000) return;
       const pusher = w.players.get(p.f);
-      if (!pusher) return;
+      if (!pusher || !w.onMyMap(pusher.st)) return;
       const rx = Math.round(w.me.x - pusher.toX), ry = Math.round(w.me.y - pusher.toY);
       if (Math.abs(p.dx) + Math.abs(p.dy) !== 1) return;
       if (p.n === 2) {
@@ -279,7 +294,7 @@ export class Net {
       remove(ref(db, `players/${w.uid}/pull`)).catch(() => {});
       if (serverNow() - p.t > 4000 || typeof p.x !== 'number' || typeof p.y !== 'number') return;
       const puller = w.players.get(p.f);
-      if (!puller) return;
+      if (!puller || !w.onMyMap(puller.st)) return;
       const me = w.me;
       if (p.k === 'hook') {
         // 갈고리: 목적지는 끄는 사람의 바로 앞 칸이고, 나는 그 사람의 앞 4칸 × 옆 4칸 안에 있어야 한다
@@ -311,6 +326,8 @@ export class Net {
       if (!p) return;
       remove(ref(db, `players/${w.uid}/tp`)).catch(() => {});
       if (serverNow() - p.t > 10000 || typeof p.x !== 'number' || typeof p.y !== 'number' || w.me.locked) return;
+      const admin = w.players.get(p.f);
+      if (!admin || !w.onMyMap(admin.st)) return; // 지금은 같은 맵 안에서만 보낸다 (좌표가 그 맵 기준)
       w.leaveForTeleport();
       void w.teleportTo(p.x, p.y).then(() => w.toast('🏠 관리자가 광장으로 보냈습니다.'));
     }));
@@ -328,19 +345,37 @@ export class Net {
   // 예전엔 자리 트랜잭션(리슨·쓰기·해제) 뒤에 위치를 따로 써서 한 걸음에 왕복이 5번이었다 (2026-11-10)
   async step(nx: number, ny: number, dir: Dir, ox: number, oy: number): Promise<boolean> {
     const w = this.w;
-    const upd: Record<string, unknown> = { [`occ/${Net.occKey(nx, ny)}`]: w.uid, [`players/${w.uid}/x`]: nx, [`players/${w.uid}/y`]: ny, [`players/${w.uid}/d`]: dir };
-    if (ox !== nx || oy !== ny) upd[`occ/${Net.occKey(ox, oy)}`] = null;
-    try { await update(ref(db), upd); } catch { return false; }
+    const mapId = w.mapId;
+    const upd: Record<string, unknown> = { [`occ/${this.occKey(nx, ny)}`]: w.uid, [`players/${w.uid}/x`]: nx, [`players/${w.uid}/y`]: ny, [`players/${w.uid}/d`]: dir };
+    if ((ox !== nx || oy !== ny) && this.ownsOcc) upd[`occ/${this.occKey(ox, oy)}`] = null; // 남의 자리는 지우지 않는다 (규칙이 거부해 걸음이 통째로 막힌다)
+    this.pendingSteps++;
+    try { await update(ref(db), upd); } catch { return false; } finally { this.pendingSteps--; }
+    this.ownsOcc = true;
     this.stat('moves');
     const now = Date.now();
-    if (now - this.lastPosSave > 15000) { this.lastPosSave = now; update(ref(db, `users/${w.uid}`), { lastPos: { x: nx, y: ny, d: dir } }).catch(() => {}); }
+    if (now - this.lastPosSave > 15000) { this.lastPosSave = now; update(ref(db, `users/${w.uid}`), { lastPos: lastPosOf(mapId, nx, ny, dir) }).catch(() => {}); }
     return true;
+  }
+
+  // 다른 맵으로 옮긴다: 새 자리 점유와 맵·위치를 쓰기 한 번에 (실패하면 원래 맵·자리 그대로, false).
+  // 옛 자리는 내가 잡은 자리일 때만 같이 지운다 (ownsOcc. 서버에 다시 묻지 않는다)
+  async changeMap(mapId: string, nx: number, ny: number, dir: Dir): Promise<boolean> {
+    const w = this.w;
+    if (this.stepping || this.leaving) return false;
+    this.changing = true;
+    try {
+      try { await update(ref(db), mapSwitchUpdate(w.uid, { mapId: w.mapId, x: w.me.x, y: w.me.y, ownsOld: this.ownsOcc }, { mapId, x: nx, y: ny, d: dir })); } catch { return false; }
+      this.ownsOcc = true;
+      this.lastPosSave = Date.now();
+      update(ref(db, `users/${w.uid}`), { lastPos: lastPosOf(mapId, nx, ny, dir) }).catch(() => {});
+      return true;
+    } finally { this.changing = false; }
   }
 
   // 지금 위치와 방향을 프로필에 저장 (자동 새로고침 직전: 같은 자리·방향으로 돌아오게)
   savePos(): Promise<void> {
     const w = this.w;
-    return update(ref(db, `users/${w.uid}`), { lastPos: { x: w.me.x, y: w.me.y, d: w.me.dir } }).catch(() => {});
+    return update(ref(db, `users/${w.uid}`), { lastPos: lastPosOf(w.mapId, w.me.x, w.me.y, w.me.dir) }).catch(() => {});
   }
 
   setDir(dir: Dir): void {
@@ -446,12 +481,13 @@ export class Net {
         // 새 세션이 같은 노드를 쓰고 있으므로 삭제 예약만 취소하고 내 점유 타일만 비운다
         await onDisconnect(this.playerRef()).cancel();
         if (this.leaveLogKey) await onDisconnect(ref(db, `logs/conn/${this.leaveLogKey}`)).cancel();
-        await update(ref(db), { [`occ/${Net.occKey(w.me.x, w.me.y)}`]: null }).catch(() => {});
+        if (this.ownsOcc) await update(ref(db), { [`occ/${this.occKey(w.me.x, w.me.y)}`]: null }).catch(() => {});
         return;
       }
       // 실제 삭제를 먼저 보내고 그 다음 onDisconnect 예약을 취소한다. 반대 순서면 연결이 끊기는 중에
       // 취소만 전달되고 삭제가 유실될 수 있다. 취소가 유실되어도 이미 지운 노드 삭제/이미 쓴 로그 재기록은 무해하다.
-      const upd: Record<string, unknown> = { [`players/${w.uid}`]: null, [`occ/${Net.occKey(w.me.x, w.me.y)}`]: null, [`users/${w.uid}/lastPos`]: { x: w.me.x, y: w.me.y, d: w.me.dir } };
+      const upd: Record<string, unknown> = { [`players/${w.uid}`]: null, [`users/${w.uid}/lastPos`]: lastPosOf(w.mapId, w.me.x, w.me.y, w.me.dir) };
+      if (this.ownsOcc) upd[`occ/${this.occKey(w.me.x, w.me.y)}`] = null; // 남의 자리를 지우려 하면 퇴장 쓰기 전체가 거부된다
       if (this.leaveLogKey) upd[`logs/conn/${this.leaveLogKey}`] = { u: w.uid, n: w.profile.nick, type: 'leave', ts: serverTimestamp() };
       await update(ref(db), upd);
       await onDisconnect(this.playerRef()).cancel();

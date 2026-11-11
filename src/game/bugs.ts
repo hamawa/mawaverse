@@ -48,6 +48,7 @@ export class BugHunt {
   }
 
   views(): BugView[] { return this.alive.map((a) => a.view); }
+  clear(): void { this.alive = []; } // 다른 맵으로 옮겼다: 옛 맵 칸에 있던 벌레는 버린다
 
   // 매 프레임: 사라짐 정리, 달리기에 놀라 도망, 새로 나타남, 자동 채집
   tick(now: number): void {
@@ -100,7 +101,7 @@ export class BugHunt {
   // 옆 8칸(대각선 포함, range 칸까지)에 있는 벌레. 이동 중이면 가고 있는 칸 기준. 가까운 것부터
   target(range = 1): Alive | null {
     const me = this.w.me;
-    if (me.locked || me.roomId) return null;
+    if (me.locked || me.roomId || this.w.switching) return null; // 맵을 옮기는 중에는 자동·펫 채집도 쉰다
     let best: Alive | null = null, bestD = 99;
     for (const a of this.alive) {
       if (a.view.state !== 'idle') continue;

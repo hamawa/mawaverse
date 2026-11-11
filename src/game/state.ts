@@ -79,7 +79,11 @@ export interface WorldCtx {
   profile: UserProfile;
   sessionId: string;
   isAdmin: boolean;
-  map: MapData;
+  map: MapData;                          // 지금 있는 맵
+  mapId: string;                         // 지금 있는 맵의 논리 id (shared/maps.ts). MapData.id 와 다르다: 기본 맵은 'main'
+  mainMap: MapData;                      // 기본 맵 (마피아 미션 자리·보물 지도처럼 기본 맵에만 있는 것)
+  onMyMap(st: { m?: string | null }): boolean; // 그 presence 가 나와 같은 맵에 있나
+  readonly switching: boolean;           // 포탈로 맵을 옮기는 중 (목적지 읽기 ~ 쓰기 완료). 이동·낚시·행동·채팅을 멈춘다
   config: ServerConfig;
   players: Map<string, RemotePlayer>;
   me: LocalPlayer;

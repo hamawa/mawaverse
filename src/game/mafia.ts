@@ -10,6 +10,7 @@ import {
 } from '../shared/mafia';
 import { nearZone, type Zone } from './map';
 import type { WorldCtx } from './state';
+import { MAIN_MAP_ID } from '../shared/maps';
 
 export interface TaskSpot { def: TaskDef; x: number; y: number }
 export type MafiaAction =
@@ -40,8 +41,8 @@ export class MafiaMgr {
 
   start(): void {
     const w = this.w;
-    // 미션 자리: 지정 좌표에 그 오브젝트가 있으면 거기, 아니면 맵에서 처음 나오는 칸 (모두 같은 맵이라 같은 자리)
-    const m = w.map;
+    // 미션 자리: 지정 좌표에 그 오브젝트가 있으면 거기, 아니면 맵에서 처음 나오는 칸 (모두 같은 기본 맵이라 같은 자리. 다른 맵에서 들어와도 기본 맵 기준)
+    const m = w.mainMap;
     for (const def of TASK_DEFS) {
       const at = def.at;
       if (at && at[0] < m.w && at[1] < m.h && m.objects[at[1] * m.w + at[0]] === def.obj) { this.spots.push({ def, x: at[0], y: at[1] }); continue; }
@@ -100,7 +101,7 @@ export class MafiaMgr {
   // 지금 F 로 할 수 있는 마피아 행동 (world.canvasHint 가 우선 사용)
   action(): MafiaAction | null {
     const g = this.game, w = this.w, me = w.me;
-    if (!g || g.st !== 'play' || !this.isParticipant(w.uid) || g.meet) return null;
+    if (!g || g.st !== 'play' || !this.isParticipant(w.uid) || g.meet || w.mapId !== MAIN_MAP_ID) return null; // 미션·시체·소집 자리는 기본 맵 좌표
     const near = (x: number, y: number) => Math.max(Math.abs(x - me.x), Math.abs(y - me.y)) <= 1;
     if (this.isAlive(w.uid)) {
       // 시체 신고
@@ -110,7 +111,7 @@ export class MafiaMgr {
       // 마피아: 옆의 산 참가자 처치
       if (this.role === 'm') {
         for (const rp of w.players.values()) {
-          if (!this.isAlive(rp.uid) || Math.round(rp.x) === me.x && Math.round(rp.y) === me.y) continue;
+          if (!this.isAlive(rp.uid) || !w.onMyMap(rp.st) || Math.round(rp.x) === me.x && Math.round(rp.y) === me.y) continue;
           if (near(Math.round(rp.x), Math.round(rp.y))) return { kind: 'kill', uid: rp.uid, nick: rp.st.n };
         }
       }
@@ -128,7 +129,7 @@ export class MafiaMgr {
   // ---- 로비 ----
   async createLobby(): Promise<boolean> {
     const w = this.w;
-    if (this.game) return false;
+    if (this.game || w.mapId !== MAIN_MAP_ID) return false; // 마피아는 기본 맵에서만 (미션 자리가 기본 맵 좌표)
     try {
       await set(ref(db, 'mafia/game'), { st: 'lobby', host: w.uid, at: serverTimestamp(), players: { [w.uid]: { n: w.profile.nick, a: w.profile.avatar, alive: true, j: serverTimestamp() } } });
       return true;
@@ -137,6 +138,7 @@ export class MafiaMgr {
   async join(): Promise<'ok' | 'full' | 'fail'> {
     const g = this.game, w = this.w;
     if (!g || g.st !== 'lobby') return 'fail';
+    if (w.mapId !== MAIN_MAP_ID) return 'fail'; // 마피아는 기본 맵에서만 (화면은 '참가하지 못했어요' 안내)
     if (Object.keys(g.players || {}).length >= MAFIA_MAX) return 'full';
     try { await set(ref(db, `mafia/game/players/${w.uid}`), { n: w.profile.nick, a: w.profile.avatar, alive: true, j: serverTimestamp() }); return 'ok'; } catch { return 'fail'; }
   }
@@ -206,7 +208,7 @@ export class MafiaMgr {
   // 미션 표시용 (2026-11-10): 시민·유령은 내 미완료 미션(화살표·금색 테두리), 마피아는 모든 미션 자리(흐린 테두리, 가짜 미션용)
   marks(): { spots: TaskSpot[]; mine: boolean } | null {
     const g = this.game, w = this.w;
-    if (!g || g.st !== 'play' || !this.isParticipant(w.uid)) return null;
+    if (!g || g.st !== 'play' || !this.isParticipant(w.uid) || w.mapId !== MAIN_MAP_ID) return null;
     if (this.role === 'm') return { spots: this.spots, mine: false };
     return { spots: this.myTasks().filter((t) => !t.done).map((t) => t.spot), mine: true };
   }
