@@ -9,7 +9,7 @@ import { getSprite, FRAME_W, FRAME_H, type Pose } from './sprites';
 import type { FishingView } from './fishing';
 import type { BugView } from './bugs';
 import type { TossView } from './toss';
-import { drawHat, hatAbove, nameStyle, rainbowGradient, spawnFx, drawFx, drawPet, drawMount, mountInfo } from './cosmetics';
+import { drawHat, hatAbove, nameStyle, rainbowGradient, spawnFx, drawFx, drawPet, drawMount, mountInfo, drawAfterimages, AFTERIMAGE_FX } from './cosmetics';
 
 export type BubbleKind = 'near' | 'all' | 'w';
 export interface Bubble { text: string; kind: BubbleKind; at: number }
@@ -206,6 +206,8 @@ export function render(eng: Engine, st: RenderState): void {
           const mp = drawMount(ctx, e.pet.id, e.x, e.y, TILE, st.now, e.moving, e.moveT, e.pet.hopAt, e.dir);
           if (mp) { dx += mp.ox; dy = mp.seatY - (FRAME_H - hide) + (Math.round(py) - (e.y * TILE + TILE - FRAME_H)); } // 포즈(점프 등)로 움직인 만큼은 그대로
         }
+        // 샤샤샥: 지나온 자리의 잔상을 먼저 그리고 그 위에 캐릭터 (물속·마피아 유령은 제외)
+        if (e.fx === AFTERIMAGE_FX && depth <= 0 && !e.ghost) drawAfterimages(ctx, e.uid, st.now, e.moving, spr, dx, dy, FRAME_H - hide, e.hat, spriteTop(spr), ddir);
         if (e.ghost) ctx.globalAlpha = 0.45 + 0.1 * Math.sin(st.now / 400);
         if (depth <= 0) { if (hide) ctx.drawImage(spr, 0, 0, FRAME_W, FRAME_H - hide, dx, dy, FRAME_W, FRAME_H - hide); else ctx.drawImage(spr, dx, dy); }
         else {

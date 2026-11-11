@@ -1,5 +1,5 @@
 // 꾸미기 그리기: 모자 픽셀 아트, 이름표 색, 이동 이펙트 파티클. render.ts 와 상점 미리보기가 같이 쓴다
-import { FRAME_W } from './sprites';
+import { FRAME_W, FRAME_H } from './sprites';
 import type { Dir } from '../shared/types';
 import { NAME_COLORS } from '../shared/shop';
 
@@ -558,6 +558,43 @@ export function rainbowGradient(ctx: CanvasRenderingContext2D, x0: number, x1: n
   return g;
 }
 
+// ---- 샤샤샥 (2026-11-11): 움직일 때 지나온 자리에 내 모습(모자 포함)의 어두운 잔상을 잠깐씩 남긴다 ----
+// 걷는 동안 GHOST_GAP_MS 마다 지금 모습을 한 장 찍어 두고, GHOST_LIFE_MS 동안 흐려지게 그린다. 사람마다 캔버스 GHOST_MAX 장을 돌려 쓴다(매번 새로 만들지 않는다)
+export const AFTERIMAGE_FX = 'shasha';
+const GHOST_GAP_MS = 45, GHOST_LIFE_MS = 380, GHOST_MAX = 9;
+const GHOST_PAD_X = 4, GHOST_PAD_TOP = 16; // 모자가 캐릭터 틀 밖으로 나가는 만큼의 여백
+interface Ghost { x: number; y: number; at: number; h: number; cv: HTMLCanvasElement }
+const ghostTrail = new Map<string, { list: Ghost[]; pool: HTMLCanvasElement[] }>();
+
+// 캐릭터를 그리기 직전에 부른다. spr 을 (dx, dy)에 높이 h 만큼 그릴 참이다 (h: 탑승으로 아래가 잘렸으면 그만큼 짧다)
+export function drawAfterimages(ctx: CanvasRenderingContext2D, uid: string, now: number, moving: boolean, spr: HTMLCanvasElement, dx: number, dy: number, h: number, hat: string | null, top: number, dir: Dir): void {
+  let tr = ghostTrail.get(uid);
+  if (tr) {
+    while (tr.list.length && now - tr.list[0].at > GHOST_LIFE_MS) tr.pool.push(tr.list.shift()!.cv);
+    for (const g of tr.list) {
+      ctx.globalAlpha = 0.55 * (1 - (now - g.at) / GHOST_LIFE_MS);
+      ctx.drawImage(g.cv, 0, 0, g.cv.width, GHOST_PAD_TOP + g.h, g.x - GHOST_PAD_X, g.y - GHOST_PAD_TOP, g.cv.width, GHOST_PAD_TOP + g.h);
+    }
+    ctx.globalAlpha = 1;
+  }
+  if (!moving) return;
+  if (!tr) { tr = { list: [], pool: [] }; ghostTrail.set(uid, tr); }
+  const last = tr.list[tr.list.length - 1];
+  if (last && now - last.at < GHOST_GAP_MS) return;
+  if (tr.list.length >= GHOST_MAX) tr.pool.push(tr.list.shift()!.cv);
+  const cv = tr.pool.pop() || document.createElement('canvas');
+  cv.width = FRAME_W + GHOST_PAD_X * 2; cv.height = FRAME_H + GHOST_PAD_TOP; // 크기를 다시 넣으면 내용이 지워진다
+  const c = cv.getContext('2d')!;
+  c.drawImage(spr, GHOST_PAD_X, GHOST_PAD_TOP);
+  if (hat) drawHat(c, hat, GHOST_PAD_X, GHOST_PAD_TOP, top, dir);
+  // 그린 부분만 어둡게 덮는다
+  c.globalCompositeOperation = 'source-atop';
+  c.fillStyle = 'rgba(24, 20, 44, 0.6)';
+  c.fillRect(0, 0, cv.width, cv.height);
+  c.globalCompositeOperation = 'source-over';
+  tr.list.push({ x: dx, y: dy, at: now, h, cv });
+}
+
 // ---- 이동 이펙트 (파티클) ----
 interface Particle { x: number; y: number; vx: number; vy: number; born: number; life: number; kind: string; hue: number; size: number }
 const parts: Particle[] = [];
@@ -565,6 +602,7 @@ const lastSpawn = new Map<string, number>();
 
 // 걷는 동안 55ms 마다 발밑(fx, fy = 월드 px)에서 하나씩
 export function spawnFx(uid: string, kind: string, fx: number, fy: number, now: number): void {
+  if (kind === AFTERIMAGE_FX) return; // 샤샤샥은 파티클이 아니라 잔상 (drawAfterimages)
   const last = lastSpawn.get(uid) || 0;
   if (now - last < 55) return;
   lastSpawn.set(uid, now);

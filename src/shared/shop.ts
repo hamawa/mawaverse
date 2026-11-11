@@ -37,6 +37,7 @@ export const FX: ShopItem[] = [
   { id: 'heart', kind: 'fx', name: '하트', price: 1200, icon: '💗', desc: '분홍 하트가 떠오른다.' },
   { id: 'fire', kind: 'fx', name: '불꽃', price: 1500, icon: '🔥', desc: '발에 불이 났다.' },
   { id: 'rainbow', kind: 'fx', name: '무지개 꼬리', price: 2000, icon: '🌈', desc: '무지개가 꼬리처럼 따라온다.' },
+  { id: 'shasha', kind: 'fx', name: '샤샤샥', price: 10000, icon: '👥', desc: '움직일 때 내 모습의 잔상이 줄줄이 남는다.' }, // 파티클이 아니라 캐릭터 잔상 (cosmetics.ts drawAfterimages, 2026-11-11)
 ];
 
 // 펫 (2026-11-09): 한 칸 뒤를 따라다니고(모두에게 보임), 주인 옆 칸에 벌레가 오면 PET_SWING_MS 마다 대신 잡아 준다 (주인의 잠자리채 등급 적용).
