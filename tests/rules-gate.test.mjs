@@ -208,6 +208,20 @@ for (const [kind, value] of Object.entries(spatial)) {
   await expect(`맵: 식별자 없는 기존 기본 공간 사용자에게 ${kind} 허용`, 'allow', () => ok.ref(`players/OTHER/${kind}`).set(value));
 }
 await expect('맵: 같은 맵 사용자에게 관리자 순간이동 허용', 'allow', () => admin.ref('players/OTHER/tp').set({ f: 'ADMIN', x: 1, y: 1, t: 1 }));
+// 빠따 (2026-11-11): b=1 이 붙은 밀치기·말랑이·끌기는 보낸 사람의 지갑 bt 가 같은 쓰기에서 줄 때만
+await root.ref('wallet/OK').set({ c: 0, e: 0, bt: 2 });
+await expect('빠따: 지갑을 안 건드리고 b=1 밀치기', 'deny', () => ok.ref('players/OTHER/push').set({ ...spatial.push, b: 1 }));
+await expect('빠따: 빠따 수를 그대로 둔 채 b=1 밀치기', 'deny', () => ok.ref().update({ 'players/OTHER/push': { ...spatial.push, b: 1 }, 'wallet/OK/bt': 2 }));
+await expect('빠따: 하나를 쓰며 b=1 밀치기', 'allow', () => ok.ref().update({ 'players/OTHER/push': { ...spatial.push, b: 1 }, 'wallet/OK/bt': 1 }));
+await expect('빠따: b 에 1 이 아닌 값', 'deny', () => ok.ref().update({ 'players/OTHER/toss': { ...spatial.toss, b: 2 }, 'wallet/OK/bt': 0 }));
+await expect('빠따: 하나를 쓰며 b=1 말랑이', 'allow', () => ok.ref().update({ 'players/OTHER/toss': { ...spatial.toss, b: 1 }, 'wallet/OK/bt': 0 }));
+await expect('빠따: 남은 게 없는데 b=1 끌기', 'deny', () => ok.ref().update({ 'players/OTHER/pull': { ...spatial.pull, b: 1 }, 'wallet/OK/bt': 0 }));
+await expect('빠따: b 없는 보통 끌기는 그대로', 'allow', () => ok.ref('players/OTHER/pull').set(spatial.pull));
+await expect('빠따: 돈 안 내고 빠따 늘리기', 'deny', () => ok.ref('wallet/OK/bt').set(5));
+await expect('빠따: 방어 깨짐 표시(풀리는 시각)', 'allow', () => other.ref('players/OTHER/gb').set(Date.now() + 60000));
+await expect('빠따: 방어 깨짐 표시가 너무 먼 미래', 'deny', () => other.ref('players/OTHER/gb').set(Date.now() + 3600000));
+await expect('빠따: 방어 깨짐 표시에 숫자가 아닌 값', 'deny', () => other.ref('players/OTHER/gb').set(true));
+await root.ref('wallet/OK').remove();
 await root.ref().update({
   'mafia/game/st': 'day',
   'mafia/game/players/OK': { alive: false },

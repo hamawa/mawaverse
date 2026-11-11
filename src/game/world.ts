@@ -39,7 +39,7 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { fmtCoins, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petCanRide, petGuard, petGuardOf } from '../shared/shop';
+import { fmtCoins, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petCanRide, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS } from '../shared/shop';
 import { TASK_FOOTPRINT } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
 import { openRoulette, watchRouletteFeed } from './rouletteui';
@@ -154,6 +154,8 @@ export class World implements WorldCtx {
     this.root.append(gameDiv);
     this.engine = new Engine(canvas);
     this.mainMap = await loadActiveMap();
+    // 빠따에 맞아 방어가 깨진 채로 새로고침했으면 남은 시간만큼 이어진다
+    try { const gb = Number(localStorage.getItem(`mv-gb-${this.uid}`)) || 0; if (gb > serverNow()) this.guardUntil = gb; } catch { /* ignore */ }
     // 마지막에 있던 맵으로 돌아간다. 그 맵을 못 읽으면 기본 맵의 시작 지점
     const lp0 = this.profile.lastPos;
     let mapId = savedMapId(lp0), map = this.mainMap;
@@ -349,20 +351,21 @@ export class World implements WorldCtx {
     const me = this.me;
     const iGhost = this.mafia.isGhost(this.uid);
     const list: Entity[] = [{
-      uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick, avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: me.dir, moving: me.moving,
+      uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: me.dir, moving: me.moving,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: me.pose, poseAt: me.poseAt, emoteId: me.emoteId, bubble: me.bubble,
       isMe: true, ready: !!(me.roomId && this.rooms[me.roomId]?.members?.[this.uid]?.ready), pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null,
       pet: this.pets.view(this.uid, this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp()),
       ghost: iGhost, mining: this.mine.active,
     }];
+    const sNow = serverNow(); // 방어가 깨진 사람은 이름 옆에 💥
     for (const rp of this.players.values()) {
       if (!this.onMyMap(rp.st)) continue; // 다른 맵에 있는 사람은 그리지 않는다
       // 마피아 유령은 유령에게만 보인다 (산 사람·비참가자 화면에는 아예 안 그린다)
       const ghost = this.mafia.isGhost(rp.uid);
       if (ghost && !iGhost) continue;
       list.push({
-        uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : ''), avatar: rp.st.a, x: rp.x, y: rp.y, dir: rp.st.d ?? 0, moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
+        uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : '') + (guardBrokenOf(rp.st, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: rp.x, y: rp.y, dir: rp.st.d ?? 0, moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
         pose: rp.pose, poseAt: rp.poseAt, emoteId: rp.emoteId, bubble: rp.bubble, isMe: false,
         ready: !!(rp.st.r && this.rooms[rp.st.r]?.members?.[rp.uid]?.ready), pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
@@ -444,6 +447,17 @@ export class World implements WorldCtx {
   }
   // 펫 방어 (Lv8 이상): 밀치기·장풍·말랑이·끌기·갈고리를 갑옷처럼 막는다. 막은 보통 밀치기·말랑이는 80% 로 되받아친다 (net.ts, toss.ts)
   petGuard(): boolean { return this.petRide.guard(); }
+  // ---- 빠따에 맞아 방어가 깨진 상태 (2026-11-11) ----
+  // 풀리는 서버 시각. 새로고침으로 풀리지 않게 브라우저에도 적어 둔다 (start 에서 되살린다)
+  guardUntil = 0;
+  guardBroken(): boolean { return serverNow() < this.guardUntil; }
+  breakGuard(byNick: string): void {
+    this.guardUntil = serverNow() + GUARD_BREAK_MS;
+    try { localStorage.setItem(`mv-gb-${this.uid}`, String(this.guardUntil)); } catch { /* ignore */ }
+    this.net.setGuardBroken(this.guardUntil);
+    this.toast(`🏏 ${byNick} 의 빠따에 방어가 깨졌다! ${GUARD_BREAK_MS / 1000}초 동안 갑옷·펫이 막아 주지 않는다.`, true);
+    this.events.emit('log', { channel: 'sys', from: '', text: `🏏 ${byNick} 의 빠따에 방어가 깨졌다 (${GUARD_BREAK_MS / 1000}초)`, ts: serverNow() });
+  }
   petReflect(): boolean { return this.petRide.rollReflect(); }
   // 순간이동 전 정리: 낚시 중이면 취소, 방에 있으면 나간다 (리스폰·관리자 이동 공용)
   leaveForTeleport(): void {
@@ -712,23 +726,34 @@ export class World implements WorldCtx {
         const all: RemotePlayer[] = [];
         for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = this.playerAt(x, y); if (rp && !all.includes(rp)) all.push(rp); }
         if (!all.length) { this.toast('앞 4칸 안에 아무도 없습니다. 상대 쪽을 바라보고 쓰세요.', true); return; }
-        const targets = all.filter((rp) => { if (rp.st.pa || petGuardOf(rp.st)) { rp.blockAt = now; return false; } return true; });
-        if (!targets.length) { this.toast('🛡 모두 철벽 갑옷·등껍질이라 밀리지 않습니다.', true); return; }
+        // 방어 중인 사람에게는 빠따가 있으면 한 개씩 써서 깨고 민다. 빠따가 모자라면 그 사람은 막힌다 (🛡 만)
+        const plan = assignBats(all.map((rp) => guardedOf(rp.st, 'push', serverNow())), this.wallet.batsReady());
+        const targets = all.filter((rp, i) => { if (plan[i].blocked) { rp.blockAt = now; return false; } return true; }).map((rp) => ({ rp, bat: plan[all.indexOf(rp)].bat }));
+        if (!targets.length) { this.toast('🛡 모두 방어 중이라 밀리지 않습니다. (상점의 빠따로 깰 수 있어요)', true); return; }
         me.lastPushAt = now;
-        this.net.pushMany(targets.map((t) => t.uid), dx, dy);
-        for (const t of targets) this.toss.wave(me.x, me.y, Math.round(t.x), Math.round(t.y));
+        this.net.pushMany(targets.map((t) => ({ uid: t.rp.uid, bat: t.bat })), dx, dy);
+        this.batNote(targets.filter((t) => t.bat).length);
+        for (const t of targets) this.toss.wave(me.x, me.y, Math.round(t.rp.x), Math.round(t.rp.y));
       } else {
         const target = this.playerAt(me.x + dx, me.y + dy);
         if (!target) { this.toast('앞에 밀 사람이 없습니다. 상대를 바라보고 붙어서 사용하세요.', true); return; }
         // 철벽 갑옷을 입은 상대는 안 밀린다: 보내지 않고 🛡 만 (쿨타임도 안 씀)
-        if (target.st.pa || petGuardOf(target.st)) { target.blockAt = now; this.toast(`🛡 ${target.st.n} 은(는) ${target.st.pa ? '철벽 갑옷을 입고 있어' : '펫이 지켜 줘서'} 밀리지 않습니다.`, true); return; }
+        // 다만 빠따가 있으면 하나 써서 방어를 깨고 민다 (2026-11-11)
+        const guarded = guardedOf(target.st, 'push', serverNow());
+        const bat = guarded && this.wallet.batsReady() > 0;
+        if (guarded && !bat) { target.blockAt = now; this.toast(`🛡 ${target.st.n} 은(는) ${target.st.pa ? '철벽 갑옷을 입고 있어' : '펫이 지켜 줘서'} 밀리지 않습니다. (상점의 빠따로 깰 수 있어요)`, true); return; }
         me.lastPushAt = now;
-        this.net.push(target.uid, dx, dy);
+        this.net.push(target.uid, dx, dy, bat);
+        this.batNote(bat ? 1 : 0);
       }
     }
     if (id === 14 && !this.pull(now)) return;
     me.pose = poseForEmote(id); me.poseAt = now; me.emoteId = id;
     this.net.emote(id);
+  }
+  // 빠따를 썼으면 한 줄 알림. 남은 개수는 지갑에 반영된 뒤에 읽는다
+  batNote(used: number): void {
+    if (used > 0) window.setTimeout(() => this.note(`🏏 빠따${used > 1 ? ` ${used}개` : ''}로 방어를 깼다! (남은 ${this.wallet.bats}개)`), 250);
   }
   // 끌기(R): 바로 앞사람을 내가 서 있던 칸으로 당기고 나는 한 칸 물러난다(뒤가 막혔으면 옆으로). 구석에 박힌 사람을 꺼내는 용도.
   // 앞에 아무도 없고 갈고리(상점 장비)가 있으면 앞 4칸 × 옆 4칸 안의 한 명을 무작위로 내 앞 칸까지 끌어온다.
@@ -742,7 +767,9 @@ export class World implements WorldCtx {
     const myRoom = roomAt(this.map, me.x, me.y);
     const front = this.playerAt(me.x + dx, me.y + dy);
     if (front) {
-      if (front.st.pa || petGuardOf(front.st)) { front.blockAt = now; this.toast(`🛡 ${front.st.n} 은(는) ${front.st.pa ? '철벽 갑옷을 입고 있어' : '펫이 지켜 줘서'} 끌리지 않습니다.`, true); return false; }
+      const guarded = guardedOf(front.st, 'push', serverNow());
+      const bat = guarded && this.wallet.batsReady() > 0; // 빠따가 있으면 하나 써서 방어를 깨고 끈다
+      if (guarded && !bat) { front.blockAt = now; this.toast(`🛡 ${front.st.n} 은(는) ${front.st.pa ? '철벽 갑옷을 입고 있어' : '펫이 지켜 줘서'} 끌리지 않습니다. (상점의 빠따로 깰 수 있어요)`, true); return false; }
       // 물러설 자리: 뒤 → 옆(두 방향). 방 안팎을 넘나들지는 않는다
       const back: [number, number][] = dx !== 0 ? [[me.x - dx, me.y], [me.x, me.y - 1], [me.x, me.y + 1]] : [[me.x, me.y - dy], [me.x - 1, me.y], [me.x + 1, me.y]];
       const spot = back.find(([x, y]) => this.canStep(x, y) && roomAt(this.map, x, y) === myRoom);
@@ -750,7 +777,7 @@ export class World implements WorldCtx {
       me.lastPushAt = now;
       const ox = me.x, oy = me.y, uid = front.uid;
       // 내 걸음(점유 이동)이 서버에 반영된 뒤에 끌기를 보낸다: 상대가 내 옛 자리로 올 때 점유가 비어 있어야 한다
-      this.startStep(spot[0], spot[1], undefined, { onDone: (ok) => { if (ok) this.net.pull(uid, ox, oy); } });
+      this.startStep(spot[0], spot[1], undefined, { onDone: (ok) => { if (ok) { this.net.pull(uid, ox, oy, false, bat); this.batNote(bat ? 1 : 0); } } });
       return true;
     }
     if (!this.profile.own?.hook) { this.toast('앞에 끌 사람이 없습니다. 상대를 바라보고 붙어서 사용하세요. (갈고리가 있으면 앞 4칸 안에서 끌어옵니다)', true); return false; }
@@ -759,11 +786,15 @@ export class World implements WorldCtx {
     const all: RemotePlayer[] = [];
     for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = this.playerAt(x, y); if (rp && !all.includes(rp)) all.push(rp); }
     if (!all.length) { this.toast('앞 4칸 안에 끌어올 사람이 없습니다. 상대 쪽을 바라보고 쓰세요.', true); return false; }
-    const targets = all.filter((rp) => !rp.st.pa && !petGuardOf(rp.st));
-    if (!targets.length) { for (const rp of all) rp.blockAt = now; this.toast('🛡 모두 철벽 갑옷·등껍질이라 끌리지 않습니다.', true); return false; }
+    // 방어 중인 사람은 빠따가 있을 때만 후보에 든다 (걸리면 빠따 하나를 써서 깨고 끌어온다)
+    const hasBat = this.wallet.batsReady() > 0;
+    const targets = all.filter((rp) => hasBat || !guardedOf(rp.st, 'push', serverNow()));
+    if (!targets.length) { for (const rp of all) rp.blockAt = now; this.toast('🛡 모두 방어 중이라 끌리지 않습니다. (상점의 빠따로 깰 수 있어요)', true); return false; }
     const target = targets[Math.floor(Math.random() * targets.length)];
+    const hookBat = guardedOf(target.st, 'push', serverNow());
     me.lastPushAt = now;
-    this.net.pull(target.uid, fx, fy, true);
+    this.net.pull(target.uid, fx, fy, true, hookBat);
+    this.batNote(hookBat ? 1 : 0);
     this.toss.hook(me.x, me.y, Math.round(target.x), Math.round(target.y));
     return true;
   }

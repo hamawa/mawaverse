@@ -20,11 +20,12 @@ export interface UserProfile {
   gift?: GiftMark | null;          // 마지막으로 받은 선물 (알림용)
 }
 
-export interface PushEvent { f: string; dx: number; dy: number; t: number; n?: number; r?: boolean } // n=2: 장풍 (앞 4×4칸 범위, 두 칸 밀림. 규칙이 보유를 확인). r: 거북이 등껍질이 되받아친 것 (다시 되받지 않는다)
+export interface PushEvent { f: string; dx: number; dy: number; t: number; n?: number; r?: boolean; b?: number } // n=2: 장풍 (앞 4×4칸 범위, 두 칸 밀림. 규칙이 보유를 확인). r: 거북이 등껍질이 되받아친 것 (다시 되받지 않는다)
 // 말랑이: 던진 사람(f)과 그 위치(fx,fy), 겨냥한 칸(tx,ty). players/{target}/toss 에 잠깐 실린다. r: 등껍질에 튕겨 되돌아온 것
-export interface TossMsg { f: string; fx: number; fy: number; tx: number; ty: number; t: number; r?: boolean }
+export interface TossMsg { f: string; fx: number; fy: number; tx: number; ty: number; t: number; r?: boolean; b?: number }
 // 끌기: 끄는 사람(f)이 나를 (x,y) 칸으로 당긴다. 보통 끌기는 f 가 한 칸 물러난 뒤 비운 자기 자리, 갈고리(k='hook', 규칙이 보유 확인)는 f 의 바로 앞 칸
-export interface PullEvent { f: string; x: number; y: number; t: number; k?: 'hook' }
+export interface PullEvent { f: string; x: number; y: number; t: number; k?: 'hook'; b?: number }
+// 위 세 메시지의 b=1: 빠따로 방어를 깨는 타격 (2026-11-11). 받는 쪽은 갑옷·펫 방어를 건너뛰고, 그때부터 GUARD_BREAK_MS 동안 방어가 깨진다. 규칙이 보낸 사람의 지갑 bt 가 같은 쓰기에서 줄었는지 본다
 // 관리자가 나를 (x,y)로 보낸다 (광장으로 보내기). 규칙이 f 가 관리자인지 확인
 export interface TpEvent { f: string; x: number; y: number; t: number }
 
@@ -55,6 +56,7 @@ export interface PlayerState {
   v?: number;           // 클라이언트 버전 (CLIENT_VERSION). 규칙이 입장할 때 config/minVersion 이상인지 본다
   m?: string | null;    // 있는 맵 id (shared/maps.ts). 없으면 기본 맵 (옛 클라이언트와 같다)
   mn?: boolean | null;  // 금광에서 채광 중 (곡괭이질이 남에게 보이게. 곡괭이질마다 쓰지 않고 켜고 끌 때만)
+  gb?: number | null;   // 빠따에 맞아 방어(갑옷·펫)가 깨진 상태: 풀리는 서버 시각. 이 시각까지는 누구의 밀치기·말랑이·끌기도 통한다
 }
 
 export type Channel = 'near' | 'all' | 'w' | 'sys' | 'notice' | 'g'; // g: 마피아 유령 채팅. (파티 채팅 'p' 는 2026-11-10 파티 기능과 함께 삭제)

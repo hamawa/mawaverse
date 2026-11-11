@@ -365,6 +365,29 @@ if (!ONLY_WALLET) {
 await seed({ c: 50000, e: 50000, sp: prices.rod2, b: 'rod2', es: 2, rs: 12 });
 w = await cur();
 await expect('allow', 'O215 옛 클라이언트의 실패 쓰기 (구매 표시를 안 지움)도 그대로 통과', () => W({ ...w, es: 1, rs: 0 }));
+// P. 빠따 (2026-11-11): 개수(bt)는 b='bat' 결제에서만 늘고(늘어난 만큼 × 가격), 그 밖의 쓰기에서는 줄기만 한다
+if (!prices.bat) { console.error('config/prices 에 bat 이 없다. 먼저 넣을 것'); process.exit(1); }
+const BP = prices.bat;
+await seed({ c: 50000, e: 50000 });
+w = await cur();
+await expect('deny', 'P220 돈 안 내고 빠따 늘리기', () => W({ ...w, bt: 3 }));
+await expect('deny', 'P221 빠따 5개를 1개 값에', () => W({ ...w, c: w.c - BP, sp: BP, b: 'bat', bt: 5 }));
+await expect('deny', 'P222 빠따 0.5개', () => W({ ...w, c: w.c - BP / 2, sp: BP / 2, b: 'bat', bt: 0.5 }));
+await expect('deny', 'P223 값만 내고 개수는 그대로 (일반 구매 분기로 빠져나가기)', () => W({ ...w, c: w.c - BP, sp: BP, b: 'bat' }));
+await expect('allow', 'P224 빠따 5개 구매', () => W({ ...w, c: w.c - BP * 5, sp: BP * 5, b: 'bat', bt: 5 }));
+w = await cur();
+await expect('deny', 'P225 미끼 사면서 빠따 끼워 넣기', () => W({ ...w, c: w.c - prices.bait, sp: w.sp + prices.bait, b: 'bait', bait: 1, bt: 6 }));
+await expect('deny', 'P226 주문서 사면서 빠따 끼워 넣기', () => W({ ...w, c: w.c - SC, sp: w.sp + SC, b: 'scroll', es: 1, bt: 6 }));
+await expect('deny', 'P227 획득하면서 빠따 늘리기', () => W({ ...w, c: w.c + 10, e: w.e + 10, bt: 6 }));
+await expect('allow', 'P228 빠따 하나 쓰기 (개수만 −1)', () => W({ ...w, bt: 4 }));
+w = await cur();
+await expect('allow', 'P229 자동 사용 끄기', () => W({ ...w, bo: false }));
+w = await cur();
+await expect('deny', 'P230 자동 사용 칸에 숫자', () => W({ ...w, bo: 1 }));
+await expect('allow', 'P231 빠따를 가진 채 미끼 구매 (빠따 그대로)', () => W({ ...w, c: w.c - prices.bait, sp: w.sp + prices.bait, b: 'bait', bait: 1 }));
+await seed({ c: 2000000, e: 2000000, bt: 995 });
+w = await cur();
+await expect('deny', 'P232 999개를 넘겨 구매', () => W({ ...w, c: w.c - BP * 5, sp: BP * 5, b: 'bat', bt: 1000 }));
 await rootDb.ref().update({ [WP]: null, [UP]: null, [PP]: null });
 await rootDb.ref('approved').update({ [T]: null, 'zz-rules-gift': null });
 console.log(`\n결과: 통과 ${pass}, 실패 ${fail}`);

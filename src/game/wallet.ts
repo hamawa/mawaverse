@@ -152,6 +152,18 @@ export class WalletMgr {
     return this.spend('petfood', (c) => foodCost(base, c.px?.[petId] || 0, n), (c) => ({ ...c, pp: petId, px: { ...(c.px || {}), [petId]: (c.px?.[petId] || 0) + n } }));
   }
 
+  // ---- 빠따 (2026-11-11) ----
+  get bats(): number { return this.wallet.bt || 0; }
+  get batOn(): boolean { return this.wallet.bo !== false; }
+  // 지금 쓸 수 있는 빠따 수 (자동 사용을 꺼 두었으면 0). 쓰는 것은 Net 의 밀치기·말랑이·끌기 쓰기가 같은 쓰기에서 bt 를 줄인다
+  batsReady(): number { return this.batOn ? this.bats : 0; }
+  buyBats(price: number, n = 1): Promise<boolean> {
+    return this.spend('bat', price * n, (c) => ({ ...c, bt: (c.bt || 0) + n }));
+  }
+  setBatUse(on: boolean): Promise<boolean> {
+    return this.tx((c) => ({ ...c, bo: on }));
+  }
+
   // ---- 금광 채광 (2026-11-11) ----
   get gold(): number { return this.wallet.gn || 0; }
   // 곡괭이질 한 번의 보상: 금덩이 n 개(1~3)와 채광 시각. 규칙이 지난 채광(ga)에서 MINE_GAP_MS 이상 지났는지 본다. 코인·구매 기록은 건드리지 않는다

@@ -194,6 +194,7 @@ function tossRig() {
     playerAt: (x, y) => (x === rp.x && y === rp.y ? rp : null),
     petGuard: () => false, petReflect: () => false, nickOf: () => '상대',
     toast: () => { calls.toast++; }, note: () => { calls.note++; },
+    wallet: { batsReady: () => 0 }, batNote() {}, guardBroken: () => false, breakGuard() {}, guardUntil: 0,
   };
   const net = { toss: () => { calls.sent++; }, tossMany() {}, stat() {} };
   const toss = new TossMgr(w, net, { cancelFishing: () => { calls.cancel++; } });

@@ -6,7 +6,7 @@ import { drawHat, nameStyle, petCanvas, mountCanvas } from './cosmetics';
 import {
   HATS, NAME_COLORS, FX, PET_GOODS, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, ARMOR_KEY, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
-  KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
+  BAT, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
 } from '../shared/shop';
 import { fmtGold } from '../shared/mine';
 import type { WalletMgr } from './wallet';
@@ -253,7 +253,25 @@ export function openShop(h: ShopHost): void {
     const cb = el('input', { type: 'checkbox' }); cb.checked = h.wallet.baitOn;
     cb.onchange = () => { void h.wallet.setBaitUse(cb.checked); };
     use.append(cb, ' 미끼가 있으면 던질 때 자동으로 쓰기');
-    box.append(aRow, gRow, bRow, use);
+    // 빠따 (2026-11-11): 밀치기·말랑이·끌기가 방어에 막힐 때 하나씩 써서 깬다. 묶음 구매 + 자동 사용 켜고 끄기
+    const tPrice = priceOf(BAT, prices);
+    const tRow = el('div', { class: 'shop-good' });
+    tRow.append(el('div', { class: 'ic', text: BAT.icon }), el('div', { class: 'txt' }, [el('div', { class: 'nm', text: `${BAT.name} · 보유 ${h.wallet.bats}개` }), el('div', { class: 'ds', text: BAT.desc })]));
+    const tBtns = el('div', { class: 'row', style: 'gap:6px' });
+    for (const n of [1, 5, 10]) {
+      const b = el('button', { class: 'btn small' + (n === 1 ? ' primary' : ''), text: `${n}개 ${fmtCoins(tPrice * n)}` });
+      b.dataset.bat = String(n);
+      if (h.wallet.balance < tPrice * n) { b.disabled = true; b.title = '코인이 모자랍니다'; }
+      else if (h.wallet.bats + n > 999) { b.disabled = true; b.title = '999개까지 가질 수 있습니다'; }
+      b.onclick = async () => { b.disabled = true; if (await h.wallet.buyBats(tPrice, n)) h.toast(`${BAT.icon} 빠따 ${n}개 구매`); else h.toast('코인이 모자랍니다.', true); render(`[data-bat="${n}"]`); };
+      tBtns.append(b);
+    }
+    tRow.append(tBtns);
+    const tUse = el('label', { class: 'shop-toggle' });
+    const tCb = el('input', { type: 'checkbox' }); tCb.checked = h.wallet.batOn;
+    tCb.onchange = () => { void h.wallet.setBatUse(tCb.checked); };
+    tUse.append(tCb, ' 빠따가 있으면 상대 방어에 막힐 때 자동으로 쓰기');
+    box.append(aRow, gRow, bRow, use, tRow, tUse);
     return box;
   };
 

@@ -79,3 +79,43 @@ test('킹 사이즈: 확률 0성 1% → 30성 5%, 크기는 최대 크기 × 1.5
   const f = DEFAULT_FISH.find((x) => !x.junk && x.max >= 100) || DEFAULT_FISH.find((x) => !x.junk);
   assert.ok(fishColl.rollKingSize(f, () => 0.5) < f.max * 1.75);
 });
+
+// ---- 빠따: 방어 깨기 (2026-11-11 밸런스 패치) ----
+const { BAT, GUARD_BREAK_MS, guardedOf, guardBrokenOf, assignBats } = await import('../src/shared/shop.ts');
+
+test('빠따: 방어 판정은 갑옷 종류별·펫 Lv8 공통, 깨져 있는 동안은 방어가 없다', () => {
+  const now = 1_000_000;
+  assert.equal(BAT.id, 'bat'); assert.equal(BAT.kind, 'use'); assert.equal(BAT.price, 1000);
+  assert.equal(isOwnItem('bat'), false); // 소모품: 보관함이 아니라 지갑(bt)에 센다
+  assert.equal(GUARD_BREAK_MS, 60000);
+  assert.equal(guardedOf(undefined, 'push', now), false);
+  assert.equal(guardedOf({}, 'push', now), false);
+  // 철벽 갑옷은 밀치기·끌기만, 푹신 갑옷은 말랑이만
+  assert.equal(guardedOf({ pa: true }, 'push', now), true);
+  assert.equal(guardedOf({ pa: true }, 'toss', now), false);
+  assert.equal(guardedOf({ ta: true }, 'toss', now), true);
+  assert.equal(guardedOf({ ta: true }, 'push', now), false);
+  // 펫 Lv8(먹이 170) 이상은 둘 다 막는다. 데리고 있을 때만
+  assert.equal(guardedOf({ pt: 'petdog', pl: 170 }, 'push', now), true);
+  assert.equal(guardedOf({ pt: 'petdog', pl: 170 }, 'toss', now), true);
+  assert.equal(guardedOf({ pt: 'petdog', pl: 169 }, 'push', now), false);
+  assert.equal(guardedOf({ pl: 300 }, 'push', now), false);
+  // 깨진 상태: gb(풀리는 시각)가 지금보다 뒤면 갑옷도 펫도 없는 것으로 본다. 시간이 지나면 저절로 돌아온다
+  const broken = { pa: true, ta: true, pt: 'petdog', pl: 300, gb: now + 1 };
+  assert.equal(guardBrokenOf(broken, now), true);
+  assert.equal(guardedOf(broken, 'push', now), false);
+  assert.equal(guardedOf(broken, 'toss', now), false);
+  assert.equal(guardBrokenOf(broken, now + 1), false);
+  assert.equal(guardedOf(broken, 'push', now + 1), true);
+  assert.equal(guardBrokenOf({ gb: null }, now), false);
+});
+
+test('빠따: 방어 중인 사람에게만 한 개씩 쓰고, 모자라면 나머지는 막힌다', () => {
+  assert.deepEqual(assignBats([], 5), []);
+  assert.deepEqual(assignBats([false, false], 5), [{ bat: false, blocked: false }, { bat: false, blocked: false }]); // 방어가 없으면 안 쓴다
+  assert.deepEqual(assignBats([true, false, true, true], 2), [
+    { bat: true, blocked: false }, { bat: false, blocked: false }, { bat: true, blocked: false }, { bat: false, blocked: true },
+  ]);
+  assert.deepEqual(assignBats([true, true], 0), [{ bat: false, blocked: true }, { bat: false, blocked: true }]); // 빠따가 없거나 자동 사용을 껐다
+  assert.equal(assignBats([true, true, true], 99).filter((x) => x.bat).length, 3);
+});

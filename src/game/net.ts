@@ -47,6 +47,7 @@ export class Net {
   // 지금 맵에서의 내 자리 키
   private occKey(x: number, y: number) { return occupancyKey(this.w.mapId, x, y); }
   private mapField(): Pick<PlayerState, 'm'> { return this.w.mapId === MAIN_MAP_ID ? {} : { m: this.w.mapId }; }
+  private guardField(): Pick<PlayerState, 'gb'> { return this.w.guardBroken() ? { gb: this.w.guardUntil } : {}; } // 빠따에 맞아 방어가 깨져 있는 동안
   private pendingSteps = 0;  // 서버 답을 기다리는 걸음 수
   private changing = false;  // 맵 이동 쓰기 중 (재등록이 옛 맵 상태로 덮어쓰지 않게)
   // 지금 칸의 occ 가 내 것인가. 입장·재등록 때 자리를 못 잡았으면(남이 먼저) false: 그 칸을 지우려 하면 규칙이 쓰기를 통째로 거부한다
@@ -55,14 +56,14 @@ export class Net {
 
   private currentState(): PlayerState {
     const w = this.w;
-    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField() };
+    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField() };
   }
 
   // 월드 입장: 현재 접속자 스냅샷을 읽고 빈 타일을 잡은 뒤 presence 등록
   async join(spawnX: number, spawnY: number, dir: Dir = 0): Promise<void> {
     const w = this.w;
     const st: PlayerState = {
-      n: w.profile.nick, a: w.profile.avatar, x: spawnX, y: spawnY, d: dir, s: w.sessionId, e: null, r: null, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), v: CLIENT_VERSION, ...this.mapField(),
+      n: w.profile.nick, a: w.profile.avatar, x: spawnX, y: spawnY, d: dir, s: w.sessionId, e: null, r: null, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(),
     };
     await onDisconnect(this.playerRef()).remove();
     // 자리(occ)와 presence 를 한 번에 올린다. 자리는 규칙이 지킨다(비었거나, 내 것이거나, 적힌 사람이 거기 없을 때만). 방금 누가 그 자리를 잡아 거부되면 자리 없이 들어가고 다음 걸음에서 잡는다
@@ -268,9 +269,12 @@ export class Net {
         if (!inFront(rx, ry, p.dx, p.dy)) return;
         w.events.emit('wave', pusher.toX, pusher.toY, w.me.x, w.me.y);
       } else if (Math.abs(rx) + Math.abs(ry) !== 1 || rx !== p.dx || ry !== p.dy) return; // 보통 밀치기: 바로 옆에서 나를 보고 있어야 함
+      // 빠따(b=1): 방어를 깨고 그대로 민다. 이미 깨져 있는 동안에도 방어가 없다 (2026-11-11)
+      if (p.b === 1 && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(pusher.st.n);
+      const open = w.guardBroken();
       // 철벽 갑옷: 안 밀린다 (🛡 표시만)
-      if (w.profile.eq?.pa) { w.me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${pusher.st.n} 의 밀치기를 막았다.`); return; }
-      if (w.petGuard()) {
+      if (!open && w.profile.eq?.pa) { w.me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${pusher.st.n} 의 밀치기를 막았다.`); return; }
+      if (!open && w.petGuard()) {
         // 펫 방어 (Lv8): 안 밀리고, 보통 밀치기는 80% 로 되받아친다 — 민 사람에게 반대 방향 밀치기를 쓴다 (그쪽에서 보면 내가 바로 옆에서 보고 민 것과 같은 모양이라 그대로 검증을 통과). 되받은 것(r)은 다시 되받지 않는다
         w.me.blockAt = performance.now();
         if (p.n !== 2 && !p.r && w.petReflect()) { this.pushReflect(p.f, -p.dx, -p.dy); w.toast(`🛡 펫이 ${pusher.st.n} 의 밀치기를 되받아쳤다!`); }
@@ -307,8 +311,10 @@ export class Net {
         if (Math.abs(me.x - p.x) + Math.abs(me.y - p.y) !== 1) return;
         if (Math.abs(puller.toX - p.x) + Math.abs(puller.toY - p.y) !== 1) return;
       }
-      if (w.profile.eq?.pa) { me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${puller.st.n} 의 끌기를 막았다.`); return; }
-      if (w.petGuard()) { me.blockAt = performance.now(); w.toast(`🛡 펫이 ${puller.st.n} 의 끌기를 막았다.`); return; }
+      if (p.b === 1 && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(puller.st.n); // 빠따: 방어를 깨고 그대로 끈다
+      const open = w.guardBroken();
+      if (!open && w.profile.eq?.pa) { me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${puller.st.n} 의 끌기를 막았다.`); return; }
+      if (!open && w.petGuard()) { me.blockAt = performance.now(); w.toast(`🛡 펫이 ${puller.st.n} 의 끌기를 막았다.`); return; }
       w.settleIfStalled();
       if (me.locked || me.moving) return;
       if (!w.canStep(p.x, p.y)) return;
@@ -390,31 +396,37 @@ export class Net {
     this.stat('emotes');
   }
 
+  // 빠따(b=1)가 붙은 타격은 지갑의 빠따를 같은 쓰기에서 줄인다 (규칙이 줄었는지 본다). n: 이번 쓰기에서 쓴 빠따 수
+  private batCost(n: number): Record<string, unknown> { return n > 0 ? { [`wallet/${this.w.uid}/bt`]: increment(-n) } : {}; }
   toss(targetUid: string, m: Omit<TossMsg, 't'>): void {
-    set(ref(db, `players/${targetUid}/toss`), { ...m, t: serverTimestamp() }).catch(() => {});
+    update(ref(db), { [`players/${targetUid}/toss`]: { ...m, t: serverTimestamp() }, ...this.batCost(m.b ? 1 : 0) }).catch(() => {});
   }
   // 말랑이 보따리: 여러 명에게 한 번에 (multi-path 쓰기)
   tossMany(shots: { uid: string; m: Omit<TossMsg, 't'> }[]): void {
-    update(ref(db), Object.fromEntries(shots.map((s) => [`players/${s.uid}/toss`, { ...s.m, t: serverTimestamp() }]))).catch(() => {});
+    update(ref(db), { ...Object.fromEntries(shots.map((s) => [`players/${s.uid}/toss`, { ...s.m, t: serverTimestamp() }])), ...this.batCost(shots.filter((s) => s.m.b).length) }).catch(() => {});
   }
   // 끌기: 상대를 (x,y)로 당긴다. hook 이면 갈고리 (규칙이 보유 확인)
-  pull(targetUid: string, x: number, y: number, hook = false): void {
-    set(ref(db, `players/${targetUid}/pull`), { f: this.w.uid, x, y, t: serverTimestamp(), ...(hook ? { k: 'hook' } : {}) }).catch(() => {});
+  pull(targetUid: string, x: number, y: number, hook = false, bat = false): void {
+    update(ref(db), { [`players/${targetUid}/pull`]: { f: this.w.uid, x, y, t: serverTimestamp(), ...(hook ? { k: 'hook' } : {}), ...(bat ? { b: 1 } : {}) }, ...this.batCost(bat ? 1 : 0) }).catch(() => {});
   }
   // 관리자: 상대를 (x,y)로 보낸다 (광장으로 보내기). 규칙이 관리자만 허용
   sendTo(targetUid: string, x: number, y: number): Promise<void> {
     return set(ref(db, `players/${targetUid}/tp`), { f: this.w.uid, x, y, t: serverTimestamp() });
   }
-  push(targetUid: string, dx: number, dy: number): void {
-    set(ref(db, `players/${targetUid}/push`), { f: this.w.uid, dx, dy, t: serverTimestamp() }).catch(() => {});
+  push(targetUid: string, dx: number, dy: number, bat = false): void {
+    update(ref(db), { [`players/${targetUid}/push`]: { f: this.w.uid, dx, dy, t: serverTimestamp(), ...(bat ? { b: 1 } : {}) }, ...this.batCost(bat ? 1 : 0) }).catch(() => {});
   }
   // 거북이 등껍질 되받아치기 (2026-11-10): r 표시가 있으면 받는 쪽이 다시 되받지 않는다
   pushReflect(targetUid: string, dx: number, dy: number): void {
     set(ref(db, `players/${targetUid}/push`), { f: this.w.uid, dx, dy, t: serverTimestamp(), r: true }).catch(() => {});
   }
   // 장풍: 범위 안의 여러 명에게 한 번에 (multi-path). n=2 는 규칙이 보유를 확인한다
-  pushMany(uids: string[], dx: number, dy: number): void {
-    update(ref(db), Object.fromEntries(uids.map((u) => [`players/${u}/push`, { f: this.w.uid, dx, dy, t: serverTimestamp(), n: 2 }]))).catch(() => {});
+  pushMany(targets: { uid: string; bat: boolean }[], dx: number, dy: number): void {
+    update(ref(db), { ...Object.fromEntries(targets.map((x) => [`players/${x.uid}/push`, { f: this.w.uid, dx, dy, t: serverTimestamp(), n: 2, ...(x.bat ? { b: 1 } : {}) }])), ...this.batCost(targets.filter((x) => x.bat).length) }).catch(() => {});
+  }
+  // 빠따에 맞아 방어가 깨졌다: 풀리는 시각을 presence 에 올려 남들이 막힌다고 보고 건너뛰지 않게 한다
+  setGuardBroken(until: number): void {
+    set(ref(db, `players/${this.w.uid}/gb`), until).catch(() => {});
   }
 
   setRoom(roomId: string | null): void {

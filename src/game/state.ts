@@ -100,6 +100,7 @@ export interface WorldCtx {
   catchNote(kind: 'fish' | 'bug' | 'etc', text: string): void;
   catchLog: CatchLog;
   note(text: string): void;              // 한 줄 알림만 (기록 없음)
+  batNote(used: number): void;           // 빠따를 썼으면 한 줄 알림
   banner(title: string, sub?: string): void; // 화면 가운데 큰 배너 (신화 등급 소식)
   forceLogout(reason: string, replaced?: boolean): void;
   isTileVisible(x: number, y: number): boolean;
@@ -113,6 +114,9 @@ export interface WorldCtx {
   startStep(nx: number, ny: number, pushedDir?: Dir, opts?: { dur?: number; onDone?: (ok: boolean) => void }): void;
   // 밀치기·끌기를 당했다: 도착한 뒤 PUSH_STUN_MS 동안 못 움직이고 😵 가 뜬다
   stunAfter(moveMs: number): void;
+  guardUntil: number;                    // 빠따에 맞아 방어가 깨져 있으면 풀리는 서버 시각 (아니면 0 또는 지난 시각)
+  guardBroken(): boolean;                // 지금 방어(갑옷·펫)가 깨져 있나
+  breakGuard(byNick: string): void;      // 빠따에 맞았다: GUARD_BREAK_MS 동안 방어 없음
   petGuard(): boolean;                   // 펫 Lv8 이상: 밀치기·장풍·말랑이·끌기·갈고리를 갑옷처럼 막는다
   petReflect(): boolean;                 // 막은 보통 밀치기·말랑이를 되받아칠지 (80%)
   leaveForTeleport(): void;             // 순간이동 전 정리: 낚시 취소, 방에 있으면 나감
