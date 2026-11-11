@@ -9,7 +9,9 @@
 - 사용자가 요청한 것만 바꾼다. 요청하지 않은 리팩터링·개선·디자인 변경·라이브러리 업그레이드는 하지 않는다. 고치고 싶은 것을 발견하면 고치지 말고 알린다.
 - 게임 규칙·맵·아이템·밸런스·문구·화면 구성은 요청 없이 건드리지 않는다.
 - UI 문구는 한국어.
-- **커밋 작성자**: 이 저장소의 커밋은 개인 GitHub 계정으로 남긴다. 새로 clone 한 폴더에는 작성자 설정이 없어서 그대로 커밋하면 PC 의 전역 git 설정(다른 이름·이메일)이 공개 저장소에 들어간다. clone 직후, 첫 커밋 전에 그 폴더에서 `git config user.name "hamawa"` 와 `git config user.email "191250974+hamawa@users.noreply.github.com"` 를 실행하고, 커밋하기 전에 `git var GIT_AUTHOR_IDENT` 로 확인할 것. 전역 설정은 건드리지 않는다.
+- **커밋 작성자**: 이 저장소의 커밋은 각자 자기 개인 GitHub 계정으로 남긴다. 새로 clone 한 폴더에는 작성자 설정이 없어서 그대로 커밋하면 PC 의 전역 git 설정(다른 이름·이메일)이 공개 저장소에 들어간다. clone 직후, 첫 커밋 전에 그 폴더에서 작성자를 설정하고, 커밋하기 전에 `git var GIT_AUTHOR_IDENT` 로 확인할 것. 전역 설정은 건드리지 않는다.
+  - 저장소 주인(hamawa)의 PC 에서만: `git config user.name "hamawa"` 와 `git config user.email "191250974+hamawa@users.noreply.github.com"`.
+  - 다른 기여자는 hamawa 로 설정하지 않는다. 자기 GitHub 아이디와 자기 noreply 이메일(GitHub 설정 > Emails 에 나오는 `숫자+아이디@users.noreply.github.com`)을 쓴다. 누구의 PC 인지 모르면 설정하기 전에 사용자에게 물을 것.
 
 ## 반드시 지킬 규칙
 - **이용 시간**: 관리자 페이지 설정의 "평일 근무시간 이용 차단"(`config/hoursBlock`)을 켜면 평일(월~금) 09:00~18:00 KST 에는 이용할 수 없다. 단 쉬는 시간(10:30~10:45, 12:00~13:00, 15:30~15:45)에는 풀린다. 주말과 공휴일은 종일 허용. 관리자(`admins/{uid}`)는 게임·관리자 페이지 모두 예외. 기본값은 꺼짐(값이 없거나 false 면 언제나 이용 가능)이고, 아래 내용은 켜져 있을 때의 동작이다.
@@ -28,15 +30,15 @@
 - Vite + TypeScript + Canvas 2D. Firebase Authentication(이메일/비밀번호. 아이디는 해시한 가짜 이메일로 바뀐다), Realtime Database, Hosting.
 - `src/main.ts` 게임 진입(로그인·승인·차단 분기), `src/admin/main.ts` 관리자 대시보드(admin.html), `src/dev/main.ts` 그래픽 미리보기(dev.html, Firebase 불필요)
 - `src/game/world.ts` 월드 오케스트레이터(이동, 메뉴, 상호작용). `net.ts` presence/위치 동기화, `chat.ts`, `rooms.ts`(커피 내기), `board.ts`+`boardui.ts`, `fishing.ts`+`fishui.ts`(낚시, 데이터는 `src/shared/fish.ts`), `wallet.ts`+`shopui.ts`+`cosmetics.ts`(코인·상점·꾸미기, 품목은 `src/shared/shop.ts`), `contest.ts`(낚시 대회, 일정 계산은 `src/shared/contest.ts`), `bugs.ts`(곤충 채집, 데이터는 `src/shared/bugs.ts`; 물고기·곤충 공용 로직은 `src/shared/collection.ts`), `toss.ts`(말랑이 던지기), `moleui.ts`(두더지 잡기 오락기), `dig.ts`+`digui.ts`(보물 지도), `rouletteui.ts`(하루 룰렛, 칸은 `src/shared/roulette.ts`), `casino.ts`+`casinoui.ts`(경마, 규칙 검증 설계는 `src/shared/casino.ts`), `mafia.ts`+`mafiaui.ts`(마피아, 상수·집계는 `src/shared/mafia.ts`), `pets.ts`(펫 따라다니기·탑승 그리기), `petride.ts`(펫 레벨·탑승·상시 효과), `catchlog.ts`(내 낚시·채집 기록), `ui.ts`(DOM HUD/모달/로그인·가입 폼), `render.ts`(캔버스), `engine.ts`(카메라/루프), `input.ts`
-- `src/game/map.ts` 맵 데이터/기본 맵 빌더, `tiles.ts` 타일 아트, `sprites/*` 캐릭터 생성기(150 프리셋)
-- `src/firebase/*` 초기화/인증 헬퍼(가입·승인 확인·탈퇴), `src/shared/*` 타입/설정/유틸, `src/shared/hours.ts` 이용 시간 판정(순수 함수), `src/shared/schedule.ts` 공휴일·쉬는 시간 설정 읽기
+- `src/game/map.ts` 맵 데이터/기본 맵·포탈 정원 빌더, `portal.ts` 포탈·맵 전환에 쓰는 순수 함수, `tiles.ts` 타일 아트, `sprites/*` 캐릭터 생성기(150 프리셋)
+- `src/firebase/*` 초기화/인증 헬퍼(가입·승인 확인·탈퇴), `src/shared/*` 타입/설정/유틸, `src/shared/hours.ts` 이용 시간 판정(순수 함수), `src/shared/schedule.ts` 공휴일·쉬는 시간 설정 읽기, `src/shared/maps.ts` 맵 id·자리 키
 - `database.rules.json` 보안 규칙 원본 (서버 코드 없음: 모든 검증은 여기서). `tools/gen-gate.cjs` 가 여기에 승인·이용 시간 조건을 넣어 `database.rules.deploy.json` 을 만들고, 배포와 에뮬레이터는 그 파일을 쓴다(`firebase.json`). 생성된 파일(`database.rules.deploy.json`, `database.rules.test.json`, `holidays.deploy.json`)은 git 에 올리지 않는다.
 - `tools/admin-cli.mjs` firebase-admin CLI (serviceAccount.json 필요), `tools/gen-rules.cjs` 지갑 규칙 생성기, `tools/usage.mjs` 사용량 점검
-- `tests/hours.test.mjs` 이용 시간 판정 테스트, `tests/rules-gate.test.mjs` 보안 규칙 테스트(에뮬레이터)
+- `tests/hours.test.mjs` 이용 시간 판정 테스트, `tests/portals.test.mjs`·`tests/maps.test.mjs`·`tests/portal-runtime.test.mjs` 맵 id·포탈·맵 전환 테스트(`resolve-hook.mjs` 로 TS 소스를 바로 불러온다), `tests/rules-gate.test.mjs` 보안 규칙 테스트(에뮬레이터)
 
 ## 명령
 - `npm run dev`, `npm run build`, `npm run typecheck`
-- `npm test`: 이용 시간 판정 테스트(Node 내장 테스트. 시각을 넣어 본다). `npm run test:rules`: 에뮬레이터에서 승인·실명 보호·시간 차단 규칙 시험(Java 와 firebase-tools 필요). 시험용 규칙은 시각만 `_test/now` 에서 읽는다.
+- `npm test`: 이용 시간 판정과 맵·포탈 테스트(Node 내장 테스트. 시각을 넣어 본다). `npm run test:rules`: 에뮬레이터에서 승인·실명 보호·시간 차단·맵별 자리 규칙 시험(Java 와 firebase-tools 필요). 배포 작업은 `npm test` 만 돌리므로 규칙을 고쳤으면 `test:rules` 를 직접 돌릴 것. 시험용 규칙은 시각만 `_test/now` 에서 읽는다.
 - `npm run rules`: 배포용 규칙과 공휴일 목록 생성. `npm run emulators`: 로컬 에뮬레이터(Auth 9099, DB 9000, UI 4000. `.env.local` 에 `VITE_USE_EMULATOR=1`).
 - `npm run deploy`, `npm run deploy:rules`: 수동 배포(평소에는 쓰지 않는다. 아래 배포 구조 참고).
 - Git Bash 에서 `firebase database:set /경로` 처럼 `/` 로 시작하는 인자를 넘길 때는 `MSYS_NO_PATHCONV=1` 을 앞에 붙인다(경로가 윈도우 경로로 바뀐다).
@@ -77,6 +79,15 @@
   - 잡을 때 내 기록을 다시 읽지 않는다: 도감 칸은 `readOwn/rememberOwn/forgetOwn`(firebase/db.ts), 주간·대회 점수는 `increment`, 최고 기록 트랜잭션은 `bestSeen` 보다 클 때만.
   - 통계는 `Net.stat` 이 모아 1분에 한 번 보낸다. 채팅·소식처럼 "지금부터 새 것만" 받는 리스너는 `onNewChild(path, since, n, cb)` 를 쓴다(`startAt(지금)` 만 걸면 재접속할 때마다 그 뒤 전부를 다시 받는다).
   - 맵은 `maps/{id}/updatedAt` 이 브라우저 사본(localStorage `mv-map-{id}`)과 같으면 내려받지 않는다. 맵을 admin SDK 로 고칠 때 `updatedAt` 을 꼭 올릴 것(관리자 편집기는 알아서 올린다).
+- 포탈·여러 맵(2026-11-11, v17). 아래를 지킬 것:
+  - 맵 id 는 논리 id 다(`shared/maps.ts`, `portal.ts mapSource`): 기본 맵은 `main`(실제 데이터는 `config/activeMap` 이 가리키는 맵이고 `MapData.id` 와 다르다), 포탈 정원 `portal-garden` 은 코드에 든 맵(`buildPortalGarden`), 그 밖의 id 는 저장된 `maps/{id}`. 기본 맵으로 가는 포탈의 목적지는 반드시 `main`: 활성 맵의 실제 id(`custom1`)를 적으면 서로 안 보이는 별개 공간이 생긴다.
+  - 맵은 기본 맵일 때 싣지 않는다(옛 형식과 같게, 전송량): presence `players/{uid}/m`, 공개 채팅 `m`, `users/{uid}/lastPos.m`. 읽을 때는 `playerMapId()` / `w.onMyMap(st)`. 내가 있는 맵은 `w.mapId`·`w.map`, 기본 맵은 `w.mainMap`.
+  - 자리 키는 `occupancyKey(mapId, x, y)` 로만 만든다: 기본 맵 `x_y`, 그 밖 `{맵 id}~x_y`. 규칙이 키를 내 presence 의 맵·좌표와 대조하고(`.validate`), 삭제도 본다(`.write`): 비었거나, 내 것이거나, 적힌 사람이 접속해 있지 않거나 실제로는 다른 칸에 있거나, 마피아 유령과 산 사람이 겹친 자리일 때만. 남의 자리를 지우는 쓰기는 통째로 거부되므로 `Net.ownsOcc` 가 true 일 때만 옛 칸을 같이 지운다(입장·재등록 때 자리를 못 잡았으면 false).
+  - 맵 이동은 `world.usePortal` → `Net.changeMap` 이 쓰기 한 번으로 한다(`portal.ts mapSwitchUpdate`: 새 자리 + m·x·y·d + 옛 맵에 걸려 있던 f·e·push·pull·toss·tp 비우기 + 내 옛 자리). 그동안 `w.switching` 이 true 이고 이동·낚시·채집·이모트·공개 채팅을 막는다. 옛 맵에 묶인 화면 상태(벌레·말랑이·펫 자리·말풍선)는 `enterMap` 에서 비우니, 맵 좌표에 묶인 상태를 새로 만들면 거기서도 비울 것. 맵을 옮기기 전에 보낸 비동기 응답은 `mapGen` 으로 가려낸다.
+  - `w.players` 에는 모든 맵의 접속자가 들어 있다. 좌표로 사람을 찾을 때는 `playerAt`/`occupied`(같은 맵만 본다)를 쓰고, `players` 를 직접 돌 때는 `onMyMap(rp.st)` 로 거른다. 밀치기·끌기·말랑이·관리자 이동은 받는 쪽이 보낸 사람이 같은 맵인지 확인하고, 규칙도 같은 맵끼리만 허용한다.
+  - 기본 맵에서만 되는 것: 커피 내기 방·카지노(`primaryOnlyRoom`. 방 상태 `rooms/{zone id}` 가 맵 구분 없이 하나라서), 보물 지도, 마피아(모집·참가·미션·시체. 참가 중에는 포탈을 못 탄다). 이들의 좌표는 `w.mainMap` 기준이다. 낚시·곤충 채집은 어느 맵에서나 된다.
+  - 포탈은 zone `kind: 'portal'`(`targetMap`, `targetSpawn`)이고 옆 1칸(대각선 포함)에서 F. 안내 우선순위(`canvasHint`)가 낚시·채집보다 앞이라 포탈 옆에서는 F 가 포탈을 탄다. 관리자 편집기의 포탈 도구로 넣는다. `buildDefaultMap` 에 든 포탈과 공사 펜스는 라이브 맵(`maps/custom1`)에는 없다.
+  - 규칙의 `players/$uid/m` 검증에 `'portal-garden'` 이 글자로 들어 있다. 코드에 든 맵을 더 만들면 규칙·`mapSource`·`isReservedMapId` 를 같이 고칠 것.
 - 원본 `database.rules.json` 을 JSON 으로 읽어 다시 직렬화해 쓰지 말 것. 서식이 바뀌면 `gen-rules.cjs` 의 글자 치환이 깨진다. 손으로 넣는 규칙(occ, stats/peak, signups, approved)은 글자 치환이나 직접 편집으로 넣는다. 원본에는 "로그인했는가(`auth != null`)"만 적는다: 승인·이용 시간 조건은 `gen-gate.cjs` 가 배포용 파일을 만들 때 모든 `.read`/`.write` 에 넣는다. 로그인 조건 없이 열린 읽기·쓰기 규칙을 원본에 넣으면 차단을 비켜 가므로 생성기가 멈춘다. 새 규칙은 에뮬레이터(`npm run test:rules`)에서 가짜 uid 로 시험한다.
 - 파티 기능은 2026-11-10 에 통째로 삭제했다(코드·규칙·DB). 되살리지 말 것. 관리자 채팅 로그의 옛 `p` 채널만 남는다.
 - 상점 모달은 지갑이 바뀔 때마다 통째로 다시 그린다(`shopui.ts render`). 스크롤·포커스를 보존하는 코드가 있으니 새 탭·카드를 만들 때 버튼에 `data-*` 로 자리를 남기고 `render(선택자)` 로 돌려줄 것(먹이 연타가 맨 위로 튀던 일, 2026-11-10).
