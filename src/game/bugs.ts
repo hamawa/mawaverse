@@ -127,13 +127,14 @@ export class BugHunt {
     return true;
   }
 
-  // 기록 쓰기는 한 줄로 세워 BUG_SAVE_GAP_MS 간격으로 (연타해도 규칙에 안 걸리게)
+  // 기록 쓰기는 한 줄로 세워 BUG_SAVE_GAP_MS 간격으로 (연타해도 규칙에 안 걸리게).
+  // 간격은 앞 저장이 "끝난" 시각부터 잰다. 시작 시각부터 재면, 도감을 읽느라 늦게 쓰인 저장(이번 접속에서 처음 잡는 종) 바로 뒤의
+  // 읽기 없는 저장이 서버에 0.3초 안에 도착해 주간 기록 규칙에 거부된다 ("기록 저장에 실패했습니다", 2026-11-11)
   private queueCatch(def: CollDef): void {
     this.chain = this.chain.then(async () => {
       const wait = this.lastSaveAt + BUG_SAVE_GAP_MS - Date.now();
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      this.lastSaveAt = Date.now();
-      await this.catchBug(def);
+      try { await this.catchBug(def); } finally { this.lastSaveAt = Date.now(); }
     }).catch(() => {});
   }
 
