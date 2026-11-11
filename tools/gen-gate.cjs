@@ -4,7 +4,7 @@
 //   전체 조건 FULL : 관리자이거나, (가입이 승인됐고 그리고 이용 시간)      ← 게임의 모든 경로
 //   시간 조건 TIME : 관리자이거나, 이용 시간                                ← 가입 신청에 필요한 경로 (내 프로필·아이디·닉네임·신청서, 내 승인 표시 지우기)
 //   그대로   NONE : 로그인만                                                ← 내가 관리자인지·승인됐는지 읽기 (화면이 어떤 안내를 띄울지 정하는 데 쓴다)
-// 이용 시간 = 평일(월~금) 09:00~18:00 KST 가 아닐 때, 또는 공휴일(holidays/{KST 날짜 번호} 가 있을 때). 판정은 서버 시각(now)으로 한다.
+// 이용 시간 = 평일(월~금) 09:00~18:00 KST 가 아닐 때, 그 안의 쉬는 시간(hours.json)일 때, 또는 공휴일(holidays/{KST 날짜 번호} 가 있을 때). 판정은 서버 시각(now)으로 한다.
 // 시간 차단은 관리자 설정 config/hoursBlock 이 true 일 때만 건다 (기본 꺼짐: 값이 없거나 false 면 언제나 이용 시간으로 본다). 가입 승인 조건은 설정과 무관하게 늘 건다.
 //
 // 공휴일은 holidays.json 하나로 관리한다. 이 스크립트가 DB 에 올릴 holidays.deploy.json 도 같이 만든다 (npm run deploy:holidays 가 올린다).
@@ -15,6 +15,13 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const src = JSON.parse(fs.readFileSync(path.join(ROOT, 'database.rules.json'), 'utf8'));
 const holidays = JSON.parse(fs.readFileSync(path.join(ROOT, 'holidays.json'), 'utf8'));
+// 쉬는 시간(hours.json): 평일 09:00~18:00 차단 중에도 풀어 주는 구간. 화면(src/shared/hours.ts)도 같은 파일을 읽는다
+const breaks = JSON.parse(fs.readFileSync(path.join(ROOT, 'hours.json'), 'utf8')).breaks.map(([a, b]) => {
+  const toMs = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s); if (!m) { console.error(`hours.json 형식 오류: "${s}"`); process.exit(1); } return (+m[1] * 60 + +m[2]) * 60000; };
+  const s = toMs(a), e = toMs(b);
+  if (!(s < e) || s < 32400000 || e > 64800000) { console.error(`hours.json: 쉬는 시간이 잘못됐습니다 "${a}"~"${b}"`); process.exit(1); }
+  return [s, e];
+});
 
 const AUTH = 'auth != null';
 function gates(NOW) {
@@ -22,8 +29,9 @@ function gates(NOW) {
   const MS = `${T} % 86400000`;                                      // 자정부터 지난 ms
   const DAY = `((${T} - ${MS}) / 86400000)`;                         // KST 날짜 번호 (1970-01-01 = 0, 목요일)
   // 주말은 (날짜+4)%7 이 0=일 또는 6=토
-  // 차단 설정이 꺼져 있거나(config/hoursBlock != true), 09:00 전이거나 18:00 이후이거나, 주말이거나, 공휴일
-  const OPEN = `(root.child('config/hoursBlock').val() != true || ${MS} < 32400000 || ${MS} >= 64800000 || ((${DAY} + 4) % 7) % 6 == 0 || root.child('holidays/' + ${DAY}).exists())`;
+  // 차단 설정이 꺼져 있거나(config/hoursBlock != true), 09:00 전이거나 18:00 이후이거나, 쉬는 시간이거나, 주말이거나, 공휴일
+  const BREAK = breaks.map(([s, e]) => ` || (${MS} >= ${s} && ${MS} < ${e})`).join('');             // 쉬는 시간
+  const OPEN = `(root.child('config/hoursBlock').val() != true || ${MS} < 32400000 || ${MS} >= 64800000${BREAK} || ((${DAY} + 4) % 7) % 6 == 0 || root.child('holidays/' + ${DAY}).exists())`;
   const ADMIN = `root.child('admins/' + auth.uid).val() === true`;
   const APPROVED = `root.child('approved/' + auth.uid).val() === true`;
   return {

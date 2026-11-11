@@ -2,8 +2,8 @@ import { ref, get, onValue } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { changeNick, changePassword, logout, idPathKey, withdraw } from '../firebase/auth';
-import { hoursState, clientBlocked, BLOCK_MESSAGE, WARN_MESSAGE } from '../shared/hours';
-import HOLIDAYS from '../../holidays.json';
+import { hoursState, clientBlocked, WARN_MESSAGE } from '../shared/hours';
+import { HOLIDAYS, BREAKS, BLOCK_MESSAGE } from '../shared/schedule';
 import { TILE, STEP_MS, PUSH_COOLDOWN_MS, PUSH_STUN_MS, WATER_TURN_HOLD_MS, DEFAULT_CONFIG } from '../shared/config';
 import type { Dir, UserProfile, ServerConfig, RoomState } from '../shared/types';
 import { randomId, el, lerp } from '../shared/util';
@@ -179,7 +179,7 @@ export class World implements WorldCtx {
     this.hud.setAnnouncement(this.config.announcement?.text || null, this.config.announcement?.ts || 0);
     this.chat.systemMessage(`${this.profile.nick} 님, MawaVerse에 오신 것을 환영합니다! Enter 로 채팅, F 로 상호작용, 물가에서 F 로 낚시, 풀밭 벌레 옆에서 F 로 채집, G 로 앞사람에게 말랑이 던지기, 0 으로 밀치기, R 로 끌기, 우클릭(모바일은 캐릭터 터치)으로 메뉴, 도움말 버튼이나 Space 로 키 가이드.`);
     this.engine.start((dt, now) => this.tick(dt, now));
-    // 평일 근무시간 차단(관리자 설정으로 켰을 때): 08:55 에 안내하고 09:00 에 내보낸다 (관리자 제외). 08:55~09:00 에 들어온 사람도 바로 안내를 본다
+    // 평일 근무시간 차단(관리자 설정으로 켰을 때): 차단이 시작되기 5분 전(08:55, 쉬는 시간이 끝나기 5분 전)에 안내하고 그 시각에 내보낸다 (관리자 제외). 그 5분 사이에 들어온 사람도 바로 안내를 본다
     // 차단 설정은 따로 구독한다: 이 칸은 누구나 읽을 수 있어서, 관리자가 차단을 켜는 순간에도 값이 확실히 온다 (config 전체는 차단되면 읽을 수 없다)
     if (!this.isAdmin) {
       this.hoursUnsub = onValue(ref(db, 'config/hoursBlock'), (s) => { this.hoursBlock = s.val() === true; this.checkHours(); }, () => {});
@@ -196,8 +196,8 @@ export class World implements WorldCtx {
     if (this.stopped) return;
     if (!this.hoursBlock) { this.hoursWarned = false; return; } // 관리자 설정에서 차단을 켰을 때만
     const now = serverNow();
-    if (clientBlocked(now, HOLIDAYS)) { void this.forceLogout(BLOCK_MESSAGE); return; }
-    if (hoursState(now, HOLIDAYS) !== 'warn') { this.hoursWarned = false; return; }
+    if (clientBlocked(now, HOLIDAYS, BREAKS)) { void this.forceLogout(BLOCK_MESSAGE); return; }
+    if (hoursState(now, HOLIDAYS, BREAKS) !== 'warn') { this.hoursWarned = false; return; }
     if (this.hoursWarned) return;
     this.hoursWarned = true;
     this.banner(`⏰ ${WARN_MESSAGE}`, '평일 오전 9시~오후 6시에는 이용할 수 없어요.');

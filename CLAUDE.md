@@ -12,10 +12,11 @@
 - **커밋 작성자**: 이 저장소의 커밋은 개인 GitHub 계정으로 남긴다. 새로 clone 한 폴더에는 작성자 설정이 없어서 그대로 커밋하면 PC 의 전역 git 설정(다른 이름·이메일)이 공개 저장소에 들어간다. clone 직후, 첫 커밋 전에 그 폴더에서 `git config user.name "hamawa"` 와 `git config user.email "191250974+hamawa@users.noreply.github.com"` 를 실행하고, 커밋하기 전에 `git var GIT_AUTHOR_IDENT` 로 확인할 것. 전역 설정은 건드리지 않는다.
 
 ## 반드시 지킬 규칙
-- **이용 시간**: 관리자 페이지 설정의 "평일 근무시간 이용 차단"(`config/hoursBlock`)을 켜면 평일(월~금) 09:00~18:00 KST 에는 이용할 수 없다. 주말과 공휴일은 종일 허용. 관리자(`admins/{uid}`)는 게임·관리자 페이지 모두 예외. 기본값은 꺼짐(값이 없거나 false 면 언제나 이용 가능)이고, 아래 내용은 켜져 있을 때의 동작이다.
+- **이용 시간**: 관리자 페이지 설정의 "평일 근무시간 이용 차단"(`config/hoursBlock`)을 켜면 평일(월~금) 09:00~18:00 KST 에는 이용할 수 없다. 단 쉬는 시간(10:30~10:45, 12:00~13:00, 15:30~15:45)에는 풀린다. 주말과 공휴일은 종일 허용. 관리자(`admins/{uid}`)는 게임·관리자 페이지 모두 예외. 기본값은 꺼짐(값이 없거나 false 면 언제나 이용 가능)이고, 아래 내용은 켜져 있을 때의 동작이다.
   - 설정값 `config/hoursBlock` 만은 로그인 전에도 읽을 수 있다(가입·로그인 화면이 미리 알아야 한다). 쓰기는 관리자만. 게임 화면은 이 칸을 따로 구독하므로(`world.ts`), 관리자가 켜면 접속 중인 일반 사용자에게 바로 적용된다.
   - 판정은 서버가 한다: 보안 규칙이 서버 시각(`now`)으로 막는다(`tools/gen-gate.cjs` 가 넣는 조건). 화면 쪽(`src/shared/hours.ts`)은 안내와 타이머용이고 `serverNow()` 를 쓴다. 기기 시계로 판정하는 코드를 만들지 말 것.
-  - 08:55 에 접속자에게 "5분 뒤 이용 시간이 종료됩니다" 안내(그 사이에 들어온 사람에게도), 09:00 에 일반 사용자를 내보내고 차단 안내 화면을 띄운다(`world.ts checkHours`, `main.ts showBlocked`). 화면은 09:00 3초 전에 내보낸다: 정각이 지나면 규칙이 퇴장 처리(접속 표시·자리 지우기)까지 막기 때문이다.
+  - 차단이 시작되기 5분 전(08:55, 그리고 쉬는 시간이 끝나기 5분 전인 10:40·12:55·15:40)에 접속자에게 "5분 뒤 이용 시간이 종료됩니다" 안내(그 사이에 들어온 사람에게도), 차단 시각(09:00, 10:45, 13:00, 15:45)에 일반 사용자를 내보내고 차단 안내 화면을 띄운다(`world.ts checkHours`, `main.ts showBlocked`). 화면은 차단 시각 3초 전에 내보낸다: 그 시각이 지나면 규칙이 퇴장 처리(접속 표시·자리 지우기)까지 막기 때문이다. 풀리는 쪽(쉬는 시간 시작, 18:00)은 당기지 않는다.
+  - **쉬는 시간**은 `hours.json`(루트) 하나로 관리한다. 화면은 `src/shared/schedule.ts` 가 읽어 `hours.ts` 의 판정 함수에 넘기고, 규칙은 `tools/gen-gate.cjs` 가 같은 파일로 조건식을 만든다. 쉬는 시간을 바꾸면 차단 안내 문구(`blockMessage`)에도 자동으로 반영된다. 09:00·18:00 자체는 `hours.ts` 와 `gen-gate.cjs` 양쪽의 상수다(바꾸면 둘 다, 그리고 안내 문구도).
   - 차단 시간에도 로그인 화면은 보인다(관리자가 로그인해야 하므로). 일반 사용자는 로그인 직후 차단 안내가 뜨고 로그아웃된다. 가입 신청도 받지 않는다.
 - **공휴일**: `holidays.json`(루트) 하나로 관리한다. `tools/gen-gate.cjs` 가 이를 `holidays.deploy.json`(KST 날짜 번호 → 이름)으로 바꾸고 배포 때 DB `holidays/` 에 올린다. 규칙은 DB 의 `holidays/{날짜 번호}` 를, 화면은 번들에 든 `holidays.json` 을 본다. 해가 바뀌기 전에 다음 해 날짜를 채울 것.
 - **가입 승인**: 가입하면 프로필(`users`)·아이디(`ids`)·닉네임(`nicknames`)과 신청서(`signups/{uid}`: 실명 name, 가입 사유 reason, 시각 at)가 만들어지고, 관리자가 관리자 페이지의 가입 승인 탭에서 `approved/{uid}` 를 true 로 쓰기 전에는 대기 화면만 보인다. 규칙도 승인되지 않은 계정의 게임 경로 접근을 전부 막는다.
@@ -28,7 +29,7 @@
 - `src/main.ts` 게임 진입(로그인·승인·차단 분기), `src/admin/main.ts` 관리자 대시보드(admin.html), `src/dev/main.ts` 그래픽 미리보기(dev.html, Firebase 불필요)
 - `src/game/world.ts` 월드 오케스트레이터(이동, 메뉴, 상호작용). `net.ts` presence/위치 동기화, `chat.ts`, `rooms.ts`(커피 내기), `board.ts`+`boardui.ts`, `fishing.ts`+`fishui.ts`(낚시, 데이터는 `src/shared/fish.ts`), `wallet.ts`+`shopui.ts`+`cosmetics.ts`(코인·상점·꾸미기, 품목은 `src/shared/shop.ts`), `contest.ts`(낚시 대회, 일정 계산은 `src/shared/contest.ts`), `bugs.ts`(곤충 채집, 데이터는 `src/shared/bugs.ts`; 물고기·곤충 공용 로직은 `src/shared/collection.ts`), `toss.ts`(말랑이 던지기), `moleui.ts`(두더지 잡기 오락기), `dig.ts`+`digui.ts`(보물 지도), `rouletteui.ts`(하루 룰렛, 칸은 `src/shared/roulette.ts`), `casino.ts`+`casinoui.ts`(경마, 규칙 검증 설계는 `src/shared/casino.ts`), `mafia.ts`+`mafiaui.ts`(마피아, 상수·집계는 `src/shared/mafia.ts`), `pets.ts`(펫 따라다니기·탑승 그리기), `petride.ts`(펫 레벨·탑승·상시 효과), `catchlog.ts`(내 낚시·채집 기록), `ui.ts`(DOM HUD/모달/로그인·가입 폼), `render.ts`(캔버스), `engine.ts`(카메라/루프), `input.ts`
 - `src/game/map.ts` 맵 데이터/기본 맵 빌더, `tiles.ts` 타일 아트, `sprites/*` 캐릭터 생성기(150 프리셋)
-- `src/firebase/*` 초기화/인증 헬퍼(가입·승인 확인·탈퇴), `src/shared/*` 타입/설정/유틸, `src/shared/hours.ts` 이용 시간 판정(순수 함수)
+- `src/firebase/*` 초기화/인증 헬퍼(가입·승인 확인·탈퇴), `src/shared/*` 타입/설정/유틸, `src/shared/hours.ts` 이용 시간 판정(순수 함수), `src/shared/schedule.ts` 공휴일·쉬는 시간 설정 읽기
 - `database.rules.json` 보안 규칙 원본 (서버 코드 없음: 모든 검증은 여기서). `tools/gen-gate.cjs` 가 여기에 승인·이용 시간 조건을 넣어 `database.rules.deploy.json` 을 만들고, 배포와 에뮬레이터는 그 파일을 쓴다(`firebase.json`). 생성된 파일(`database.rules.deploy.json`, `database.rules.test.json`, `holidays.deploy.json`)은 git 에 올리지 않는다.
 - `tools/admin-cli.mjs` firebase-admin CLI (serviceAccount.json 필요), `tools/gen-rules.cjs` 지갑 규칙 생성기, `tools/usage.mjs` 사용량 점검
 - `tests/hours.test.mjs` 이용 시간 판정 테스트, `tests/rules-gate.test.mjs` 보안 규칙 테스트(에뮬레이터)

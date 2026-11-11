@@ -51,7 +51,19 @@ const TIMES = [
   ['평일 08:55', '2026-11-11 08:55:00', true],
   ['평일 08:59:59', '2026-11-11 08:59:59', true],
   ['평일 09:00', '2026-11-11 09:00:00', false],
-  ['평일 12:00', '2026-11-11 12:00:00', false],
+  ['평일 10:29:59', '2026-11-11 10:29:59', false],
+  ['평일 10:30 (쉬는 시간 시작)', '2026-11-11 10:30:00', true],
+  ['평일 10:44:59', '2026-11-11 10:44:59', true],
+  ['평일 10:45 (쉬는 시간 끝)', '2026-11-11 10:45:00', false],
+  ['평일 11:59:59', '2026-11-11 11:59:59', false],
+  ['평일 12:00 (점심 시작)', '2026-11-11 12:00:00', true],
+  ['평일 12:59:59', '2026-11-11 12:59:59', true],
+  ['평일 13:00 (점심 끝)', '2026-11-11 13:00:00', false],
+  ['평일 14:00', '2026-11-11 14:00:00', false],
+  ['평일 15:29:59', '2026-11-11 15:29:59', false],
+  ['평일 15:30 (쉬는 시간 시작)', '2026-11-11 15:30:00', true],
+  ['평일 15:44:59', '2026-11-11 15:44:59', true],
+  ['평일 15:45 (쉬는 시간 끝)', '2026-11-11 15:45:00', false],
   ['평일 17:59', '2026-11-11 17:59:59', false],
   ['평일 18:00', '2026-11-11 18:00:00', true],
   ['평일 새벽', '2026-11-12 03:00:00', true],
@@ -60,7 +72,7 @@ const TIMES = [
   ['토요일 12:00', '2026-11-14 12:00:00', true],
   ['일요일 12:00', '2026-11-15 12:00:00', true],
   ['공휴일(금) 12:00', '2026-12-25 12:00:00', true],
-  ['공휴일 다음 평일 12:00', '2026-12-28 12:00:00', false],
+  ['공휴일 다음 평일 11:00', '2026-12-28 11:00:00', false],
 ];
 for (const [name, t, open] of TIMES) {
   await setNow(t);
@@ -126,19 +138,19 @@ await expect('공휴일: 사용자가 쓰기', 'deny', () => ok.ref('holidays/1'
 await expect('공휴일: 관리자도 쓰기 불가(배포로만)', 'deny', () => admin.ref('holidays/1').set('x'));
 
 // ---------- 5. 차단 설정(config/hoursBlock): 꺼져 있으면(기본) 평일 낮에도 이용할 수 있다. 가입 승인은 그대로 필요하다 ----------
-await setNow('2026-11-11 12:00:00');
-await expect('설정 켬: 평일 12:00 승인된 사용자 → 차단', 'deny', () => ok.ref('config').get());
+await setNow('2026-11-11 14:00:00');
+await expect('설정 켬: 평일 14:00 승인된 사용자 → 차단', 'deny', () => ok.ref('config').get());
 await expect('설정: 일반 사용자가 차단 설정을 바꾸기', 'deny', () => ok.ref('config/hoursBlock').set(false));
 await expect('설정: 로그인 안 한 사람도 차단 설정 여부는 읽는다', 'allow', () => anon.ref('config/hoursBlock').get());
 await expect('설정: 로그인 안 한 사람이 다른 설정 읽기', 'deny', () => anon.ref('config/maxPlayers').get());
 await expect('설정: 차단 시간에도 관리자는 설정을 끌 수 있다', 'allow', () => admin.ref('config/hoursBlock').set(false));
-await expect('설정 끔: 평일 12:00 승인된 사용자가 설정 읽기', 'allow', () => ok.ref('config').get());
-await expect('설정 끔: 평일 12:00 승인된 사용자가 접속 표시 쓰기', 'allow', () => ok.ref('players/OK').set({ ...presence, hb: ServerValue.TIMESTAMP }));
-await expect('설정 끔: 평일 12:00 새 사람이 가입 신청서 쓰기', 'allow', () => as('NEWOFF').ref('signups/NEWOFF').set({ name: '박신청', reason: '가입 사유', at: ServerValue.TIMESTAMP }));
+await expect('설정 끔: 평일 14:00 승인된 사용자가 설정 읽기', 'allow', () => ok.ref('config').get());
+await expect('설정 끔: 평일 14:00 승인된 사용자가 접속 표시 쓰기', 'allow', () => ok.ref('players/OK').set({ ...presence, hb: ServerValue.TIMESTAMP }));
+await expect('설정 끔: 평일 14:00 새 사람이 가입 신청서 쓰기', 'allow', () => as('NEWOFF').ref('signups/NEWOFF').set({ name: '박신청', reason: '가입 사유', at: ServerValue.TIMESTAMP }));
 await expect('설정 끔: 승인 안 된 사용자는 여전히 못 들어옴', 'deny', () => as('NEWOFF').ref('players/NEWOFF').set({ ...presence, hb: ServerValue.TIMESTAMP }));
 await expect('설정: 불리언이 아닌 값', 'deny', () => admin.ref('config/hoursBlock').set('yes'));
 await root.ref('config/hoursBlock').remove();
-await expect('설정 없음(기본): 평일 12:00 승인된 사용자가 설정 읽기', 'allow', () => ok.ref('config').get());
+await expect('설정 없음(기본): 평일 14:00 승인된 사용자가 설정 읽기', 'allow', () => ok.ref('config').get());
 await expect('설정 없음(기본): 승인 안 된 사용자는 못 들어옴', 'deny', () => as('NEWOFF').ref('config').get());
 
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
