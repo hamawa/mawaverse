@@ -7,8 +7,9 @@ import { showLoginScreen, showMessageScreen, toast, modal, promptModal, confirmM
 import { el, escapeHtml, fmtDateTime, fmtBytes, dayKey, nickKey, safeKey, idKey, validateNick } from '../shared/util';
 import { APP_NAME, CLIENT_VERSION } from '../shared/config';
 import type { PlayerState, UserProfile, ServerConfig, RoomState, ConnLog, ChatLog, Post } from '../shared/types';
-import { buildDefaultMap, buildPortalGarden, sanitizeMap, labelAt, G, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, type PortalDest, emptyMap, validateZone, isReservedMapId, portalDests, PORTAL_MAX_DESTS } from '../game/map';
-import { isMapId, MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID } from '../shared/maps';
+import { buildDefaultMap, buildPortalGarden, buildGoldMine, sanitizeMap, labelAt, G, G_GOLD, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, type PortalDest, emptyMap, validateZone, isReservedMapId, portalDests, PORTAL_MAX_DESTS } from '../game/map';
+import { isMapId, playerMapId, MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID } from '../shared/maps';
+import { MAP_INFO } from '../game/portal';
 import { groundTile, objectSprite } from '../game/tiles';
 import { catLabel } from '../game/board';
 import { ALL_ITEMS, priceOf, itemById, petLevel, type Wallet } from '../shared/shop';
@@ -177,39 +178,90 @@ function tabDash(main: HTMLElement): void {
   main.append(el('h3', { text: '현황' }));
   const cards = el('div', { class: 'cards' });
   const playersBox = el('div');
-  const mini = document.createElement('canvas');
-  mini.width = 480; mini.height = 320; mini.style.border = '1px solid var(--border)'; mini.style.borderRadius = '8px'; mini.style.marginBottom = '12px';
+  // 미니맵: 맵마다 하나씩 (2026-11-11. 포탈로 맵이 여러 개가 된 뒤에도 기본 맵 하나에 모든 사람을 찍고 있었다). 기본 맵은 크게, 나머지는 작게 옆에
+  const mapsBox = el('div', { style: 'display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-bottom:12px' });
+  interface MapView { id: string; map: MapData; cv: HTMLCanvasElement; cap: HTMLElement }
+  const views = new Map<string, MapView>();
+  const loading = new Set<string>();
+  const mapName = (id: string) => (id === MAIN_MAP_ID ? '광장 (기본 맵)' : MAP_INFO[id]?.name || views.get(id)?.map.name || id);
+  const addView = (id: string, m: MapData): void => {
+    let v = views.get(id);
+    if (!v) {
+      const cv = document.createElement('canvas');
+      cv.style.border = '1px solid var(--border)'; cv.style.borderRadius = '8px'; cv.style.display = 'block';
+      const cap = el('div', { class: 'muted', style: 'margin-bottom:4px' });
+      v = { id, map: m, cv, cap };
+      views.set(id, v);
+      mapsBox.append(el('div', {}, [cap, cv]));
+    }
+    v.map = m;
+    const px = id === MAIN_MAP_ID ? 8 : 10; // 한 칸의 크기(px). 작은 맵은 조금 키워서
+    v.cv.width = m.w * px; v.cv.height = m.h * px;
+  };
   main.append(cards, el('div', { class: 'toolbar' }, [
     el('a', { href: consoleUrl, target: '_blank', class: 'btn small', text: 'Firebase 콘솔 사용량 열기 ↗' }),
     (() => { const b = el('button', { class: 'btn small', text: '잔여 데이터 정리' }); b.onclick = async () => toast(await cleanupStale()); return b; })(),
     el('span', { class: 'muted', text: '사용량 수치는 클라이언트 집계 기반 추정치입니다. 정확한 값은 Firebase 콘솔에서 확인하세요.' }),
-  ]), mini, playersBox);
-  let map: MapData = buildDefaultMap();
+  ]), mapsBox, playersBox);
+  addView(MAIN_MAP_ID, buildDefaultMap());
+  addView(GARDEN_MAP_ID, buildPortalGarden());
+  addView(GOLD_MINE_MAP_ID, buildGoldMine());
   get(ref(db, 'config/activeMap')).then(async (s) => {
     const id = s.val() || 'default';
     const m = await get(ref(db, `maps/${id}`));
-    if (m.exists()) map = sanitizeMap(m.val(), map);
+    if (m.exists()) { addView(MAIN_MAP_ID, sanitizeMap(m.val(), views.get(MAIN_MAP_ID)!.map)); renderPlayers(); }
   });
+  // 저장된 다른 맵에 사람이 있으면 그 맵을 한 번 읽어 와 미니맵을 더한다
+  const ensureView = (id: string): void => {
+    if (views.has(id) || loading.has(id) || !isMapId(id)) return;
+    loading.add(id);
+    get(ref(db, `maps/${id}`)).then((m) => {
+      const fallback = emptyMap(id, id, 24, 18);
+      addView(id, m.exists() ? sanitizeMap(m.val(), fallback) : fallback);
+      renderPlayers();
+    }).catch(() => {});
+  };
   const stats: Record<string, number> = {};
   let players: Record<string, PlayerState> = {};
-  const draw = () => {
-    const ctx = mini.getContext('2d')!;
-    const sx = mini.width / map.w, sy = mini.height / map.h;
-    ctx.fillStyle = '#1b2a1b'; ctx.fillRect(0, 0, mini.width, mini.height);
+  const drawView = (v: MapView): void => {
+    const { map, cv } = v;
+    const ctx = cv.getContext('2d')!;
+    const sx = cv.width / map.w, sy = cv.height / map.h;
+    ctx.fillStyle = '#1b2a1b'; ctx.fillRect(0, 0, cv.width, cv.height);
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
       const g = map.ground[y * map.w + x], o = map.objects[y * map.w + x];
-      ctx.fillStyle = g === G.WATER ? '#4aa3df' : g === G.PATH || g === G.PATH2 ? '#d9c38f' : g === G.PLAZA ? '#cfc9bd' : g === G.WOOD || g === G.TILE_FLOOR || g === G.CARPET ? '#c99a5b' : '#7ec850';
+      ctx.fillStyle = g === G.WATER ? '#4aa3df' : g === G.PATH || g === G.PATH2 ? '#d9c38f' : g === G.PLAZA ? '#cfc9bd' : g === G.WOOD || g === G.TILE_FLOOR || g === G.CARPET ? '#c99a5b'
+        : g === G.DARK_FLOOR ? '#5b5b66' : g === G.SAND ? '#eadcaa' : g === G_GOLD ? '#f2b632' : '#7ec850';
       if (o === O.WALL || o === O.WALL_SIDE || o === O.WALL_WINDOW) ctx.fillStyle = '#b7523f';
       else if (o === O.TREE || o === O.PINE || o === O.BUSH || o === O.HEDGE) ctx.fillStyle = '#2f7a2f';
+      else if (o === O.ROCK) ctx.fillStyle = '#8a8a8a';
       ctx.fillRect(x * sx, y * sy, Math.ceil(sx), Math.ceil(sy));
     }
+    // 포탈 자리
+    for (const z of map.zones) if (z.kind === 'portal') { ctx.fillStyle = '#38bdf8'; ctx.fillRect(z.x * sx, z.y * sy, z.w * sx, z.h * sy); }
     ctx.font = '11px sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.7)';
     for (const z of map.zones) if (z.kind === 'label') ctx.fillText(z.label || '', z.x * sx + 2, z.y * sy + 11);
+    let n = 0;
     for (const [, p] of Object.entries(players)) {
+      if (playerMapId(p) !== v.id) continue; // 그 맵에 있는 사람만
+      n++;
       ctx.fillStyle = '#ffd84d'; ctx.beginPath(); ctx.arc(p.x * sx + sx / 2, p.y * sy + sy / 2, 4, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#000'; ctx.stroke();
       ctx.fillStyle = '#fff'; ctx.fillText(p.n, p.x * sx + 6, p.y * sy - 2);
     }
+    v.cap.textContent = `${mapName(v.id)} · ${n}명`;
+  };
+  const draw = () => {
+    for (const p of Object.values(players)) ensureView(playerMapId(p));
+    for (const v of views.values()) drawView(v);
+  };
+  // 접속자 표의 위치: 기본 맵이 아니면 맵 이름을 앞에 붙인다
+  const whereOf = (p: PlayerState): string => {
+    const id = playerMapId(p), v = views.get(id);
+    const label = (v && labelAt(v.map, p.x, p.y)) || '';
+    if (id === MAIN_MAP_ID) return `${label || '-'} (${p.x}, ${p.y})`;
+    const name = mapName(id);
+    return `[${name}]${label && label !== name ? ' ' + label : ''} (${p.x}, ${p.y})`; // 구역 이름이 맵 이름과 같으면 한 번만
   };
   // 로그·게시글 개수는 노드 전체를 내려받아야 셀 수 있다(한 번에 약 360KB). 탭을 열 때 한 번만 센다.
   // 예전엔 renderStats 안에서 셌는데, 접속자 누가 움직일 때마다 불려서 현황 탭을 켜 두면 분당 수십 MB 가 나갔다(2026-11-09 점심 10분에 776MB).
@@ -246,7 +298,7 @@ function tabDash(main: HTMLElement): void {
     const tb = el('tbody');
     for (const [uid, p] of Object.entries(players).sort((a, b) => (a[1].j || 0) - (b[1].j || 0))) {
       const tr = el('tr');
-      tr.append(el('td', { text: p.n + (uid === myUid ? ' (나)' : '') }), el('td', { text: `${labelAt(map, p.x, p.y) || '-'} (${p.x}, ${p.y})` }), el('td', { text: p.pt ? `${itemById(p.pt)?.icon || p.pt} Lv.${petLevel(p.pl || 0)}` : '-' }), el('td', { text: p.r || '-' }), el('td', { text: p.j ? fmtDateTime(p.j) : '-' }));
+      tr.append(el('td', { text: p.n + (uid === myUid ? ' (나)' : '') }), el('td', { text: whereOf(p) }), el('td', { text: p.pt ? `${itemById(p.pt)?.icon || p.pt} Lv.${petLevel(p.pl || 0)}` : '-' }), el('td', { text: p.r || '-' }), el('td', { text: p.j ? fmtDateTime(p.j) : '-' }));
       const td = el('td');
       const k = el('button', { class: 'btn small', text: '강퇴' }); k.onclick = async () => { if (await confirmModal(`${p.n} 님을 강퇴할까요?`)) { await kickUser(uid); toast('강퇴했습니다.'); } };
       const b = el('button', { class: 'btn small danger', text: '차단' }); b.onclick = async () => { if (await confirmModal(`${p.n} 님을 차단할까요? 다시 접속할 수 없게 됩니다.`)) { await banUser(uid); toast('차단했습니다.'); } };
