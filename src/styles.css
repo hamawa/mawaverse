@@ -144,6 +144,16 @@ body.mobile #chat-hide { display: inline-block; }
 .modal.wide { max-width: 720px; }
 .modal h3 { margin: 0 0 12px; font-size: 16px; color: var(--accent); }
 .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+/* 포탈 행선지 선택 창 (portalui.ts) */
+.portal-pick { display: flex; flex-direction: column; gap: 8px; }
+.portal-dest { display: flex; align-items: center; gap: 10px; text-align: left; width: 100%; background: #223029; color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; font: inherit; }
+.portal-dest.on { border-color: var(--accent); background: #2f3d2a; }
+.portal-dest:disabled { opacity: 0.5; cursor: default; }
+.portal-dest .pd-main { flex: 1 1 auto; min-width: 0; }
+.portal-dest .pd-name { font-weight: bold; font-size: 15px; }
+.portal-dest .pd-desc { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.portal-dest .pd-count { flex: 0 0 auto; font-size: 12px; color: var(--muted); white-space: nowrap; }
+.portal-pick .pd-help { text-align: center; }
 /* 우측 상단 X 닫기 버튼 (withCloseX) */
 .modal { position: relative; }
 .modal h3 { padding-right: 32px; }

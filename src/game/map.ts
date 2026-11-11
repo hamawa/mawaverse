@@ -1,10 +1,13 @@
 import { mulberry32 } from '../shared/hash';
-import { MAIN_MAP_ID, GARDEN_MAP_ID, isMapId } from '../shared/maps';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, isMapId } from '../shared/maps';
 
 // 바닥 타일
 export const G = {
   GRASS: 0, PATH: 1, WATER: 2, FLOWER: 3, WOOD: 4, TILE_FLOOR: 5, PLAZA: 6, SAND: 7, CARPET: 8, DARK_FLOOR: 9, GRASS2: 10, PATH2: 11,
 } as const;
+
+// 금광 맵의 거대한 금덩어리가 놓인 칸: 지나갈 수 없고, 옆 칸에서 캔다 (mine.ts). 금광 맵 빌더만 쓰므로 관리자 편집기 팔레트(G 의 값들)에는 넣지 않는다
+export const G_GOLD = 12;
 
 // 오브젝트 (0 = 없음)
 export const O = {
@@ -24,26 +27,48 @@ export const OBJECT_NAMES: Record<number, string> = {
 
 export const WALKABLE_OBJECTS = new Set<number>([O.NONE, O.MAT]);
 // 들어갈 수 없는 바닥. 물은 수영으로 들어갈 수 있으므로 현재 비어 있음
-export const SOLID_GROUND = new Set<number>([]);
+export const SOLID_GROUND = new Set<number>([G_GOLD]);
 // 2타일 높이로 그려지는 오브젝트 (아랫칸 기준, 윗칸을 덮음)
 export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE]);
 
 export interface Zone {
   id: string;
-  kind: 'room' | 'casino' | 'board' | 'label' | 'fish' | 'arcade' | 'portal'; // room: 커피 내기 방, casino: 카지노(정원 있음, 방처럼 입장), fish: 낚시 기록 표지판, arcade: 두더지 잡기 오락기 (옆에서 F), portal: 다른 맵으로 이동
+  kind: 'room' | 'casino' | 'board' | 'label' | 'fish' | 'arcade' | 'portal' | 'mine'; // mine: 거대한 금덩어리(금광 맵에만. 그림 한 장으로 그린다), room: 커피 내기 방, casino: 카지노(정원 있음, 방처럼 입장), fish: 낚시 기록 표지판, arcade: 두더지 잡기 오락기 (옆에서 F), portal: 다른 맵으로 이동
   x: number; y: number; w: number; h: number;
   cap?: number;
   door?: { x: number; y: number };
   exit?: { x: number; y: number };
   label?: string;
-  targetMap?: string;
+  targetMap?: string;                       // 포탈(옛 형식): 목적지 하나
   targetSpawn?: { x: number; y: number };
+  targets?: PortalDest[];                   // 포탈: 행선지 목록. 2개 이상이면 F 를 눌렀을 때 고르는 창이 뜬다 (2026-11-11)
+}
+// 포탈 행선지 하나. spawn 이 없으면 그 맵의 시작 자리, label·desc 가 없으면 맵 기본 이름·설명 (portal.ts MAP_INFO)
+export interface PortalDest { map: string; spawn?: { x: number; y: number }; label?: string; desc?: string }
+export const PORTAL_MAX_DESTS = 6;
+// 포탈의 행선지 목록. 옛 형식(targetMap 하나)은 1개짜리로 읽는다: 이미 저장된 맵을 고치지 않아도 된다
+export function portalDests(z: { targets?: PortalDest[] | null; targetMap?: string; targetSpawn?: { x: number; y: number } | null }): PortalDest[] {
+  if (Array.isArray(z.targets) && z.targets.length) return z.targets;
+  return z.targetMap ? [{ map: z.targetMap, ...(z.targetSpawn ? { spawn: z.targetSpawn } : {}) }] : [];
+}
+function validPortalDest(d: unknown): boolean {
+  if (!d || typeof d !== 'object') return false;
+  const o = d as Record<string, unknown>;
+  if (!isMapId(o.map)) return false;
+  if (o.spawn !== undefined && o.spawn !== null) {
+    if (typeof o.spawn !== 'object') return false;
+    const s = o.spawn as Record<string, unknown>;
+    if (!Number.isInteger(s.x) || !Number.isInteger(s.y)) return false;
+  }
+  if (o.label !== undefined && typeof o.label !== 'string') return false;
+  if (o.desc !== undefined && typeof o.desc !== 'string') return false;
+  return true;
 }
 
-export const RESERVED_MAP_IDS = [MAIN_MAP_ID, 'default', GARDEN_MAP_ID] as const;
+export const RESERVED_MAP_IDS = [MAIN_MAP_ID, 'default', GARDEN_MAP_ID, GOLD_MINE_MAP_ID] as const;
 
 export function isReservedMapId(id: string): boolean {
-  return id === MAIN_MAP_ID || id === 'default' || id === GARDEN_MAP_ID;
+  return (RESERVED_MAP_IDS as readonly string[]).includes(id);
 }
 
 export function validatePortalZone(z: unknown): z is Zone {
@@ -54,7 +79,11 @@ export function validatePortalZone(z: unknown): z is Zone {
   if (!Number.isInteger(zone.x) || !Number.isInteger(zone.y)) return false;
   if (!Number.isInteger(zone.w) || (zone.w as number) <= 0) return false;
   if (!Number.isInteger(zone.h) || (zone.h as number) <= 0) return false;
-  if (typeof zone.targetMap !== 'string' || !isMapId(zone.targetMap)) return false;
+  // 행선지: 목록(targets, 1~6개)이 있으면 그것을, 없으면 옛 형식 targetMap 하나를 본다
+  if (zone.targets !== undefined && zone.targets !== null) {
+    if (!Array.isArray(zone.targets) || zone.targets.length < 1 || zone.targets.length > PORTAL_MAX_DESTS || !zone.targets.every(validPortalDest)) return false;
+    if (zone.targetMap !== undefined && !isMapId(zone.targetMap)) return false;
+  } else if (typeof zone.targetMap !== 'string' || !isMapId(zone.targetMap)) return false;
   if (zone.targetSpawn !== undefined && zone.targetSpawn !== null) {
     if (typeof zone.targetSpawn !== 'object') return false;
     const ts = zone.targetSpawn as Record<string, unknown>;
@@ -285,8 +314,7 @@ export function buildDefaultMap(): MapData {
     w: 2,
     h: 1,
     label: '포탈 정원 · 공사 중 (출입 금지)',
-    targetMap: GARDEN_MAP_ID,
-    targetSpawn: { x: 12, y: 13 },
+    targets: [{ map: GARDEN_MAP_ID, spawn: { x: 12, y: 13 } }, { map: GOLD_MINE_MAP_ID }],
   });
   // 상호작용 거리(1칸) 밖까지 둘러야 펜스 너머에서 F로 진입하지 못한다.
   for (let x = 27; x <= 32; x++) { setO(x, 34, O.FENCE); setO(x, 38, O.FENCE); }
@@ -367,6 +395,41 @@ export function buildPortalGarden(): MapData {
   });
 
   // 스폰 위치: 포탈 앞 안전한 타일 (12, 13)
+  m.spawn = { x: 12, y: 13 };
+  return m;
+}
+
+// 금광 (2026-11-11): 가운데에 거대한 금덩어리 6×5칸 하나. 물·잔디·꽃밭이 없어 낚시도 곤충도 없다. 금덩어리 둘레의 돌길 22칸에 서서 캔다
+export function buildGoldMine(): MapData {
+  const W = 24, H = 18;
+  const m = emptyMap(GOLD_MINE_MAP_ID, '금광', W, H);
+  const rnd = mulberry32(918273645);
+  const setG = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.ground[y * W + x] = id; };
+  const setO = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.objects[y * W + x] = id; };
+  const fillG = (x: number, y: number, w: number, h: number, id: number) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) setG(x + i, y + j, id); };
+
+  fillG(0, 0, W, H, G.DARK_FLOOR);
+  // 테두리 바위벽
+  for (let x = 0; x < W; x++) { setO(x, 0, O.ROCK); setO(x, H - 1, O.ROCK); }
+  for (let y = 0; y < H; y++) { setO(0, y, O.ROCK); setO(W - 1, y, O.ROCK); }
+  // 금덩어리 둘레의 돌길, 그 안에 금덩어리 (지나갈 수 없는 바닥)
+  const gold = { x: 9, y: 5, w: 6, h: 5 };
+  fillG(gold.x - 1, gold.y - 1, gold.w + 2, gold.h + 2, G.PLAZA);
+  fillG(gold.x, gold.y, gold.w, gold.h, G_GOLD);
+  m.zones.push({ id: 'gold', kind: 'mine', ...gold, label: '거대한 금덩어리' });
+  // 포탈에서 금덩어리까지 돌길
+  fillG(11, 11, 2, 6, G.PLAZA);
+  // 굴 안 여기저기 바위 (돌길·시작 자리·포탈 둘레는 비운다)
+  for (let i = 0; i < 16; i++) {
+    const x = 1 + Math.floor(rnd() * (W - 2)), y = 1 + Math.floor(rnd() * (H - 2));
+    if (m.ground[y * W + x] !== G.DARK_FLOOR || (x >= 9 && x <= 14 && y >= 11)) continue;
+    setO(x, y, O.ROCK);
+  }
+  setO(6, 3, O.LAMP); setO(17, 3, O.LAMP); setO(6, 11, O.LAMP); setO(17, 11, O.LAMP);
+
+  m.zones.push({ id: 'lbl-mine', kind: 'label', x: 1, y: 1, w: W - 2, h: H - 2, label: '금광' });
+  // 복귀 포탈: 행선지가 하나라 고르는 창 없이 바로 기본 맵의 시작 자리로
+  m.zones.push({ id: 'portal-main', kind: 'portal', x: 11, y: 15, w: 2, h: 1, label: '메인 광장', targetMap: MAIN_MAP_ID });
   m.spawn = { x: 12, y: 13 };
   return m;
 }

@@ -1,14 +1,27 @@
 // 포탈로 맵을 옮기는 데 쓰는 순수 함수들 (Firebase 없이 시험할 수 있게 world/net 에서 뺐다)
 import type { Dir } from '../shared/types';
-import type { MapData } from './map';
+import type { MapData, PortalDest } from './map';
 import { isWalkable, isWater, roomAt, findFreeTile, sanitizeMap } from './map';
-import { MAIN_MAP_ID, GARDEN_MAP_ID, isMapId, occupancyKey } from '../shared/maps';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, BUILTIN_MAP_IDS, isMapId, occupancyKey } from '../shared/maps';
 
-// 맵 id 를 어디서 읽나: main 은 기존 config/activeMap, 포탈 정원은 코드에 든 맵, 그 밖의 올바른 id 는 저장된 maps/{id}
+// 맵 id 를 어디서 읽나: main 은 기존 config/activeMap, 포탈 정원·금광은 코드에 든 맵, 그 밖의 올바른 id 는 저장된 maps/{id}
 export function mapSource(id: unknown): 'active' | 'builtin' | 'saved' | null {
   if (id === MAIN_MAP_ID) return 'active';
-  if (id === GARDEN_MAP_ID) return 'builtin';
+  if (typeof id === 'string' && BUILTIN_MAP_IDS.includes(id)) return 'builtin';
   return isMapId(id) ? 'saved' : null;
+}
+
+// 행선지 선택 창에 보이는 맵 이름·한 줄 설명 (행선지에 label·desc 가 적혀 있으면 그쪽이 먼저)
+export const MAP_INFO: Record<string, { name: string; desc: string }> = {
+  [MAIN_MAP_ID]: { name: '광장', desc: '모두가 모이는 기본 맵' },
+  [GARDEN_MAP_ID]: { name: '포탈 정원', desc: '연못과 꽃밭이 있는 작은 정원' },
+  [GOLD_MINE_MAP_ID]: { name: '금광', desc: '거대한 금덩어리에서 금덩이를 캔다. 낚시는 못 해요' },
+};
+export interface DestView { map: string; name: string; desc: string; count: number; ok: boolean } // ok: 지금 갈 수 있는 곳 (올바른 id 이고 내가 있는 맵이 아님)
+// 선택 창 한 줄. count: 지금 그 맵에 있는 사람 수 (접속자 목록에 모든 맵의 사람이 있어 따로 묻지 않는다)
+export function destView(d: PortalDest, from: string, count: number): DestView {
+  const info = MAP_INFO[d.map];
+  return { map: d.map, name: d.label || info?.name || d.map, desc: d.desc || info?.desc || '', count, ok: !!mapSource(d.map) && d.map !== from };
 }
 
 // 저장된 맵을 엄격하게 읽는다: 깨졌으면 기본 맵으로 바꾸지 않고 오류 (포탈 이동이 실패하고 원래 맵에 남는다)

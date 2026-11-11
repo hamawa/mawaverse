@@ -3,8 +3,10 @@ import '../styles.css';
 import { Engine } from '../game/engine';
 import { Input } from '../game/input';
 import { render, poseForEmote, type Entity, type RenderState } from '../game/render';
-import { buildDefaultMap, buildPortalGarden, isWalkable, isWater, roomAt, portalNear, labelAt, type MapData } from '../game/map';
-import { MAIN_MAP_ID, GARDEN_MAP_ID } from '../shared/maps';
+import { buildDefaultMap, buildPortalGarden, buildGoldMine, isWalkable, isWater, roomAt, portalNear, portalDests, labelAt, type MapData } from '../game/map';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID } from '../shared/maps';
+import { destView, MAP_INFO } from '../game/portal';
+import { openPortalPicker } from '../game/portalui';
 import { PRESETS, getSprite, GROUP_NAMES } from '../game/sprites';
 import { TILE, STEP_MS, EMOTES } from '../shared/config';
 import type { Dir } from '../shared/types';
@@ -19,7 +21,7 @@ const mode = location.hash === '#gallery' ? 'gallery' : 'play';
 const locBadge = el('span', { style: 'font-weight:bold;color:#38bdf8;margin-left:8px', text: '📍 위치: 중앙 광장 (기본 맵)' });
 const nav = el('div', { style: 'padding:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, [
   el('a', { href: '#play', text: '플레이그라운드' }), el('span', { text: ' | ' }), el('a', { href: '#gallery', text: '캐릭터 갤러리 (150)' }),
-  el('span', { class: 'muted', text: '  방향키 이동, 1~0 이모트, 2~9 포즈, F 상호작용/포탈 이동, J 정원' }),
+  el('span', { class: 'muted', text: '  방향키 이동, 1~0 이모트, 2~9 포즈, F 상호작용/포탈 이동, J 정원, K 금광' }),
   locBadge,
 ]);
 app.append(nav);
@@ -66,6 +68,7 @@ if (mode === 'gallery') {
   const maps: Record<string, MapData> = {
     [MAIN_MAP_ID]: buildDefaultMap(),
     [GARDEN_MAP_ID]: buildPortalGarden(),
+    [GOLD_MINE_MAP_ID]: buildGoldMine(),
   };
   let currentMapId: string = MAIN_MAP_ID;
   let map: MapData = maps[currentMapId];
@@ -99,8 +102,14 @@ if (mode === 'gallery') {
     if (typeof a === 'object' && 'emote' in a) { me.pose = poseForEmote(a.emote); me.poseAt = performance.now(); me.emoteId = a.emote; if (a.emote === 10) { const t = others.find((o) => Math.round(o.x) === to.x + (me.dir === 2 ? 1 : me.dir === 1 ? -1 : 0) && Math.round(o.y) === to.y + (me.dir === 0 ? 1 : me.dir === 3 ? -1 : 0)); if (t) { t.pushAt = performance.now(); t.pushDir = me.dir; t.x += me.dir === 2 ? 1 : me.dir === 1 ? -1 : 0; t.y += me.dir === 0 ? 1 : me.dir === 3 ? -1 : 0; } } }
     else if (a === 'interact') {
       const nearPortal = portalNear(map, to.x, to.y);
-      if (nearPortal && nearPortal.targetMap) {
-        switchMap(nearPortal.targetMap, nearPortal.targetSpawn);
+      if (nearPortal) {
+        // 행선지가 하나면 바로, 둘 이상이면 게임과 같은 선택 창
+        const dests = portalDests(nearPortal);
+        if (dests.length === 1) switchMap(dests[0].map, dests[0].spawn);
+        else if (dests.length > 1) {
+          input.releaseAll(); input.enabled = false;
+          openPortalPicker(dests.map((d) => destView(d, currentMapId, d.map === MAIN_MAP_ID ? others.length : 0)), (i) => switchMap(dests[i].map, dests[i].spawn), () => { input.enabled = true; });
+        }
         return;
       }
       // 낚시 미리보기: 물가에서 F → 찌 던지기, 다시 F → 입질(!), 다시 F → 끝
@@ -117,6 +126,7 @@ if (mode === 'gallery') {
     p: [MAIN_MAP_ID, 48, 26],
     g: [MAIN_MAP_ID, 30, 35],
     j: [GARDEN_MAP_ID, 12, 13],
+    k: [GOLD_MINE_MAP_ID, 12, 13],
   };
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
@@ -152,7 +162,7 @@ if (mode === 'gallery') {
     } else if (room) {
       hint = { x: to.x, y: to.y - 1, text: `F 준비 (${room.label})` };
     }
-    const loc = labelAt(map, to.x, to.y) || (currentMapId === GARDEN_MAP_ID ? '포탈 정원' : '광장');
+    const loc = labelAt(map, to.x, to.y) || MAP_INFO[currentMapId]?.name || '광장';
     locBadge.textContent = `📍 위치: ${loc} (${map.name})`;
     render(eng, { map, entities: [me, ...(currentMapId === MAIN_MAP_ID ? others : [])], rooms, now, serverNow: Date.now(), hint, bugs: [], tosses: [] });
   });

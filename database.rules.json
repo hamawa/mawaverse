@@ -97,7 +97,7 @@
       "$uid": {
         ".write": "auth != null && ((auth.uid == $uid && !root.child('bans/' + $uid).exists()) || root.child('admins/' + auth.uid).val() === true || (!newData.exists() && data.exists() && (!data.child('hb').exists() || data.child('hb').val() < now - 120000)))",
         ".validate": "!newData.exists() || (newData.hasChildren(['n', 'a', 'x', 'y', 'd', 's']) && newData.child('x').isNumber() && newData.child('y').isNumber() && newData.child('d').isNumber() && newData.child('n').isString() && newData.child('a').isString() && (!newData.hasChild('hb') || newData.child('hb').isNumber()) && (data.exists() || !root.child('config/minVersion').isNumber() || (newData.child('v').isNumber() && newData.child('v').val() >= root.child('config/minVersion').val())))",
-        "m": { ".validate": "newData.isString() && newData.val().matches(/^[a-zA-Z0-9_-]{1,20}$/) && (newData.val() == 'main' || newData.val() == 'portal-garden' || root.child('maps/' + newData.val()).exists())" },
+        "m": { ".validate": "newData.isString() && newData.val().matches(/^[a-zA-Z0-9_-]{1,20}$/) && (newData.val() == 'main' || newData.val() == 'portal-garden' || newData.val() == 'gold-mine' || root.child('maps/' + newData.val()).exists())" },
         "h": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" },
         "nc": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" },
         "fx": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" },

@@ -30,7 +30,7 @@ registerHooks({
   },
 });
 const { mapSource, parseSavedMap, arrivalTile, lastPosOf, savedMapId, mapSwitchUpdate, portalBlock, portalYields } = await import('../src/game/portal.ts');
-const { emptyMap, buildDefaultMap, buildPortalGarden, portalNear, isWalkable, isWater, roomAt, G, O } = await import('../src/game/map.ts');
+const { emptyMap, buildDefaultMap, buildPortalGarden, portalNear, portalDests, isWalkable, isWater, roomAt, G, O } = await import('../src/game/map.ts');
 
 test('맵 id 마다 읽는 곳이 정해져 있고 이상한 id 는 거부한다', () => {
   assert.equal(mapSource('main'), 'active');
@@ -115,17 +115,18 @@ test('포탈 옆의 F: 하던 낚시·옆 벌레·삽질·발밑 보물 자리�
 
 test('기본 맵 ↔ 포탈 정원 왕복: 양쪽 포탈의 도착 칸이 걸을 수 있는 땅이다', () => {
   const main = buildDefaultMap(), garden = buildPortalGarden();
-  const toGarden = main.zones.find((z) => z.kind === 'portal' && z.targetMap === 'portal-garden');
+  const toGarden = main.zones.find((z) => z.kind === 'portal' && portalDests(z).some((d) => d.map === 'portal-garden'));
   assert.ok(toGarden);
+  const gardenDest = portalDests(toGarden).find((d) => d.map === 'portal-garden');
   const back = garden.zones.find((z) => z.kind === 'portal' && z.targetMap === 'main');
   assert.ok(back);
-  for (const [m, z] of [[garden, toGarden], [main, back]]) {
-    const t = arrivalTile(m, z.targetSpawn ?? m.spawn, () => false);
+  for (const [m, want] of [[garden, gardenDest.spawn ?? garden.spawn], [main, back.targetSpawn ?? main.spawn]]) {
+    const t = arrivalTile(m, want, () => false);
     assert.ok(t);
     assert.ok(isWalkable(m, t.x, t.y) && !isWater(m, t.x, t.y) && !roomAt(m, t.x, t.y));
   }
   // 포탈 옆에 서면 그 포탈이 잡힌다 (F 안내)
-  assert.equal(portalNear(main, toGarden.x, toGarden.y)?.targetMap, 'portal-garden');
+  assert.equal(portalNear(main, toGarden.x, toGarden.y), toGarden);
 });
 
 // 자동 낚시 워커 타이머(autoTick)는 맵을 옮기는 동안 옛 맵 물에 다시 던지지 않는다 (2026: 포탈 목적지를 읽는 사이 재투척)
@@ -226,4 +227,14 @@ test('말랑이: 같은 맵에 있으면 그대로 맞고 낚시가 취소된다
     assert.ok(rp.hitAt > 0);
     assert.equal(calls.cancel, 1);
   } finally { mock.timers.reset(); }
+});
+
+test('행선지 선택 창: 이름·설명은 행선지에 적힌 것이 먼저, 지금 있는 맵과 잘못된 id 는 고를 수 없다', async () => {
+  const { destView, MAP_INFO } = await import('../src/game/portal.ts');
+  assert.equal(mapSource('gold-mine'), 'builtin');
+  assert.deepEqual(destView({ map: 'gold-mine' }, 'main', 3), { map: 'gold-mine', name: MAP_INFO['gold-mine'].name, desc: MAP_INFO['gold-mine'].desc, count: 3, ok: true });
+  assert.equal(destView({ map: 'island', label: '섬', desc: '바다 건너' }, 'main', 0).name, '섬');
+  assert.equal(destView({ map: 'island' }, 'main', 0).name, 'island'); // 이름을 모르는 저장 맵은 id 로
+  assert.equal(destView({ map: 'main' }, 'main', 5).ok, false);
+  assert.equal(destView({ map: 'a/b' }, 'main', 0).ok, false);
 });

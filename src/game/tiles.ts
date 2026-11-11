@@ -1,6 +1,6 @@
 // 바닥/오브젝트 타일을 코드로 그려 캐시한다.
 import { PixelBuf, shade } from './pixel';
-import { G, O } from './map';
+import { G, G_GOLD, O } from './map';
 import { TILE } from '../shared/config';
 import { seededRandom } from '../shared/hash';
 
@@ -113,6 +113,7 @@ function drawGround(id: number, variant: number, frame: number): PixelBuf {
       b.rect(0, 0, TILE, TILE, P.carpet);
       for (let y = 2; y < TILE; y += 6) for (let x = (y / 6) % 2 === 0 ? 2 : 5; x < TILE; x += 6) b.px(x, y, P.carpetDark);
       break;
+    case G_GOLD: // 금덩어리 아래 바닥: 큰 그림이 덮으므로 어두운 바닥과 같게
     case G.DARK_FLOOR:
       b.rect(0, 0, TILE, TILE, P.darkFloor);
       b.hline(0, 0, TILE, P.darkFloorDark); b.vline(0, 0, TILE, P.darkFloorDark);

@@ -4,6 +4,7 @@ import { wrapText } from '../shared/util';
 import type { Engine } from './engine';
 import { G, TALL_OBJECTS, waterDepth, type MapData, type Zone } from './map';
 import { groundTile, objectSprite } from './tiles';
+import { goldNugget, drawGoldSparks } from './goldart';
 import { getSprite, FRAME_W, FRAME_H, type Pose } from './sprites';
 import type { FishingView } from './fishing';
 import type { BugView } from './bugs';
@@ -137,6 +138,12 @@ export function render(eng: Engine, st: RenderState): void {
     if (!spr) continue;
     const tall = TALL_OBJECTS.has(id);
     items.push({ sortY: y + 0.9, order: 0, draw: () => ctx.drawImage(spr.cv, x * TILE, y * TILE - (tall ? TILE : 0)) });
+  }
+  // 금광의 거대한 금덩어리: 큰 그림 한 장. 아랫줄 기준으로 정렬해 위쪽에 선 사람은 뒤에, 아래쪽에 선 사람은 앞에 온다
+  for (const z of map.zones) if (z.kind === 'mine') {
+    if (!eng.isTileVisible(z.x + z.w / 2 - 0.5, z.y + z.h / 2 - 0.5, TILE * Math.max(z.w, z.h))) continue;
+    const art = goldNugget(z.w, z.h);
+    items.push({ sortY: z.y + z.h - 0.05, order: 0, draw: () => { ctx.drawImage(art.cv, z.x * TILE, z.y * TILE - art.over); drawGoldSparks(ctx, art, z.x * TILE, z.y * TILE - art.over, st.now); } });
   }
   // 이름표·말풍선 위치용: 물속에서 가라앉은 픽셀(sink), 보이는 발끝(물속이면 수면)이 타일 아래 끝에서 벗어난 픽셀(feet), 모자가 프레임 위로 솟은 픽셀(above)
   const posByUid = new Map<string, { sink: number; feet: number; above: number }>();

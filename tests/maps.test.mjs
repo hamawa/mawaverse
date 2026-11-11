@@ -7,7 +7,13 @@ register(new URL('./resolve-hook.mjs', import.meta.url));
 const {
   buildDefaultMap,
   buildPortalGarden,
+  buildGoldMine,
   portalNear,
+  portalDests,
+  isWater,
+  SOLID_GROUND,
+  G_GOLD,
+  PORTAL_MAX_DESTS,
   validatePortalZone,
   validateZone,
   isReservedMapId,
@@ -17,7 +23,7 @@ const {
   G,
   O,
 } = await import('../src/game/map.ts');
-const { MAIN_MAP_ID, GARDEN_MAP_ID } = await import('../src/shared/maps.ts');
+const { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID } = await import('../src/shared/maps.ts');
 
 test('기본 맵은 default ID와 안전한 외향 포탈을 포함한다', () => {
   const map = buildDefaultMap();
@@ -27,7 +33,9 @@ test('기본 맵은 default ID와 안전한 외향 포탈을 포함한다', () =
 
   const portal = map.zones.find((z) => z.kind === 'portal');
   assert.ok(portal, '기본 맵에 포탈 구역이 있어야 함');
-  assert.equal(portal.targetMap, GARDEN_MAP_ID);
+  // 행선지는 포탈 정원과 금광 두 곳 (2개 이상이라 F 를 누르면 고르는 창이 뜬다)
+  assert.deepEqual(portalDests(portal).map((d) => d.map), [GARDEN_MAP_ID, GOLD_MINE_MAP_ID]);
+  assert.ok(validateZone(portal));
   assert.ok(portal.label && portal.label.includes('정원'));
 
   // 포탈 위치는 맵 내부여야 하고 스폰과 겹치지 않아야 함
@@ -172,4 +180,71 @@ test('sanitizeMap은 유효한 포탈을 보존하고 잘못된 포탈 구역을
   assert.ok(sanitized.zones.some((z) => z.id === 'valid-p'));
   assert.ok(sanitized.zones.some((z) => z.id === 'valid-lbl'));
   assert.ok(!sanitized.zones.some((z) => z.id === 'corrupt-p'), '잘못된 포탈은 제거되어야 함');
+});
+
+test('포탈 행선지: 옛 형식은 1개짜리로 읽고, 목록은 1~6개의 올바른 맵 id 만 받는다', () => {
+  const base = { id: 'p', kind: 'portal', x: 1, y: 1, w: 1, h: 1 };
+  // 옛 형식 (이미 저장된 맵)
+  assert.deepEqual(portalDests({ ...base, targetMap: 'main' }), [{ map: 'main' }]);
+  assert.deepEqual(portalDests({ ...base, targetMap: 'island', targetSpawn: { x: 3, y: 4 } }), [{ map: 'island', spawn: { x: 3, y: 4 } }]);
+  assert.deepEqual(portalDests(base), []);
+  // 목록이 있으면 목록이 먼저
+  const two = { ...base, targets: [{ map: GARDEN_MAP_ID, spawn: { x: 12, y: 13 } }, { map: GOLD_MINE_MAP_ID, label: '금광', desc: '설명' }] };
+  assert.equal(portalDests(two).length, 2);
+  assert.ok(validateZone(two));
+  assert.ok(validateZone({ ...base, targets: [{ map: 'main' }] }));
+  // 거부: 빈 목록, 너무 많음, 잘못된 id·좌표·이름, 목록도 targetMap 도 없음
+  assert.equal(validateZone({ ...base, targets: [] }), false);
+  assert.equal(validateZone({ ...base, targets: Array.from({ length: PORTAL_MAX_DESTS + 1 }, (_, i) => ({ map: 'm' + i })) }), false);
+  assert.equal(validateZone({ ...base, targets: [{ map: 'a/b' }] }), false);
+  assert.equal(validateZone({ ...base, targets: [{ map: 'main', spawn: { x: 1.5, y: 2 } }] }), false);
+  assert.equal(validateZone({ ...base, targets: [{ map: 'main', label: 3 }] }), false);
+  assert.equal(validateZone({ ...base, targets: 'main' }), false);
+  assert.equal(validateZone(base), false);
+  // 저장된 맵을 읽을 때도 목록이 보존된다
+  const m = sanitizeMap({ w: 2, h: 2, ground: [0, 0, 0, 0], objects: [0, 0, 0, 0], zones: [two] }, buildDefaultMap());
+  assert.equal(portalDests(m.zones[0]).length, 2);
+});
+
+test('금광: 24×18, 물·잔디·꽃밭이 없고 가운데 6×5 금덩어리 둘레에 설 자리가 22칸', () => {
+  const m = buildGoldMine();
+  assert.equal(m.id, GOLD_MINE_MAP_ID);
+  assert.equal(m.w, 24); assert.equal(m.h, 18);
+  // 낚시터(물)와 곤충이 나오는 바닥(잔디·진한 잔디·꽃밭)이 없다
+  for (const g of m.ground) assert.ok(g !== G.WATER && g !== G.GRASS && g !== G.GRASS2 && g !== G.FLOWER);
+  const gold = m.zones.find((z) => z.kind === 'mine');
+  assert.ok(gold);
+  assert.equal(gold.w, 6); assert.equal(gold.h, 5);
+  // 금덩어리 칸은 지나갈 수 없다
+  assert.ok(SOLID_GROUND.has(G_GOLD));
+  let goldTiles = 0;
+  for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) if (m.ground[y * m.w + x] === G_GOLD) {
+    goldTiles++;
+    assert.equal(isWalkable(m, x, y), false);
+    assert.ok(x >= gold.x && x < gold.x + gold.w && y >= gold.y && y < gold.y + gold.h);
+  }
+  assert.equal(goldTiles, 30);
+  // 금덩어리와 맞닿은(상하좌우) 설 수 있는 칸
+  const stand = new Set();
+  for (let y = gold.y; y < gold.y + gold.h; y++) for (let x = gold.x; x < gold.x + gold.w; x++) {
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (isWalkable(m, x + dx, y + dy)) stand.add(`${x + dx},${y + dy}`);
+  }
+  assert.equal(stand.size, 22);
+  // 돌아가는 포탈은 행선지가 기본 맵 하나 (고르는 창 없이 바로)
+  const portal = m.zones.find((z) => z.kind === 'portal');
+  assert.deepEqual(portalDests(portal), [{ map: MAIN_MAP_ID }]);
+  // 캐는 자리에서는 포탈이 잡히지 않는다 (F 가 겹치지 않게), 시작 자리도 포탈 범위 밖
+  for (const k of stand) { const [x, y] = k.split(',').map(Number); assert.equal(portalNear(m, x, y), undefined); }
+  assert.equal(portalNear(m, m.spawn.x, m.spawn.y), undefined);
+  assert.ok(isWalkable(m, m.spawn.x, m.spawn.y));
+  // 시작 자리에서 캐는 자리와 포탈까지 걸어갈 수 있다
+  const seen = new Set([`${m.spawn.x},${m.spawn.y}`]); const q = [m.spawn]; let reachPortal = false;
+  for (let h = 0; h < q.length; h++) {
+    const { x, y } = q[h];
+    if (portalNear(m, x, y)) reachPortal = true;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = `${x + dx},${y + dy}`; if (!seen.has(k) && isWalkable(m, x + dx, y + dy)) { seen.add(k); q.push({ x: x + dx, y: y + dy }); } }
+  }
+  assert.ok(reachPortal);
+  for (const k of stand) assert.ok(seen.has(k), `캐는 자리 ${k} 에 갈 수 있어야 함`);
+  assert.equal(isReservedMapId(GOLD_MINE_MAP_ID), true);
 });

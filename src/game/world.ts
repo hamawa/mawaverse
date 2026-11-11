@@ -11,9 +11,10 @@ import { Engine } from './engine';
 import { Input } from './input';
 import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
-import { buildDefaultMap, buildPortalGarden, portalNear, sanitizeMap, isWalkable, isWater, roomAt, findFreeTile, nearZone, type MapData, type Zone } from './map';
-import { MAIN_MAP_ID, playerMapId } from '../shared/maps';
-import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, PRIMARY_ONLY_ROOM_MSG } from './portal';
+import { buildDefaultMap, buildPortalGarden, buildGoldMine, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
+import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, playerMapId } from '../shared/maps';
+import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
+import { openPortalPicker } from './portalui';
 import { Net } from './net';
 import { Chat } from './chat';
 import { Rooms } from './rooms';
@@ -280,6 +281,8 @@ export class World implements WorldCtx {
   private tick(_dt: number, now: number): void {
     if (this.stopped) return;
     this.lastTickAt = performance.now();
+    // 행선지 창이 떠 있는데 밀려나거나 끌려갔으면 닫는다
+    if (this.portalPick && (this.me.moving || this.me.x !== this.portalPick.x || this.me.y !== this.portalPick.y)) this.portalPick.close();
     const me = this.me;
     if (me.moving) {
       const t = Math.min(1, (now - me.moveStart) / me.moveDur);
@@ -514,20 +517,47 @@ export class World implements WorldCtx {
     this.fishZone = map.zones.find((z) => z.kind === 'fish');
     this.arcadeZone = map.zones.find((z) => z.kind === 'arcade');
   }
-  private garden: MapData | null = null;
+  private builtinMaps = new Map<string, MapData>(); // 코드에 든 맵은 한 번 만들어 두고 다시 쓴다
   private async loadMap(id: string): Promise<MapData> {
     const src = mapSource(id);
     if (src === 'active') return this.mainMap;
-    if (src === 'builtin') return (this.garden ??= buildPortalGarden());
+    if (src === 'builtin') {
+      let m = this.builtinMaps.get(id);
+      if (!m) { m = id === GOLD_MINE_MAP_ID ? buildGoldMine() : buildPortalGarden(); this.builtinMaps.set(id, m); }
+      return m;
+    }
     if (src === 'saved') return loadSavedMap(id);
     throw new Error(`invalid map id ${String(id)}`);
   }
-  // F 로 포탈: 목적지 맵을 읽고, 빈 땅을 골라 자리·맵·위치를 쓰기 한 번에 옮긴다. 어느 단계든 실패하면 원래 맵·자리 그대로
-  private async usePortal(z: Zone): Promise<void> {
+  // 지금 포탈을 못 타는 이유 (탈 수 있으면 null)
+  private portalWhy(target: unknown): string | null {
     const me = this.me;
-    const why = portalBlock({ from: this.mapId, target: z.targetMap, switching: this.switching, entering: this.entering, locked: me.locked, moving: me.moving || this.net.stepping, mafia: !!this.mafia.game && this.mafia.isParticipant(this.uid) });
+    return portalBlock({ from: this.mapId, target, switching: this.switching, entering: this.entering, locked: me.locked, moving: me.moving || this.net.stepping, mafia: !!this.mafia.game && this.mafia.isParticipant(this.uid) });
+  }
+  // F 로 포탈: 행선지가 하나면 바로 이동, 둘 이상이면 고르는 창. 못 타는 상태면 창을 열지 않고 안내만
+  private portalPick: { close: () => void; x: number; y: number } | null = null;
+  private openPortal(z: Zone): void {
+    const dests = portalDests(z);
+    if (dests.length <= 1) { void this.usePortal(dests[0] ?? { map: '' }); return; }
+    if (this.portalPick) return;
+    const me = this.me;
+    const why = this.portalWhy(dests.find((d) => mapSource(d.map) && d.map !== this.mapId)?.map);
     if (why) { this.toast(why, true); return; }
-    const target = z.targetMap as string;
+    const count = (id: string) => { let n = 0; for (const rp of this.players.values()) if (playerMapId(rp.st) === id) n++; return n; };
+    this.input.releaseAll(); this.input.enabled = false; // 창이 떠 있는 동안 방향키는 고르는 데 쓴다
+    const pick = openPortalPicker(dests.map((d) => destView(d, this.mapId, count(d.map))), (i) => {
+      // 고른 뒤에 한 번 더: 아직 그 포탈 옆에 서 있어야 한다 (이동 가능 여부는 usePortal 이 다시 본다)
+      if (portalNear(this.map, me.x, me.y) !== z) { this.toast('포탈에서 멀어져 이동하지 않았습니다.', true); return; }
+      void this.usePortal(dests[i]);
+    }, () => { this.portalPick = null; this.input.enabled = true; });
+    this.portalPick = { close: pick.close, x: me.x, y: me.y };
+  }
+  // 목적지 맵을 읽고, 빈 땅을 골라 자리·맵·위치를 쓰기 한 번에 옮긴다. 어느 단계든 실패하면 원래 맵·자리 그대로
+  private async usePortal(dest: PortalDest): Promise<void> {
+    const me = this.me;
+    const why = this.portalWhy(dest.map);
+    if (why) { this.toast(why, true); return; }
+    const target = dest.map;
     this.switching = true;
     try {
       this.leaveForTeleport(); // 낚시는 active 와 상관없이 거두고(띄워 둔 자동 찌), 방·카지노는 나간다
@@ -536,7 +566,7 @@ export class World implements WorldCtx {
       try { map = await this.loadMap(target); } catch (e) { console.warn('portal map load failed', e); this.toast('갈 곳을 불러오지 못했습니다. 잠시 후 다시 시도하세요.', true); return; }
       const tried = new Set<string>();
       const taken = (x: number, y: number) => tried.has(`${x},${y}`) || [...this.players.values()].some((rp) => playerMapId(rp.st) === target && rp.toX === x && rp.toY === y);
-      const want = z.targetSpawn ?? map.spawn;
+      const want = dest.spawn ?? map.spawn;
       for (let i = 0; i < 4; i++) {
         if (this.stopped) return;
         const t = arrivalTile(map, want, taken);
@@ -546,7 +576,7 @@ export class World implements WorldCtx {
         if (await this.net.changeMap(target, t.x, t.y, me.dir)) {
           if (this.stopped) return;
           this.enterMap(target, map, t.x, t.y);
-          this.toast(`🌀 ${map.name || '다른 곳'}(으)로 이동했습니다.`);
+          this.toast(`🌀 ${dest.label || MAP_INFO[target]?.name || map.name || '다른 곳'}(으)로 이동했습니다.`);
           return;
         }
       }
@@ -643,7 +673,7 @@ export class World implements WorldCtx {
     const ch = this.canvasHint();
     if (!ch) return;
     if (ch.kind === 'mafia') { void this.mafiaInteract(); return; }
-    if (ch.kind === 'portal') { const z = portalNear(this.map, this.me.x, this.me.y); if (z) void this.usePortal(z); return; }
+    if (ch.kind === 'portal') { const z = portalNear(this.map, this.me.x, this.me.y); if (z) this.openPortal(z); return; }
     if (ch.kind === 'board') { this.input.releaseAll(); openBoard({ uid: this.uid, nick: this.profile.nick, isAdmin: this.isAdmin }); }
     else if (ch.kind === 'fishing') this.fishing.reel();
     else if (ch.kind === 'cast') this.fishing.cast();

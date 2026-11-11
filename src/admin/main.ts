@@ -7,8 +7,8 @@ import { showLoginScreen, showMessageScreen, toast, modal, promptModal, confirmM
 import { el, escapeHtml, fmtDateTime, fmtBytes, dayKey, nickKey, safeKey, idKey, validateNick } from '../shared/util';
 import { APP_NAME, CLIENT_VERSION } from '../shared/config';
 import type { PlayerState, UserProfile, ServerConfig, RoomState, ConnLog, ChatLog, Post } from '../shared/types';
-import { buildDefaultMap, buildPortalGarden, sanitizeMap, labelAt, G, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, emptyMap, validateZone, isReservedMapId } from '../game/map';
-import { isMapId, MAIN_MAP_ID, GARDEN_MAP_ID } from '../shared/maps';
+import { buildDefaultMap, buildPortalGarden, sanitizeMap, labelAt, G, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, type PortalDest, emptyMap, validateZone, isReservedMapId, portalDests, PORTAL_MAX_DESTS } from '../game/map';
+import { isMapId, MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID } from '../shared/maps';
 import { groundTile, objectSprite } from '../game/tiles';
 import { catLabel } from '../game/board';
 import { ALL_ITEMS, priceOf, itemById, petLevel, type Wallet } from '../shared/shop';
@@ -804,7 +804,7 @@ function tabEditor(main: HTMLElement): void {
         ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 2 / zoom; ctx.strokeRect(z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE);
         ctx.fillStyle = '#7dd3fc'; ctx.font = `bold ${12 / zoom}px sans-serif`;
-        const dest = `${z.targetMap || '?'}${z.targetSpawn ? ` (${z.targetSpawn.x},${z.targetSpawn.y})` : ''}`;
+        const dest = portalDests(z).map((d) => `${d.map}${d.spawn ? ` (${d.spawn.x},${d.spawn.y})` : ''}`).join(', ') || '?';
         ctx.fillText(`🌀 ${z.label || z.id} → ${dest}`, z.x * TILE + 2, z.y * TILE + 12 / zoom);
       } else {
         ctx.strokeStyle = z.kind === 'room' ? '#ffd84d' : z.kind === 'casino' ? '#ff8ad8' : z.kind === 'board' ? '#5fd3a0' : 'rgba(155,231,255,0.5)';
@@ -906,18 +906,65 @@ function tabEditor(main: HTMLElement): void {
   quickMainBtn.onclick = () => { portalTargetMapIn.value = MAIN_MAP_ID; portalTargetXIn.value = ''; portalTargetYIn.value = ''; };
   const quickGardenBtn = el('button', { class: 'btn small', text: '목적지: portal-garden', type: 'button' });
   quickGardenBtn.onclick = () => { portalTargetMapIn.value = GARDEN_MAP_ID; };
+  const quickMineBtn = el('button', { class: 'btn small', text: '목적지: gold-mine', type: 'button' });
+  quickMineBtn.onclick = () => { portalTargetMapIn.value = GOLD_MINE_MAP_ID; portalTargetXIn.value = ''; portalTargetYIn.value = ''; };
+
+  // 행선지 목록 (2026-11-11): 여러 곳을 넣으면 게임에서 F 를 눌렀을 때 고르는 창이 뜬다. 비워 두면 위 입력칸의 목적지 하나만 쓴다
+  const portalDestNameIn = el('input', { type: 'text', placeholder: '행선지 이름 (선택)', style: 'width:120px' });
+  const portalDestDescIn = el('input', { type: 'text', placeholder: '한 줄 설명 (선택)', style: 'width:170px' });
+  let destDraft: PortalDest[] = [];
+  const destBox = el('div', { style: 'margin-bottom:6px' });
+  // 입력칸의 목적지 하나를 읽는다. 잘못됐으면 안내하고 null
+  const readDest = (): PortalDest | null => {
+    const mapId = portalTargetMapIn.value.trim();
+    if (!isMapId(mapId)) { toast('목적지 맵 ID는 영문/숫자/기호(-_) 1~20자여야 합니다.', true); return null; }
+    const txStr = portalTargetXIn.value.trim(), tyStr = portalTargetYIn.value.trim();
+    const d: PortalDest = { map: mapId };
+    if (txStr !== '' || tyStr !== '') {
+      const tx = Number(txStr), ty = Number(tyStr);
+      if (txStr === '' || tyStr === '' || !Number.isInteger(tx) || !Number.isInteger(ty)) { toast('도착 좌표는 유효한 정수여야 합니다.', true); return null; }
+      d.spawn = { x: tx, y: ty };
+    }
+    if (portalDestNameIn.value.trim()) d.label = portalDestNameIn.value.trim();
+    if (portalDestDescIn.value.trim()) d.desc = portalDestDescIn.value.trim();
+    return d;
+  };
+  const renderDests = () => {
+    destBox.innerHTML = '';
+    if (!destDraft.length) { destBox.append(el('div', { class: 'muted', text: '행선지 목록이 비어 있음: 위 목적지 하나로 저장됩니다.' })); return; }
+    destDraft.forEach((d, i) => {
+      const rm = el('button', { class: 'btn small', text: '빼기', type: 'button' });
+      rm.onclick = () => { destDraft.splice(i, 1); renderDests(); };
+      destBox.append(el('div', { class: 'row', style: 'gap:6px;margin-bottom:2px' }, [
+        el('span', { text: `${i + 1}. ${d.label ? d.label + ' · ' : ''}${d.map}${d.spawn ? ` (${d.spawn.x},${d.spawn.y})` : ''}${d.desc ? ' · ' + d.desc : ''}`, style: 'flex:1 1 auto;font-size:12px' }),
+        rm,
+      ]));
+    });
+  };
+  const addDestBtn = el('button', { class: 'btn small', text: '행선지 목록에 추가', type: 'button' });
+  addDestBtn.onclick = () => {
+    const d = readDest();
+    if (!d) return;
+    if (destDraft.length >= PORTAL_MAX_DESTS) { toast(`행선지는 ${PORTAL_MAX_DESTS}개까지 넣을 수 있습니다.`, true); return; }
+    if (destDraft.some((x) => x.map === d.map)) { toast('이미 목록에 있는 맵입니다.', true); return; }
+    destDraft.push(d); renderDests();
+  };
 
   const portalSel = el('select', { style: 'width:100%;margin-bottom:6px' });
   const updatePortalList = () => {
-    portalSel.innerHTML = '<option value="">-- 포탈 선택 / 편집 --</option>' + map.zones.filter((z) => z.kind === 'portal').map((z) => `<option value="${escapeHtml(z.id)}">${escapeHtml(z.label || z.id)} → ${escapeHtml(z.targetMap || '')} (${z.x},${z.y})</option>`).join('');
+    portalSel.innerHTML = '<option value="">-- 포탈 선택 / 편집 --</option>' + map.zones.filter((z) => z.kind === 'portal').map((z) => `<option value="${escapeHtml(z.id)}">${escapeHtml(z.label || z.id)} → ${escapeHtml(portalDests(z).map((d) => d.map).join(', '))} (${z.x},${z.y})</option>`).join('');
   };
   portalSel.onchange = () => {
     const found = map.zones.find((z) => z.kind === 'portal' && z.id === portalSel.value);
     if (found) {
+      const ds = portalDests(found);
+      destDraft = ds.length > 1 || ds[0]?.label || ds[0]?.desc ? ds.map((d) => ({ ...d })) : [];
+      renderDests();
       portalIdIn.value = found.id;
-      portalTargetMapIn.value = found.targetMap || '';
-      portalTargetXIn.value = found.targetSpawn ? String(found.targetSpawn.x) : '';
-      portalTargetYIn.value = found.targetSpawn ? String(found.targetSpawn.y) : '';
+      portalTargetMapIn.value = ds[0]?.map || '';
+      portalTargetXIn.value = ds[0]?.spawn ? String(ds[0].spawn.x) : '';
+      portalTargetYIn.value = ds[0]?.spawn ? String(ds[0].spawn.y) : '';
+      portalDestNameIn.value = ''; portalDestDescIn.value = '';
       portalXIn.value = String(found.x);
       portalYIn.value = String(found.y);
       portalWIn.value = String(found.w);
@@ -930,8 +977,9 @@ function tabEditor(main: HTMLElement): void {
   savePortalBtn.onclick = () => {
     const pId = portalIdIn.value.trim();
     if (!pId) { toast('포탈 ID를 입력하세요.', true); return; }
-    const targetMap = portalTargetMapIn.value.trim();
-    if (!isMapId(targetMap)) { toast('목적지 맵 ID는 영문/숫자/기호(-_) 1~20자여야 합니다.', true); return; }
+    // 행선지: 목록이 있으면 그것을, 비어 있으면 입력칸의 목적지 하나를 쓴다
+    let dests = destDraft;
+    if (!dests.length) { const d = readDest(); if (!d) return; dests = [d]; }
     const x = Number(portalXIn.value), y = Number(portalYIn.value);
     const w = Number(portalWIn.value) || 1, h = Number(portalHIn.value) || 1;
     if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= map.w || y >= map.h) {
@@ -940,22 +988,14 @@ function tabEditor(main: HTMLElement): void {
     if (!Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) {
       toast('포탈 크기(W, H)는 1 이상의 정수여야 합니다.', true); return;
     }
-    const txStr = portalTargetXIn.value.trim(), tyStr = portalTargetYIn.value.trim();
-    let targetSpawn: { x: number; y: number } | undefined = undefined;
-    if (txStr !== '' || tyStr !== '') {
-      const tx = Number(txStr), ty = Number(tyStr);
-      if (!Number.isInteger(tx) || !Number.isInteger(ty)) {
-        toast('도착 좌표는 유효한 정수여야 합니다.', true); return;
-      }
-      targetSpawn = { x: tx, y: ty };
-    }
+    // 행선지가 하나이고 이름·설명이 없으면 옛 형식(targetMap)으로, 그 밖에는 목록(targets)으로 저장한다
+    const single = dests.length === 1 && !dests[0].label && !dests[0].desc ? dests[0] : null;
     const newZone: Zone = {
       id: pId,
       kind: 'portal',
       x, y, w, h,
       ...(portalLabelIn.value.trim() ? { label: portalLabelIn.value.trim() } : {}),
-      targetMap,
-      ...(targetSpawn ? { targetSpawn } : {}),
+      ...(single ? { targetMap: single.map, ...(single.spawn ? { targetSpawn: single.spawn } : {}) } : { targets: dests.map((d) => ({ ...d })) }),
     };
     if (!validateZone(newZone)) {
       toast('포탈 데이터 검증에 실패했습니다.', true); return;
@@ -987,7 +1027,7 @@ function tabEditor(main: HTMLElement): void {
 
   const doSave = async (): Promise<boolean> => {
     const id = idIn.value.trim();
-    if (!isMapId(id) || isReservedMapId(id)) { toast('저장 id 는 영문/숫자 1~20자이며 예약어(main, default, portal-garden)는 사용할 수 없습니다.', true); return false; }
+    if (!isMapId(id) || isReservedMapId(id)) { toast('저장 id 는 영문/숫자 1~20자이며 예약어(main, default, portal-garden, gold-mine)는 사용할 수 없습니다.', true); return false; }
     const data: MapData = { ...map, id, name: nameIn.value.trim() || id, version: (map.version || 0) + 1, updatedAt: Date.now() };
     await set(ref(db, `maps/${id}`), data);
     adminLog('save-map', id);
@@ -1036,12 +1076,16 @@ function tabEditor(main: HTMLElement): void {
         el('span', { text: '크기: ', class: 'muted', style: 'line-height:26px' }), portalWIn, portalHIn,
       ]),
       el('div', { class: 'row', style: 'gap:4px;margin-bottom:4px' }, [
-        el('span', { text: '목적지: ', class: 'muted', style: 'line-height:26px' }), portalTargetMapIn, quickMainBtn, quickGardenBtn,
+        el('span', { text: '목적지: ', class: 'muted', style: 'line-height:26px' }), portalTargetMapIn, quickMainBtn, quickGardenBtn, quickMineBtn,
       ]),
       el('div', { class: 'row', style: 'gap:4px;margin-bottom:6px' }, [
         el('span', { text: '도착스폰: ', class: 'muted', style: 'line-height:26px' }), portalTargetXIn, portalTargetYIn,
         el('span', { text: '(비우면 대상 기본 스폰)', class: 'muted', style: 'font-size:11px;line-height:26px' }),
       ]),
+      el('div', { class: 'row', style: 'gap:4px;margin-bottom:4px' }, [
+        el('span', { text: '여러 곳: ', class: 'muted', style: 'line-height:26px' }), portalDestNameIn, portalDestDescIn, addDestBtn,
+      ]),
+      destBox,
       el('div', { class: 'row', style: 'gap:6px' }, [savePortalBtn, deletePortalBtn]),
     ]),
     el('div', { class: 'field' }, [el('label', { text: '구역 (방: kind=room, cap, door, exit / 게시판: kind=board / 라벨: kind=label / 포탈: kind=portal)' }), zonesTa, applyZones]),
@@ -1055,6 +1099,7 @@ function tabEditor(main: HTMLElement): void {
   renderPalette();
   refreshLoad();
   updatePortalList();
+  renderDests();
   drawAll();
 }
 
