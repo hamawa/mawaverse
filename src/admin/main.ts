@@ -7,7 +7,8 @@ import { showLoginScreen, showMessageScreen, toast, modal, promptModal, confirmM
 import { el, escapeHtml, fmtDateTime, fmtBytes, dayKey, nickKey, safeKey, idKey, validateNick } from '../shared/util';
 import { APP_NAME, CLIENT_VERSION } from '../shared/config';
 import type { PlayerState, UserProfile, ServerConfig, RoomState, ConnLog, ChatLog, Post } from '../shared/types';
-import { buildDefaultMap, sanitizeMap, labelAt, G, O, GROUND_NAMES, OBJECT_NAMES, type MapData, emptyMap } from '../game/map';
+import { buildDefaultMap, buildPortalGarden, sanitizeMap, labelAt, G, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, emptyMap, validateZone, isReservedMapId } from '../game/map';
+import { isMapId, MAIN_MAP_ID, GARDEN_MAP_ID } from '../shared/maps';
 import { groundTile, objectSprite } from '../game/tiles';
 import { catLabel } from '../game/board';
 import { ALL_ITEMS, priceOf, itemById, petLevel, type Wallet } from '../shared/shop';
@@ -779,7 +780,7 @@ function tabEditor(main: HTMLElement): void {
   main.append(wrap);
 
   let map: MapData = buildDefaultMap();
-  let layer: 'ground' | 'object' | 'spawn' = 'ground';
+  let layer: 'ground' | 'object' | 'spawn' | 'portal' = 'ground';
   let brush = 0;
   let zoom = 0.5;
   const ctx = canvas.getContext('2d')!;
@@ -799,9 +800,17 @@ function tabEditor(main: HTMLElement): void {
     for (let x = 0; x <= map.w; x++) { ctx.beginPath(); ctx.moveTo(x * TILE, 0); ctx.lineTo(x * TILE, map.h * TILE); ctx.stroke(); }
     for (let y = 0; y <= map.h; y++) { ctx.beginPath(); ctx.moveTo(0, y * TILE); ctx.lineTo(map.w * TILE, y * TILE); ctx.stroke(); }
     for (const z of map.zones) {
-      ctx.strokeStyle = z.kind === 'room' ? '#ffd84d' : z.kind === 'casino' ? '#ff8ad8' : z.kind === 'board' ? '#5fd3a0' : 'rgba(155,231,255,0.5)';
-      ctx.lineWidth = 2 / zoom; ctx.strokeRect(z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE);
-      ctx.fillStyle = '#fff'; ctx.font = `${14 / zoom}px sans-serif`; ctx.fillText(z.label || z.id, z.x * TILE + 2, z.y * TILE + 14 / zoom);
+      if (z.kind === 'portal') {
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2 / zoom; ctx.strokeRect(z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE);
+        ctx.fillStyle = '#7dd3fc'; ctx.font = `bold ${12 / zoom}px sans-serif`;
+        const dest = `${z.targetMap || '?'}${z.targetSpawn ? ` (${z.targetSpawn.x},${z.targetSpawn.y})` : ''}`;
+        ctx.fillText(`🌀 ${z.label || z.id} → ${dest}`, z.x * TILE + 2, z.y * TILE + 12 / zoom);
+      } else {
+        ctx.strokeStyle = z.kind === 'room' ? '#ffd84d' : z.kind === 'casino' ? '#ff8ad8' : z.kind === 'board' ? '#5fd3a0' : 'rgba(155,231,255,0.5)';
+        ctx.lineWidth = 2 / zoom; ctx.strokeRect(z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE);
+        ctx.fillStyle = '#fff'; ctx.font = `${14 / zoom}px sans-serif`; ctx.fillText(z.label || z.id, z.x * TILE + 2, z.y * TILE + 14 / zoom);
+      }
     }
     ctx.fillStyle = '#ff6b6b'; ctx.beginPath(); ctx.arc(map.spawn.x * TILE + 16, map.spawn.y * TILE + 16, 8, 0, Math.PI * 2); ctx.fill();
   };
@@ -811,6 +820,11 @@ function tabEditor(main: HTMLElement): void {
     const x = Math.floor((e.clientX - r.left) / (TILE * zoom)), y = Math.floor((e.clientY - r.top) / (TILE * zoom));
     if (x < 0 || y < 0 || x >= map.w || y >= map.h) return;
     if (layer === 'spawn') { map.spawn = { x, y }; drawAll(); return; }
+    if (layer === 'portal') {
+      portalXIn.value = String(x); portalYIn.value = String(y);
+      toast(`포탈 위치를 (${x}, ${y})로 지정했습니다.`);
+      return;
+    }
     const i = y * map.w + x;
     if (layer === 'ground') map.ground[i] = brush; else map.objects[i] = brush;
     drawAll();
@@ -821,7 +835,7 @@ function tabEditor(main: HTMLElement): void {
   window.addEventListener('mouseup', () => { down = false; });
 
   // 도구 패널
-  const layerSel = el('select'); layerSel.innerHTML = '<option value="ground">바닥 레이어</option><option value="object">오브젝트 레이어</option><option value="spawn">스폰 위치 지정</option>';
+  const layerSel = el('select'); layerSel.innerHTML = '<option value="ground">바닥 레이어</option><option value="object">오브젝트 레이어</option><option value="spawn">스폰 위치 지정</option><option value="portal">포탈 위치 지정 (클릭하여 좌표 입력)</option>';
   const palette = el('div', { class: 'palette' });
   const renderPalette = () => {
     palette.innerHTML = '';
@@ -844,23 +858,136 @@ function tabEditor(main: HTMLElement): void {
   const loadSel = el('select');
   const refreshLoad = async () => {
     const maps = (await get(ref(db, 'maps'))).val() as Record<string, { name?: string }> | null;
-    loadSel.innerHTML = '<option value="default">기본 맵 (내장)</option>' + Object.entries(maps || {}).map(([id, m]) => `<option value="${id}">${escapeHtml(m.name || id)} (${id})</option>`).join('');
+    loadSel.innerHTML = '<option value="default">기본 맵 (내장)</option><option value="portal-garden">포탈 정원 (내장)</option>' + Object.entries(maps || {}).map(([id, m]) => `<option value="${id}">${escapeHtml(m.name || id)} (${id})</option>`).join('');
   };
   const loadBtn = el('button', { class: 'btn small', text: '불러오기' });
   loadBtn.onclick = async () => {
-    if (loadSel.value === 'default') map = buildDefaultMap();
+    if (loadSel.value === 'default') { map = buildDefaultMap(); idIn.value = ''; }
+    else if (loadSel.value === 'portal-garden') { map = buildPortalGarden(); idIn.value = ''; }
     else { const s = await get(ref(db, `maps/${loadSel.value}`)); map = sanitizeMap(s.val(), buildDefaultMap()); idIn.value = loadSel.value; }
-    nameIn.value = map.name; zonesTa.value = JSON.stringify(map.zones, null, 1); drawAll();
+    nameIn.value = map.name; zonesTa.value = JSON.stringify(map.zones, null, 1); updatePortalList(); drawAll();
   };
   const newBtn = el('button', { class: 'btn small', text: '빈 맵 (60x40)' });
-  newBtn.onclick = () => { map = emptyMap('custom', '새 맵', 60, 40); zonesTa.value = JSON.stringify(map.zones, null, 1); drawAll(); };
+  newBtn.onclick = () => { map = emptyMap('custom', '새 맵', 60, 40); idIn.value = ''; nameIn.value = map.name; zonesTa.value = JSON.stringify(map.zones, null, 1); updatePortalList(); drawAll(); };
   const zonesTa = el('textarea', { rows: '8', style: 'width:100%;font-family:Consolas,monospace;font-size:11px' });
   zonesTa.value = JSON.stringify(map.zones, null, 1);
   const applyZones = el('button', { class: 'btn small', text: '구역 JSON 적용' });
-  applyZones.onclick = () => { try { map.zones = JSON.parse(zonesTa.value); drawAll(); toast('적용했습니다.'); } catch { toast('JSON 형식이 올바르지 않습니다.', true); } };
+  applyZones.onclick = () => {
+    try {
+      const parsed = JSON.parse(zonesTa.value);
+      if (!Array.isArray(parsed)) { toast('구역은 배열이어야 합니다.', true); return; }
+      for (const z of parsed) {
+        if (!validateZone(z)) {
+          toast(`구역 '${z?.id || '?'}' (${z?.kind}) 형식이 올바르지 않습니다.`, true);
+          return;
+        }
+      }
+      map.zones = parsed;
+      updatePortalList();
+      drawAll();
+      toast('적용했습니다.');
+    } catch {
+      toast('JSON 형식이 올바르지 않습니다.', true);
+    }
+  };
+
+  // 포탈 저작 도구
+  const portalIdIn = el('input', { type: 'text', placeholder: '포탈 ID', value: 'portal-1', style: 'width:110px' });
+  const portalTargetMapIn = el('input', { type: 'text', placeholder: '목적지 맵 ID', value: MAIN_MAP_ID, style: 'width:120px' });
+  const portalXIn = el('input', { type: 'number', placeholder: 'X', value: '10', style: 'width:50px' });
+  const portalYIn = el('input', { type: 'number', placeholder: 'Y', value: '10', style: 'width:50px' });
+  const portalWIn = el('input', { type: 'number', placeholder: 'W', value: '1', style: 'width:45px' });
+  const portalHIn = el('input', { type: 'number', placeholder: 'H', value: '1', style: 'width:45px' });
+  const portalTargetXIn = el('input', { type: 'number', placeholder: '도착X (선택)', style: 'width:80px' });
+  const portalTargetYIn = el('input', { type: 'number', placeholder: '도착Y (선택)', style: 'width:80px' });
+  const portalLabelIn = el('input', { type: 'text', placeholder: '표시 이름 (예: 신비한 정원)', value: '', style: 'width:140px' });
+
+  const quickMainBtn = el('button', { class: 'btn small', text: '목적지: main', type: 'button' });
+  quickMainBtn.onclick = () => { portalTargetMapIn.value = MAIN_MAP_ID; portalTargetXIn.value = ''; portalTargetYIn.value = ''; };
+  const quickGardenBtn = el('button', { class: 'btn small', text: '목적지: portal-garden', type: 'button' });
+  quickGardenBtn.onclick = () => { portalTargetMapIn.value = GARDEN_MAP_ID; };
+
+  const portalSel = el('select', { style: 'width:100%;margin-bottom:6px' });
+  const updatePortalList = () => {
+    portalSel.innerHTML = '<option value="">-- 포탈 선택 / 편집 --</option>' + map.zones.filter((z) => z.kind === 'portal').map((z) => `<option value="${escapeHtml(z.id)}">${escapeHtml(z.label || z.id)} → ${escapeHtml(z.targetMap || '')} (${z.x},${z.y})</option>`).join('');
+  };
+  portalSel.onchange = () => {
+    const found = map.zones.find((z) => z.kind === 'portal' && z.id === portalSel.value);
+    if (found) {
+      portalIdIn.value = found.id;
+      portalTargetMapIn.value = found.targetMap || '';
+      portalTargetXIn.value = found.targetSpawn ? String(found.targetSpawn.x) : '';
+      portalTargetYIn.value = found.targetSpawn ? String(found.targetSpawn.y) : '';
+      portalXIn.value = String(found.x);
+      portalYIn.value = String(found.y);
+      portalWIn.value = String(found.w);
+      portalHIn.value = String(found.h);
+      portalLabelIn.value = found.label || '';
+    }
+  };
+
+  const savePortalBtn = el('button', { class: 'btn primary small', text: '포탈 추가/수정' });
+  savePortalBtn.onclick = () => {
+    const pId = portalIdIn.value.trim();
+    if (!pId) { toast('포탈 ID를 입력하세요.', true); return; }
+    const targetMap = portalTargetMapIn.value.trim();
+    if (!isMapId(targetMap)) { toast('목적지 맵 ID는 영문/숫자/기호(-_) 1~20자여야 합니다.', true); return; }
+    const x = Number(portalXIn.value), y = Number(portalYIn.value);
+    const w = Number(portalWIn.value) || 1, h = Number(portalHIn.value) || 1;
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= map.w || y >= map.h) {
+      toast('포탈 좌표(X, Y)는 맵 범위 내의 정수여야 합니다.', true); return;
+    }
+    if (!Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) {
+      toast('포탈 크기(W, H)는 1 이상의 정수여야 합니다.', true); return;
+    }
+    const txStr = portalTargetXIn.value.trim(), tyStr = portalTargetYIn.value.trim();
+    let targetSpawn: { x: number; y: number } | undefined = undefined;
+    if (txStr !== '' || tyStr !== '') {
+      const tx = Number(txStr), ty = Number(tyStr);
+      if (!Number.isInteger(tx) || !Number.isInteger(ty)) {
+        toast('도착 좌표는 유효한 정수여야 합니다.', true); return;
+      }
+      targetSpawn = { x: tx, y: ty };
+    }
+    const newZone: Zone = {
+      id: pId,
+      kind: 'portal',
+      x, y, w, h,
+      ...(portalLabelIn.value.trim() ? { label: portalLabelIn.value.trim() } : {}),
+      targetMap,
+      ...(targetSpawn ? { targetSpawn } : {}),
+    };
+    if (!validateZone(newZone)) {
+      toast('포탈 데이터 검증에 실패했습니다.', true); return;
+    }
+    const idx = map.zones.findIndex((z) => z.id === pId);
+    if (idx >= 0 && map.zones[idx].kind !== 'portal') {
+      toast('다른 구역에서 사용 중인 ID입니다. 새 포탈 ID를 지정하세요.', true);
+      return;
+    }
+    if (idx >= 0) map.zones[idx] = newZone;
+    else map.zones.push(newZone);
+    zonesTa.value = JSON.stringify(map.zones, null, 1);
+    updatePortalList();
+    drawAll();
+    toast(`포탈 '${pId}'을(를) 적용했습니다.`);
+  };
+
+  const deletePortalBtn = el('button', { class: 'btn danger small', text: '선택 포탈 삭제' });
+  deletePortalBtn.onclick = () => {
+    const pId = portalIdIn.value.trim();
+    const idx = map.zones.findIndex((z) => z.kind === 'portal' && z.id === pId);
+    if (idx < 0) { toast('삭제할 포탈을 찾을 수 없습니다.', true); return; }
+    map.zones.splice(idx, 1);
+    zonesTa.value = JSON.stringify(map.zones, null, 1);
+    updatePortalList();
+    drawAll();
+    toast(`포탈 '${pId}'을(를) 삭제했습니다.`);
+  };
+
   const doSave = async (): Promise<boolean> => {
     const id = idIn.value.trim();
-    if (!/^[a-z0-9_-]{1,20}$/i.test(id) || id === 'default') { toast('저장 id 는 영문/숫자 1~20자 (default 제외)', true); return false; }
+    if (!isMapId(id) || isReservedMapId(id)) { toast('저장 id 는 영문/숫자 1~20자이며 예약어(main, default, portal-garden)는 사용할 수 없습니다.', true); return false; }
     const data: MapData = { ...map, id, name: nameIn.value.trim() || id, version: (map.version || 0) + 1, updatedAt: Date.now() };
     await set(ref(db, `maps/${id}`), data);
     adminLog('save-map', id);
@@ -875,13 +1002,49 @@ function tabEditor(main: HTMLElement): void {
   const exportBtn = el('button', { class: 'btn small', text: 'JSON 복사' });
   exportBtn.onclick = () => { navigator.clipboard.writeText(JSON.stringify(map)); toast('클립보드에 복사했습니다.'); };
   const importBtn = el('button', { class: 'btn small', text: 'JSON 붙여넣기' });
-  importBtn.onclick = async () => { const j = await promptModal('맵 JSON 가져오기', 'JSON', '', 100000); if (j) { try { map = sanitizeMap(JSON.parse(j), buildDefaultMap()); zonesTa.value = JSON.stringify(map.zones, null, 1); drawAll(); } catch { toast('JSON 오류', true); } } };
+  importBtn.onclick = async () => {
+    const j = await promptModal('맵 JSON 가져오기', 'JSON', '', 100000);
+    if (!j) return;
+    try {
+      const raw = JSON.parse(j);
+      if (Array.isArray(raw?.zones) && raw.zones.some((z: unknown) => !validateZone(z))) {
+        toast('형식이 올바르지 않은 구역이 있습니다. 기존 맵은 변경하지 않았습니다.', true);
+        return;
+      }
+      map = sanitizeMap(raw, buildDefaultMap());
+      idIn.value = '';
+      nameIn.value = map.name;
+      zonesTa.value = JSON.stringify(map.zones, null, 1);
+      updatePortalList(); drawAll();
+      toast('맵 데이터를 가져왔습니다. 새 저장 ID를 지정하세요.');
+    } catch { toast('JSON 오류', true); }
+  };
   tools.append(
     el('div', { class: 'field' }, [el('label', { text: '레이어' }), layerSel]),
     el('div', { class: 'field' }, [el('label', { text: '확대' }), zoomSel]),
     el('div', { class: 'muted', text: '클릭/드래그로 칠하기. 오브젝트 "지우기"로 삭제.' }),
     palette,
-    el('div', { class: 'field' }, [el('label', { text: '구역 (방: kind=room, cap, door, exit / 게시판: kind=board / 라벨: kind=label)' }), zonesTa, applyZones]),
+    el('div', { class: 'field', style: 'background:rgba(56,189,248,0.08);border:1px solid rgba(56,189,248,0.25);border-radius:6px;padding:8px;margin-bottom:8px' }, [
+      el('label', { text: '🌀 포탈 설정 도구', style: 'font-weight:bold;color:#38bdf8' }),
+      portalSel,
+      el('div', { class: 'row', style: 'gap:4px;margin-bottom:4px' }, [
+        el('span', { text: 'ID: ', class: 'muted', style: 'line-height:26px' }), portalIdIn,
+        el('span', { text: '표시명: ', class: 'muted', style: 'line-height:26px' }), portalLabelIn,
+      ]),
+      el('div', { class: 'row', style: 'gap:4px;margin-bottom:4px' }, [
+        el('span', { text: '위치: ', class: 'muted', style: 'line-height:26px' }), portalXIn, portalYIn,
+        el('span', { text: '크기: ', class: 'muted', style: 'line-height:26px' }), portalWIn, portalHIn,
+      ]),
+      el('div', { class: 'row', style: 'gap:4px;margin-bottom:4px' }, [
+        el('span', { text: '목적지: ', class: 'muted', style: 'line-height:26px' }), portalTargetMapIn, quickMainBtn, quickGardenBtn,
+      ]),
+      el('div', { class: 'row', style: 'gap:4px;margin-bottom:6px' }, [
+        el('span', { text: '도착스폰: ', class: 'muted', style: 'line-height:26px' }), portalTargetXIn, portalTargetYIn,
+        el('span', { text: '(비우면 대상 기본 스폰)', class: 'muted', style: 'font-size:11px;line-height:26px' }),
+      ]),
+      el('div', { class: 'row', style: 'gap:6px' }, [savePortalBtn, deletePortalBtn]),
+    ]),
+    el('div', { class: 'field' }, [el('label', { text: '구역 (방: kind=room, cap, door, exit / 게시판: kind=board / 라벨: kind=label / 포탈: kind=portal)' }), zonesTa, applyZones]),
     el('div', { class: 'field' }, [el('label', { text: '불러오기' }), loadSel, el('div', { class: 'row' }, [loadBtn, newBtn])]),
     el('div', { class: 'field' }, [el('label', { text: '맵 이름' }), nameIn]),
     el('div', { class: 'field' }, [el('label', { text: '저장 id' }), idIn]),
@@ -891,6 +1054,7 @@ function tabEditor(main: HTMLElement): void {
   );
   renderPalette();
   refreshLoad();
+  updatePortalList();
   drawAll();
 }
 

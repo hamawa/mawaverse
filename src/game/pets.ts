@@ -44,6 +44,7 @@ export class Pets {
     const moving = s.moveStart > 0;
     return { id: petId, x: p.x, y: p.y, moving, moveT: moving ? Math.min(1, (now - s.moveStart) / s.moveDur) : 0, hopAt: s.hopAt, dir: s.dir, scale: petScale(xp), ride: false };
   }
+  forget(uid: string): void { this.st.delete(uid); } // 주인이 다른 맵으로 옮겼다: 다음 그릴 때 주인 뒤에서 새로 시작
   private pos(s: PetState, now: number): { x: number; y: number } {
     if (!s.moveStart) return { x: s.x, y: s.y };
     const t = Math.min(1, (now - s.moveStart) / s.moveDur);

@@ -11,7 +11,9 @@ import { Engine } from './engine';
 import { Input } from './input';
 import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
-import { buildDefaultMap, sanitizeMap, isWalkable, isWater, roomAt, findFreeTile, nearZone, type MapData, type Zone } from './map';
+import { buildDefaultMap, buildPortalGarden, portalNear, sanitizeMap, isWalkable, isWater, roomAt, findFreeTile, nearZone, type MapData, type Zone } from './map';
+import { MAIN_MAP_ID, playerMapId } from '../shared/maps';
+import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, primaryOnlyRoom, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { Net } from './net';
 import { Chat } from './chat';
 import { Rooms } from './rooms';
@@ -66,9 +68,30 @@ export async function loadActiveMap(): Promise<MapData> {
   return fallback;
 }
 
+// 포탈 목적지 맵: main 은 위의 활성 맵, 포탈 정원은 코드에 든 맵, 그 밖의 id 는 저장된 maps/{id} 를 엄격하게 (없거나 깨졌으면 오류. 기본 맵으로 바꿔치지 않는다).
+// 저장된 맵도 활성 맵과 같은 updatedAt 사본(localStorage)을 쓴다
+async function loadSavedMap(id: string): Promise<MapData> {
+  const cacheKey = `mv-map-${id}`;
+  const stamp = (await get(ref(db, `maps/${id}/updatedAt`))).val() as number | null;
+  if (typeof stamp === 'number') {
+    try {
+      const c = JSON.parse(localStorage.getItem(cacheKey) || 'null') as { at?: number; v?: unknown } | null;
+      if (c && c.at === stamp && c.v) return parseSavedMap(c.v, id);
+    } catch { /* 사본이 깨졌으면 새로 받는다 */ }
+  }
+  const raw = (await get(ref(db, `maps/${id}`))).val();
+  const m = parseSavedMap(raw, id);
+  if (typeof raw?.updatedAt === 'number') { try { localStorage.setItem(cacheKey, JSON.stringify({ at: raw.updatedAt, v: raw })); } catch { /* 저장 공간이 없으면 캐시 없이 */ } }
+  return m;
+}
+
 export class World implements WorldCtx {
   sessionId = randomId(16);
   map: MapData = buildDefaultMap();
+  mapId = MAIN_MAP_ID;
+  mainMap: MapData = this.map;
+  switching = false; // 포탈로 맵을 옮기는 중 (이동·밀림·순간이동·낚시·행동·채팅을 막는다)
+  onMyMap(st: { m?: string | null }): boolean { return playerMapId(st) === this.mapId; }
   config: ServerConfig = DEFAULT_CONFIG;
   players = new Map<string, RemotePlayer>();
   me: LocalPlayer;
@@ -126,19 +149,23 @@ export class World implements WorldCtx {
     gameDiv.append(canvas);
     this.root.append(gameDiv);
     this.engine = new Engine(canvas);
-    this.map = await loadActiveMap();
-    this.boardZone = this.map.zones.find((z) => z.kind === 'board');
-    this.fishZone = this.map.zones.find((z) => z.kind === 'fish');
-    this.arcadeZone = this.map.zones.find((z) => z.kind === 'arcade');
+    this.mainMap = await loadActiveMap();
+    // 마지막에 있던 맵으로 돌아간다. 그 맵을 못 읽으면 기본 맵의 시작 지점
+    const lp0 = this.profile.lastPos;
+    let mapId = savedMapId(lp0), map = this.mainMap;
+    if (mapId !== MAIN_MAP_ID) { try { map = await this.loadMap(mapId); } catch (e) { console.warn('last map load failed', e); mapId = MAIN_MAP_ID; } }
+    this.mapId = mapId;
+    this.setMap(map);
+    const lastHere = lp0 && savedMapId(lp0) === mapId ? lp0 : null;
 
-    // 스폰 위치: 마지막 위치 → 기본 스폰. 다른 사람과 겹치지 않게
+    // 스폰 위치: 마지막 위치 → 기본 스폰. 같은 맵의 다른 사람과 겹치지 않게
     const snap = await get(ref(db, 'players'));
     const occupied = new Set<string>();
-    if (snap.exists()) for (const [uid, st] of Object.entries(snap.val() as Record<string, { x: number; y: number }>)) if (uid !== this.uid) occupied.add(`${st.x},${st.y}`);
-    const want = this.profile.lastPos && isWalkable(this.map, this.profile.lastPos.x, this.profile.lastPos.y) && !roomAt(this.map, this.profile.lastPos.x, this.profile.lastPos.y) ? this.profile.lastPos : this.map.spawn;
+    if (snap.exists()) for (const [uid, st] of Object.entries(snap.val() as Record<string, { x: number; y: number; m?: string }>)) if (uid !== this.uid && st && this.onMyMap(st)) occupied.add(`${st.x},${st.y}`);
+    const want = lastHere && isWalkable(this.map, lastHere.x, lastHere.y) && !roomAt(this.map, lastHere.x, lastHere.y) ? lastHere : this.map.spawn;
     const spawn = findFreeTile(this.map, want.x, want.y, (x, y) => occupied.has(`${x},${y}`), true);
     // 마지막 자리로 돌아왔으면 바라보던 방향도 되살린다 (자동 새로고침 뒤에도 자동 낚시가 이어지게)
-    const lp = this.profile.lastPos;
+    const lp = lastHere;
     const dir: Dir = lp && lp.x === spawn.x && lp.y === spawn.y && (lp.d === 1 || lp.d === 2 || lp.d === 3) ? lp.d : 0;
     Object.assign(this.me, { x: spawn.x, y: spawn.y, fromX: spawn.x, fromY: spawn.y, dispX: spawn.x, dispY: spawn.y, dir });
 
@@ -259,7 +286,7 @@ export class World implements WorldCtx {
       me.dispX = lerp(me.fromX, me.x, t); me.dispY = lerp(me.fromY, me.y, t);
       if (t >= 1) { me.moving = false; me.dispX = me.x; me.dispY = me.y; this.afterStep(); }
     }
-    if (!me.moving && !me.locked && now >= me.stunUntil && !this.mafia.frozen()) {
+    if (!me.moving && !me.locked && !this.switching && now >= me.stunUntil && !this.mafia.frozen()) {
       const d = this.input.heldDir();
       if (d !== null) {
         this.fishing.cancel(); // 이동하면 낚시 취소 (자동 낚시 사이에 띄워 둔 찌도 거둔다)
@@ -308,7 +335,7 @@ export class World implements WorldCtx {
   // 마피아 시체 (모두에게 보임)
   private bodyViews(): import('./render').BodyView[] {
     const g = this.mafia.game;
-    if (!g || g.st === 'lobby' || !g.bodies) return [];
+    if (!g || g.st === 'lobby' || !g.bodies || this.mapId !== MAIN_MAP_ID) return []; // 마피아는 기본 맵에서만
     return Object.entries(g.bodies).map(([uid, b]) => ({ uid, avatar: b.a, nick: b.n, x: b.x, y: b.y }));
   }
   private entities(now: number): Entity[] {
@@ -323,6 +350,7 @@ export class World implements WorldCtx {
       ghost: iGhost,
     }];
     for (const rp of this.players.values()) {
+      if (!this.onMyMap(rp.st)) continue; // 다른 맵에 있는 사람은 그리지 않는다
       // 마피아 유령은 유령에게만 보인다 (산 사람·비참가자 화면에는 아예 안 그린다)
       const ghost = this.mafia.isGhost(rp.uid);
       if (ghost && !iGhost) continue;
@@ -343,20 +371,21 @@ export class World implements WorldCtx {
 
   // ---------- 이동 ----------
   occupied(x: number, y: number): boolean {
-    for (const rp of this.players.values()) if (rp.toX === x && rp.toY === y && !this.mafia.passThrough(rp.uid)) return true;
+    for (const rp of this.players.values()) if (rp.toX === x && rp.toY === y && this.onMyMap(rp.st) && !this.mafia.passThrough(rp.uid)) return true;
     return false;
   }
   playerAt(x: number, y: number): RemotePlayer | null {
-    for (const rp of this.players.values()) if (Math.round(rp.x) === x && Math.round(rp.y) === y && !this.mafia.passThrough(rp.uid)) return rp;
+    for (const rp of this.players.values()) if (Math.round(rp.x) === x && Math.round(rp.y) === y && this.onMyMap(rp.st) && !this.mafia.passThrough(rp.uid)) return rp;
     return null;
   }
   passThrough(uid: string): boolean { return this.mafia.passThrough(uid); }
   canStep(nx: number, ny: number): boolean {
-    if (this.me.locked) return false;
+    if (this.me.locked || this.switching) return false;
     if (!isWalkable(this.map, nx, ny) || this.occupied(nx, ny)) return false;
     const cur = roomAt(this.map, this.me.x, this.me.y);
     const target = roomAt(this.map, nx, ny);
     if (target && target !== cur) {
+      if (primaryOnlyRoom(this.mapId, target)) return false; // 다른 맵의 방·카지노에는 걸어서도 밀려서도 못 들어간다
       const rs = this.rooms[target.id];
       if (rs && rs.state !== 'open') return false;
       if (rs && rs.members && Object.keys(rs.members).length >= (target.cap || 2)) return false;
@@ -364,6 +393,7 @@ export class World implements WorldCtx {
     return true;
   }
   private entering = false;
+  private mapGen = 0; // 맵을 옮길 때마다 +1. 비동기 응답이 옮기기 전 맵 좌표로 이어 가지 않게 대조한다
   // turned: 이번에 방향도 바뀌었다. 걸음이 나가면 방향이 같이 가고, 못 나가면 방향만 따로 알린다
   private async tryMove(nx: number, ny: number, turned = false): Promise<void> {
     const faceOnly = () => { if (turned) this.net.setDir(this.me.dir); };
@@ -372,7 +402,9 @@ export class World implements WorldCtx {
     const target = roomAt(this.map, nx, ny);
     if (target && target !== cur) {
       this.entering = true;
+      const gen = this.mapGen;
       const ok = await this.roomMgr.tryEnter(target).finally(() => { this.entering = false; });
+      if (gen !== this.mapGen || this.switching) { if (ok) this.roomMgr.leave(target.id); return; } // 그 사이 맵이 바뀌었다
       if (!ok) { this.toast('방이 가득 찼거나 추첨 중입니다.', true); faceOnly(); return; }
       if (this.me.moving || this.me.locked) { this.roomMgr.leave(target.id); faceOnly(); return; }
       this.me.roomId = target.id;
@@ -449,7 +481,8 @@ export class World implements WorldCtx {
       // 밀려서 들어온 경우 등: 등록 시도, 실패하면 밖으로
       me.roomId = z.id;
       this.net.setRoom(z.id);
-      this.roomMgr.tryEnter(z).then((ok) => { if (!ok) { const exit = z.exit || { x: z.x, y: z.y + z.h }; this.teleportTo(exit.x, exit.y); me.roomId = null; this.net.setRoom(null); } });
+      const gen = this.mapGen;
+      this.roomMgr.tryEnter(z).then((ok) => { if (gen !== this.mapGen) { if (ok) this.roomMgr.leave(z.id); return; } if (!ok) { const exit = z.exit || { x: z.x, y: z.y + z.h }; this.teleportTo(exit.x, exit.y); me.roomId = null; this.net.setRoom(null); } });
     }
     // 장풍에 밀렸으면 한 칸 더 (벽·사람·방 정원이면 거기서 멈춤)
     if (me.pushMore && !me.moving) {
@@ -461,6 +494,7 @@ export class World implements WorldCtx {
   // 순간이동: 점유 선점에 실패하면(동시 퇴장 등) 다른 빈 타일로 재시도
   async teleportTo(x: number, y: number): Promise<void> {
     const me = this.me;
+    if (this.switching) return; // 맵을 옮기는 중: 옛 맵 좌표로 걸음을 보내지 않는다
     const tried = new Set<string>();
     for (let i = 0; i < 8; i++) {
       const t = findFreeTile(this.map, x, y, (a, b) => this.occupied(a, b) || tried.has(`${a},${b}`), true);
@@ -471,6 +505,67 @@ export class World implements WorldCtx {
         return;
       }
     }
+  }
+
+  // ---------- 포탈 (맵 이동) ----------
+  private setMap(map: MapData): void {
+    this.map = map;
+    this.boardZone = map.zones.find((z) => z.kind === 'board');
+    this.fishZone = map.zones.find((z) => z.kind === 'fish');
+    this.arcadeZone = map.zones.find((z) => z.kind === 'arcade');
+  }
+  private garden: MapData | null = null;
+  private async loadMap(id: string): Promise<MapData> {
+    const src = mapSource(id);
+    if (src === 'active') return this.mainMap;
+    if (src === 'builtin') return (this.garden ??= buildPortalGarden());
+    if (src === 'saved') return loadSavedMap(id);
+    throw new Error(`invalid map id ${String(id)}`);
+  }
+  // F 로 포탈: 목적지 맵을 읽고, 빈 땅을 골라 자리·맵·위치를 쓰기 한 번에 옮긴다. 어느 단계든 실패하면 원래 맵·자리 그대로
+  private async usePortal(z: Zone): Promise<void> {
+    const me = this.me;
+    const why = portalBlock({ from: this.mapId, target: z.targetMap, switching: this.switching, entering: this.entering, locked: me.locked, moving: me.moving || this.net.stepping, mafia: !!this.mafia.game && this.mafia.isParticipant(this.uid) });
+    if (why) { this.toast(why, true); return; }
+    const target = z.targetMap as string;
+    this.switching = true;
+    try {
+      this.leaveForTeleport(); // 낚시는 active 와 상관없이 거두고(띄워 둔 자동 찌), 방·카지노는 나간다
+      this.dig.cancel(); this.mafia.cancelTask();
+      let map: MapData;
+      try { map = await this.loadMap(target); } catch (e) { console.warn('portal map load failed', e); this.toast('갈 곳을 불러오지 못했습니다. 잠시 후 다시 시도하세요.', true); return; }
+      const tried = new Set<string>();
+      const taken = (x: number, y: number) => tried.has(`${x},${y}`) || [...this.players.values()].some((rp) => playerMapId(rp.st) === target && rp.toX === x && rp.toY === y);
+      const want = z.targetSpawn ?? map.spawn;
+      for (let i = 0; i < 4; i++) {
+        if (this.stopped) return;
+        const t = arrivalTile(map, want, taken);
+        if (!t) { this.toast('도착할 빈 자리가 없습니다.', true); return; }
+        tried.add(`${t.x},${t.y}`);
+        if (me.moving || me.locked) { this.toast('멈춘 뒤에 다시 시도하세요.', true); return; }
+        if (await this.net.changeMap(target, t.x, t.y, me.dir)) {
+          if (this.stopped) return;
+          this.enterMap(target, map, t.x, t.y);
+          this.toast(`🌀 ${map.name || '다른 곳'}(으)로 이동했습니다.`);
+          return;
+        }
+      }
+      this.toast('포탈로 이동하지 못했습니다. 잠시 후 다시 시도하세요.', true);
+    } finally { this.switching = false; }
+  }
+  // 맵 이동이 서버에 반영됐다: 옛 맵에 묶인 화면 상태(벌레·말랑이·펫 자리·말풍선·장풍 예약)를 비우고 새 맵으로
+  private enterMap(id: string, map: MapData, x: number, y: number): void {
+    const me = this.me;
+    this.mapGen++;
+    this.mapId = id;
+    this.setMap(map);
+    Object.assign(me, { x, y, fromX: x, fromY: y, dispX: x, dispY: y, moving: false, pushMore: null, bubble: null, pose: 'none', emoteId: 0 });
+    this.waterHoldUntil = 0;
+    this.fishing.cancel(); // 맵을 읽는 사이 자동 낚시가 옛 맵 물에 다시 던졌을 수 있다
+    this.bugs.clear(); this.toss.clear(); this.pets.forget(this.uid);
+    for (const rp of this.players.values()) rp.bubble = null;
+    this.lastHint = null;
+    this.events.emit('players');
   }
 
   isTileVisible(x: number, y: number): boolean { return this.engine.isTileVisible(x, y, 0); }
@@ -485,9 +580,10 @@ export class World implements WorldCtx {
 
   // ---------- 상호작용 ----------
   // F 로 할 수 있는 것과 그 안내 위치. 우선순위: 게시판 → 낚시 중 → 물가(낚시 시작) → 낚시 표지판
-  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' } | null {
+  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' } | null {
     const me = this.me;
     if (me.roomId) return null;
+    if (this.switching) return { x: me.x, y: me.y - 1, text: '🌀 이동 중…', kind: 'portal' };
     // 마피아 게임 중 참가자: 처치·미션·신고·소집이 F 를 우선 차지한다
     const ma = this.mafia.action();
     if (ma) {
@@ -497,6 +593,10 @@ export class World implements WorldCtx {
       return { x: ma.spot.x, y: ma.spot.y - 1, text: this.mafia.holding() ? `${ma.spot.def.verb} 중… 움직이지 마세요` : `F ${ma.spot.def.verb} (5초 버티기)`, kind: 'mafia' };
     }
     if (this.boardZone && nearZone(this.boardZone, me.x, me.y, 1)) return { x: this.boardZone.x + 1, y: this.boardZone.y - 1, text: 'F 게시판 보기', kind: 'board' };
+    const portal = portalNear(this.map, me.x, me.y);
+    if (portal) return { x: portal.x, y: portal.y - 1, text: `F 포탈 이동${portal.label ? `: ${portal.label}` : ''}`, kind: 'portal' };
+    const room = this.map.zones.find((z) => primaryOnlyRoom(this.mapId, z) && nearZone(z, me.x, me.y, 1));
+    if (room) return { x: room.x, y: room.y - 1, text: PRIMARY_ONLY_ROOM_MSG, kind: 'sign' };
     const fv = this.fishing.view();
     if (fv) { if (fv.auto) return null; return { x: fv.x, y: fv.y, text: fv.bite ? 'F 당겨!' : '찌를 기다리는 중… (이동하면 취소)', kind: 'fishing' }; } // 자동 낚시 중에는 안내를 띄우지 않는다 (2026-11-09, 사용자: 두 군데 뜨는 게 거슬림)
     const bug = this.bugs.targetView();
@@ -535,11 +635,13 @@ export class World implements WorldCtx {
     if (!inCasino) this.casinoHidden = false;
   }
   interact(): void {
+    if (this.switching) return; // 목적지를 읽는 동안 옛 맵에서 낚시·채집·삽질 등을 시작하지 않는다
     if (this.me.roomId === 'casino') { this.casinoHidden = !this.casinoHidden; this.syncCasinoPanel(); return; }
     if (this.me.roomId) { this.roomMgr.toggleReady(this.me.roomId); return; }
     const ch = this.canvasHint();
     if (!ch) return;
     if (ch.kind === 'mafia') { void this.mafiaInteract(); return; }
+    if (ch.kind === 'portal') { const z = portalNear(this.map, this.me.x, this.me.y); if (z) void this.usePortal(z); return; }
     if (ch.kind === 'board') { this.input.releaseAll(); openBoard({ uid: this.uid, nick: this.profile.nick, isAdmin: this.isAdmin }); }
     else if (ch.kind === 'fishing') this.fishing.reel();
     else if (ch.kind === 'cast') this.fishing.cast();
@@ -557,6 +659,7 @@ export class World implements WorldCtx {
     else if (a.kind === 'button') { if (await confirmModal('긴급 소집을 할까요? 한 게임에 한 번만 쓸 수 있어요.')) { if (await this.mafia.callMeeting()) this.toast('🚨 긴급 소집!'); } }
   }
   doEmote(id: number): void {
+    if (this.switching) return; // 맵을 옮기는 중에는 밀치기·끌기·이모트를 보내지 않는다
     const me = this.me;
     const now = performance.now();
     if (id === 10) {
@@ -643,7 +746,9 @@ export class World implements WorldCtx {
     const items: MenuItem[] = [{ label: '💬 귓속말', onClick: () => this.hud.focusChat(`/w ${nick} `) }];
     items.push({ label: 'ℹ 프로필 보기', onClick: () => this.showProfile(uid) });
     // 관리자: 구석에 숨어 자리 비운 사람을 광장(시작 지점)으로 보낸다. 상대 클라이언트가 players/{uid}/tp 를 보고 순간이동한다
-    if (this.isAdmin) items.push({ label: '🏠 광장으로 보내기 (관리자)', danger: true, onClick: async () => {
+    // 지금은 같은 맵에 있는 사람만 (좌표가 내 맵 기준이고, 규칙도 같은 맵만 허용)
+    const rp = this.players.get(uid);
+    if (this.isAdmin && rp && this.onMyMap(rp.st)) items.push({ label: '🏠 광장으로 보내기 (관리자)', danger: true, onClick: async () => {
       if (!(await confirmModal(`${nick} 을(를) 광장으로 보낼까요?`))) return;
       try { await this.net.sendTo(uid, this.map.spawn.x, this.map.spawn.y); this.toast(`🏠 ${nick} 을(를) 광장으로 보냈습니다.`); } catch { this.toast('보내지 못했습니다.', true); }
     } });
@@ -656,7 +761,7 @@ export class World implements WorldCtx {
       { label: '📖 도감 · 내 기록', onClick: () => this.openFishBook() },
       { label: '🛍 상점', onClick: () => this.openShop() },
       { label: this.wallet.rouletteDoneToday() ? '🎰 오늘의 룰렛 (돌렸음)' : '🎰 오늘의 룰렛', onClick: () => this.openRoulette() },
-      { label: '🗺 오늘의 보물 지도', onClick: () => openDigMap(this.map, this.dig.spots, this.dig.dug, { x: this.me.x, y: this.me.y }) },
+      { label: '🗺 오늘의 보물 지도', onClick: () => { if (this.mapId !== MAIN_MAP_ID) { this.toast('보물 지도는 광장 맵에서만 볼 수 있어요.', true); return; } openDigMap(this.mainMap, this.dig.spots, this.dig.dug, { x: this.me.x, y: this.me.y }); } },
       { label: '🏠 리스폰 (시작 지점으로)', onClick: () => this.respawnFlow() },
       { label: this.mafia.game ? (this.mafia.game.st === 'lobby' ? '🕵 마피아 (모집 중!)' : '🕵 마피아 (진행 중)') : '🕵 마피아 모집', onClick: () => openMafiaLobby(this) },
     ];
@@ -684,7 +789,7 @@ export class World implements WorldCtx {
     } catch (e) { this.toast((e as Error).message, true); }
   }
   // G / 모바일 🧸: 말랑이 던지기 (던지는 동작은 이모트 12 로 남들에게도 보인다)
-  throwToss(): void { if (this.toss.throwAt()) this.doEmote(12); }
+  throwToss(): void { if (!this.switching && this.toss.throwAt()) this.doEmote(12); }
   // 선물을 받았으면(users/{uid}/gift 가 새로 바뀜) 한 번 알린다. 본 것은 브라우저에 기억해, 접속해 있지 않을 때 받은 것도 다음에 들어오면 뜬다
   private giftSeen = -1;
   private checkGiftMark(): void {

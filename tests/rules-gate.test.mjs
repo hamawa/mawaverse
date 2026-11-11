@@ -153,5 +153,69 @@ await root.ref('config/hoursBlock').remove();
 await expect('설정 없음(기본): 평일 14:00 승인된 사용자가 설정 읽기', 'allow', () => ok.ref('config').get());
 await expect('설정 없음(기본): 승인 안 된 사용자는 못 들어옴', 'deny', () => as('NEWOFF').ref('config').get());
 
+// ---------- 6. 포탈 맵: 맵별 점유와 공간 상호작용 ----------
+await root.ref().update({
+  'approved/OTHER': true,
+  'players/OK': { ...presence, m: 'main' },
+  'players/OTHER': { ...presence, m: 'portal-garden' },
+  'players/ADMIN': { ...presence, m: 'main' },
+  'maps/island': { id: 'island', name: '섬' },
+  occ: null,
+});
+await expect('맵: 기본 공간의 같은 좌표 점유', 'allow', () => ok.ref('occ/1_1').set('OK'));
+await expect('맵: 다른 공간에서는 같은 좌표를 점유 가능', 'allow', () => other.ref('occ/portal-garden~1_1').set('OTHER'));
+await expect('맵: 다른 사용자의 유효한 점유 삭제 거부', 'deny', () => ok.ref('occ/portal-garden~1_1').remove());
+await expect('맵: 다른 공간의 점유 키를 위조', 'deny', () => ok.ref('occ/island~1_1').set('OK'));
+await expect('맵: 다른 공간의 좌표로 점유 키를 위조', 'deny', () => other.ref('occ/portal-garden~9_9').set('OTHER'));
+await expect('맵: 존재하지 않는 맵 이동', 'deny', () => ok.ref('players/OK/m').set('missing'));
+await expect('맵: 잘못된 맵 ID', 'deny', () => ok.ref('players/OK/m').set('../island'));
+await expect('맵: 저장된 맵 ID 허용', 'allow', () => ok.ref('players/OK/m').set('island'));
+await root.ref('players/OK/m').set('main');
+await expect('맵: 목적지 점유가 있으면 이동 거부', 'deny', () => ok.ref().update({
+  'occ/1_1': null, 'occ/portal-garden~1_1': 'OK', 'players/OK/m': 'portal-garden',
+}));
+if ((await root.ref('players/OK/m').get()).val() !== 'main' || (await root.ref('occ/1_1').get()).val() !== 'OK') {
+  fail++; console.log('  ✖ 거부된 맵 이동이 기존 접속/점유를 변경함');
+} else pass++;
+await expect('맵: 점유·맵·좌표를 한 번에 이동', 'allow', () => ok.ref().update({
+  'occ/1_1': null, 'occ/portal-garden~2_1': 'OK', 'players/OK/m': 'portal-garden', 'players/OK/x': 2,
+}));
+await expect('맵: 새 맵에서 기존 맵으로 원자적 귀환', 'allow', () => ok.ref().update({
+  'occ/portal-garden~2_1': null, 'occ/1_1': 'OK', 'players/OK/m': 'main', 'players/OK/x': 1,
+}));
+const spatial = {
+  push: { f: 'OK', dx: 1, dy: 0, t: 1 },
+  pull: { f: 'OK', x: 1, y: 1, t: 1 },
+  toss: { f: 'OK', fx: 1, fy: 1, tx: 1, ty: 1, t: 1 },
+};
+for (const [kind, value] of Object.entries(spatial)) {
+  await expect(`맵: 다른 맵 사용자에게 ${kind} 거부`, 'deny', () => ok.ref(`players/OTHER/${kind}`).set(value));
+}
+await root.ref('players/OK/m').set('portal-garden');
+for (const [kind, value] of Object.entries(spatial)) {
+  await expect(`맵: 같은 보조 맵 사용자에게 ${kind} 허용`, 'allow', () => ok.ref(`players/OTHER/${kind}`).set(value));
+}
+await expect('맵: 보조 맵의 근처 채팅 허용', 'allow', () => ok.ref('chat/public/garden-near').set({ u: 'OK', n: '닉', t: '정원', c: 'near', m: 'portal-garden', x: 1, y: 1, ts: 1 }));
+await expect('맵: 보조 맵에서 기본 맵 채팅으로 위조 거부', 'deny', () => ok.ref('chat/public/garden-fake').set({ u: 'OK', n: '닉', t: '기본 공간 위조', c: 'near', x: 1, y: 1, ts: 1 }));
+await root.ref('players/OK/m').set('main');
+await expect('맵: 다른 맵 사용자에게 관리자 순간이동 거부', 'deny', () => admin.ref('players/OTHER/tp').set({ f: 'ADMIN', x: 1, y: 1, t: 1 }));
+await root.ref('players/OTHER/m').remove();
+for (const [kind, value] of Object.entries(spatial)) {
+  await expect(`맵: 식별자 없는 기존 기본 공간 사용자에게 ${kind} 허용`, 'allow', () => ok.ref(`players/OTHER/${kind}`).set(value));
+}
+await expect('맵: 같은 맵 사용자에게 관리자 순간이동 허용', 'allow', () => admin.ref('players/OTHER/tp').set({ f: 'ADMIN', x: 1, y: 1, t: 1 }));
+await root.ref().update({
+  'mafia/game/st': 'day',
+  'mafia/game/players/OK': { alive: false },
+  'mafia/game/players/OTHER': { alive: true },
+  'occ/1_1': 'OTHER',
+});
+await expect('맵: 마피아 유령과 산 사람이 겹친 자리에서도 걸음 가능', 'allow', () => ok.ref().update({
+  'occ/1_1': null, 'occ/2_1': 'OK', 'players/OK/x': 2,
+}));
+await root.ref('mafia').remove();
+await expect('맵: 근처 채팅의 맵 위조 거부', 'deny', () => ok.ref('chat/public/fake-map').set({ u: 'OK', n: '닉', t: '다른 공간', c: 'near', m: 'portal-garden', x: 1, y: 1, ts: 1 }));
+await expect('맵: 기존 기본 공간의 맵 식별자 없는 채팅 허용', 'allow', () => ok.ref('chat/public/legacy-main').set({ u: 'OK', n: '닉', t: '기본 공간', c: 'near', x: 1, y: 1, ts: 1 }));
+
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
 process.exit(fail ? 1 : 0);

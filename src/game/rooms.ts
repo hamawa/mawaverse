@@ -5,6 +5,7 @@ import { unitRandomFromSeed } from '../shared/hash';
 import { ROOM_RESULT_MS } from '../shared/config';
 import type { RoomState, RoomMember, UserProfile } from '../shared/types';
 import { findFreeTile, type Zone } from './map';
+import { primaryOnlyRoom } from './portal';
 import type { WorldCtx } from './state';
 
 // 커피 내기 방 로직. 서버 코드가 없으므로 모든 클라이언트가 같은 규칙으로 동작한다.
@@ -30,6 +31,7 @@ export class Rooms {
   // 입장 시도: 정원/상태 확인 후 멤버 등록. 성공 시 true
   async tryEnter(z: Zone): Promise<boolean> {
     const w = this.w;
+    if (primaryOnlyRoom(w.mapId, z)) return false; // 다른 맵의 같은 id 방이 기본 맵 방 상태를 같이 쓰지 않게
     const cap = z.cap || 2;
     const member: RoomMember = { n: w.profile.nick, ready: false, losses: w.profile.losses || 0, at: serverNow() };
     try {

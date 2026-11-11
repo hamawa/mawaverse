@@ -1,4 +1,5 @@
 import { mulberry32 } from '../shared/hash';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, isMapId } from '../shared/maps';
 
 // 바닥 타일
 export const G = {
@@ -29,12 +30,51 @@ export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.B
 
 export interface Zone {
   id: string;
-  kind: 'room' | 'casino' | 'board' | 'label' | 'fish' | 'arcade'; // room: 커피 내기 방, casino: 카지노(정원 있음, 방처럼 입장), fish: 낚시 기록 표지판, arcade: 두더지 잡기 오락기 (옆에서 F)
+  kind: 'room' | 'casino' | 'board' | 'label' | 'fish' | 'arcade' | 'portal'; // room: 커피 내기 방, casino: 카지노(정원 있음, 방처럼 입장), fish: 낚시 기록 표지판, arcade: 두더지 잡기 오락기 (옆에서 F), portal: 다른 맵으로 이동
   x: number; y: number; w: number; h: number;
   cap?: number;
   door?: { x: number; y: number };
   exit?: { x: number; y: number };
   label?: string;
+  targetMap?: string;
+  targetSpawn?: { x: number; y: number };
+}
+
+export const RESERVED_MAP_IDS = [MAIN_MAP_ID, 'default', GARDEN_MAP_ID] as const;
+
+export function isReservedMapId(id: string): boolean {
+  return id === MAIN_MAP_ID || id === 'default' || id === GARDEN_MAP_ID;
+}
+
+export function validatePortalZone(z: unknown): z is Zone {
+  if (!z || typeof z !== 'object') return false;
+  const zone = z as Record<string, unknown>;
+  if (zone.kind !== 'portal') return false;
+  if (typeof zone.id !== 'string' || !zone.id.trim()) return false;
+  if (!Number.isInteger(zone.x) || !Number.isInteger(zone.y)) return false;
+  if (!Number.isInteger(zone.w) || (zone.w as number) <= 0) return false;
+  if (!Number.isInteger(zone.h) || (zone.h as number) <= 0) return false;
+  if (typeof zone.targetMap !== 'string' || !isMapId(zone.targetMap)) return false;
+  if (zone.targetSpawn !== undefined && zone.targetSpawn !== null) {
+    if (typeof zone.targetSpawn !== 'object') return false;
+    const ts = zone.targetSpawn as Record<string, unknown>;
+    if (!Number.isInteger(ts.x) || !Number.isInteger(ts.y)) return false;
+  }
+  if (zone.label !== undefined && typeof zone.label !== 'string') return false;
+  return true;
+}
+
+export function validateZone(z: unknown): z is Zone {
+  if (!z || typeof z !== 'object') return false;
+  const zone = z as Record<string, unknown>;
+  if (typeof zone.id !== 'string' || !zone.id.trim()) return false;
+  if (!Number.isInteger(zone.x) || !Number.isInteger(zone.y)) return false;
+  if (!Number.isInteger(zone.w) || (zone.w as number) <= 0) return false;
+  if (!Number.isInteger(zone.h) || (zone.h as number) <= 0) return false;
+  if (zone.kind === 'portal') return validatePortalZone(z);
+  const validKinds = new Set(['room', 'casino', 'board', 'label', 'fish', 'arcade']);
+  if (typeof zone.kind !== 'string' || !validKinds.has(zone.kind)) return false;
+  return true;
 }
 
 export interface MapData {
@@ -80,6 +120,11 @@ export function zoneContains(z: Zone, x: number, y: number): boolean {
 }
 export function nearZone(z: Zone, x: number, y: number, dist = 1): boolean {
   return x >= z.x - dist && y >= z.y - dist && x < z.x + z.w + dist && y < z.y + z.h + dist;
+}
+export function portalNear(m: MapData, x: number, y: number): Zone | undefined {
+  const near = m.zones.filter((z) => z.kind === 'portal' && nearZone(z, x, y));
+  if (near.length === 0) return undefined;
+  return near.find((z) => zoneContains(z, x, y)) || near[0];
 }
 export function labelAt(m: MapData, x: number, y: number): string | undefined {
   return m.zones.find((z) => z.kind === 'label' && zoneContains(z, x, y))?.label;
@@ -232,6 +277,20 @@ export function buildDefaultMap(): MapData {
   setO(21, 31, O.LAMP); setO(38, 31, O.LAMP);
   for (let y = 30; y < 38; y++) { setO(19, y, O.FENCE); setO(40, y, O.FENCE); }
   m.zones.push({ id: 'lbl-garden', kind: 'label', x: 20, y: 29, w: 20, h: 9, label: '정원' });
+  m.zones.push({
+    id: 'portal-garden',
+    kind: 'portal',
+    x: 29,
+    y: 36,
+    w: 2,
+    h: 1,
+    label: '포탈 정원 · 공사 중 (출입 금지)',
+    targetMap: GARDEN_MAP_ID,
+    targetSpawn: { x: 12, y: 13 },
+  });
+  // 상호작용 거리(1칸) 밖까지 둘러야 펜스 너머에서 F로 진입하지 못한다.
+  for (let x = 27; x <= 32; x++) { setO(x, 34, O.FENCE); setO(x, 38, O.FENCE); }
+  for (let y = 35; y <= 37; y++) { setO(27, y, O.FENCE); setO(32, y, O.FENCE); }
 
   // 빈 구역에 나무/덤불 조금
   for (let i = 0; i < 40; i++) {
@@ -249,18 +308,87 @@ export function buildDefaultMap(): MapData {
   return m;
 }
 
+export function buildPortalGarden(): MapData {
+  const W = 24, H = 20;
+  const m = emptyMap(GARDEN_MAP_ID, '포탈 정원', W, H);
+  const rnd = mulberry32(734001289);
+  const setG = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.ground[y * W + x] = id; };
+  const setO = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.objects[y * W + x] = id; };
+  const fillG = (x: number, y: number, w: number, h: number, id: number) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) setG(x + i, y + j, id); };
+
+  // 잔디 변화 + 꽃
+  for (let i = 0; i < W * H; i++) {
+    const r = rnd();
+    if (r < 0.15) m.ground[i] = G.GRASS2;
+    else if (r < 0.22) m.ground[i] = G.FLOWER;
+  }
+  // 테두리 나무/소나무
+  for (let x = 0; x < W; x++) { setO(x, 0, rnd() < 0.5 ? O.TREE : O.PINE); setO(x, H - 1, rnd() < 0.5 ? O.TREE : O.PINE); }
+  for (let y = 0; y < H; y++) { setO(0, y, rnd() < 0.5 ? O.TREE : O.PINE); setO(W - 1, y, rnd() < 0.5 ? O.TREE : O.PINE); }
+
+  // 중앙 산책로 (돌길)
+  fillG(11, 2, 2, 16, G.PLAZA);
+  fillG(4, 9, 16, 2, G.PATH);
+
+  // 연못 (북동쪽)
+  fillG(14, 4, 7, 5, G.WATER);
+  fillG(13, 3, 9, 1, G.SAND); fillG(13, 9, 9, 1, G.SAND);
+  fillG(13, 4, 1, 5, G.SAND); fillG(21, 4, 1, 5, G.SAND);
+  setO(14, 3, O.ROCK); setO(20, 3, O.ROCK); setO(14, 9, O.ROCK); setO(20, 9, O.ROCK);
+  setO(17, 3, O.BENCH);
+
+  // 정원 화단 및 쉼터 (서쪽)
+  setO(3, 3, O.FLOWERBED); setO(7, 3, O.FLOWERBED);
+  setO(3, 7, O.FLOWERBED); setO(7, 7, O.FLOWERBED);
+  setO(5, 5, O.TABLE_ROUND); setO(4, 5, O.CHAIR); setO(6, 5, O.CHAIR); setO(5, 4, O.UMBRELLA);
+  setO(3, 12, O.BENCH); setO(7, 12, O.BENCH);
+  setO(5, 14, O.POT);
+
+  // 가로등
+  setO(9, 3, O.LAMP); setO(9, 15, O.LAMP); setO(14, 15, O.LAMP);
+
+  // 남쪽 포탈 광장
+  fillG(10, 14, 4, 3, G.PATH2);
+  fillG(11, 15, 2, 1, G.PLAZA);
+
+  // 라벨 구역
+  m.zones.push({ id: 'lbl-garden', kind: 'label', x: 1, y: 1, w: 22, h: 18, label: '포탈 정원' });
+
+  // 복귀 포탈: targetMap 은 'main' (MAIN_MAP_ID), targetSpawn 없음 => main spawn 으로 이동
+  m.zones.push({
+    id: 'portal-main',
+    kind: 'portal',
+    x: 11,
+    y: 15,
+    w: 2,
+    h: 1,
+    label: '메인 광장',
+    targetMap: MAIN_MAP_ID,
+  });
+
+  // 스폰 위치: 포탈 앞 안전한 타일 (12, 13)
+  m.spawn = { x: 12, y: 13 };
+  return m;
+}
+
 // 저장된 맵 데이터 검증/보정
 export function sanitizeMap(raw: Partial<MapData> | null, fallback: MapData): MapData {
   if (!raw || typeof raw.w !== 'number' || typeof raw.h !== 'number' || !Array.isArray(raw.ground) || !Array.isArray(raw.objects)) return fallback;
   if (raw.ground.length !== raw.w * raw.h || raw.objects.length !== raw.w * raw.h) return fallback;
+  const zones: Zone[] = [];
+  if (Array.isArray(raw.zones)) {
+    for (const z of raw.zones) {
+      if (validateZone(z)) zones.push(z);
+    }
+  }
   return {
     id: raw.id || fallback.id,
     name: raw.name || fallback.name,
     w: raw.w, h: raw.h,
     ground: raw.ground.map((v) => (typeof v === 'number' ? v : 0)),
     objects: raw.objects.map((v) => (typeof v === 'number' ? v : 0)),
-    zones: Array.isArray(raw.zones) ? raw.zones : fallback.zones,
-    spawn: raw.spawn || fallback.spawn,
+    zones: Array.isArray(raw.zones) ? zones : fallback.zones,
+    spawn: raw.spawn && Number.isInteger(raw.spawn.x) && Number.isInteger(raw.spawn.y) ? raw.spawn : fallback.spawn,
     version: raw.version || 1,
     updatedAt: raw.updatedAt,
   };

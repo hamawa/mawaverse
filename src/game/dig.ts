@@ -5,6 +5,7 @@ import { dayKey } from '../shared/util';
 import { G, O, groundAt, objectAt, isWalkable, roomAt, type MapData } from './map';
 import type { Net } from './net';
 import type { WorldCtx } from './state';
+import { MAIN_MAP_ID } from '../shared/maps';
 
 export const DIG_SPOTS = 5;          // 하루 자리 수
 export const DIG_MS = 1500;          // 삽질 시간
@@ -65,7 +66,7 @@ export class DigMgr {
     const day = dayKey();
     if (day === this.day) return;
     this.day = day;
-    this.spots = dailySpots(this.w.map, day);
+    this.spots = dailySpots(this.w.mainMap, day); // 보물 자리는 기본 맵 기준 (다른 맵에 있을 때 날이 바뀌어도)
     this.dug = new Set();
     try {
       const v = (await get(ref(db, `dig/${day}/${this.w.uid}`))).val() as Record<string, DigRecord> | null;
@@ -77,7 +78,7 @@ export class DigMgr {
   // 내가 서 있는 칸의 아직 안 판 자리
   spotHere(): DigSpot | null {
     const me = this.w.me;
-    if (me.moving || me.locked || me.roomId) return null;
+    if (me.moving || me.locked || me.roomId || this.w.mapId !== MAIN_MAP_ID) return null;
     return this.spots.find((s) => s.x === me.x && s.y === me.y && !this.dug.has(s.i)) || null;
   }
   // F: 삽질 시작
