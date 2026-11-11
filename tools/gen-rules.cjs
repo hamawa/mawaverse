@@ -53,11 +53,14 @@ function walletValidate(pre = '') {
   // 선물 대상 gt 는 구매 쓰기에서만 바뀐다 (안 쓰면 그대로). 그래서 한 번 결제로 나와 상대 둘 다 등록하는 일이 없다
   // 경마 배팅 표시 cb/ch/ca 는 b='race' 결제 쓰기에서만 바뀐다 (다른 구매에 끼워 넣어 싸게 배팅하지 못하게)
   const cbSame = `${n('cb', "''")} == ${d('cb', "''")} && ${n('ch', '-1')} == ${d('ch', '-1')} && ${n('ca', '0')} == ${d('ca', '0')}`;
-  const gearSame = `${pxSame} && ${esNoUp} && ${rsSame} && ${kingSame} && ${btNoUp}`; // 먹이·주문서·성·금덩이: 그 전용 쓰기가 아니면 그대로 (es 는 소모만)
+  const gearSame = `${pxSame} && ${esNoUp} && ${rsSame} && ${kingSame} && ${btNoUp}`;
+  // 성은 강화 쓰기에서만 바뀐다. 예외: 그 낚싯대가 보관함에 없으면 주문서 없이 0 으로 되돌릴 수 있다 (2026-11-11. 낚싯대 없이 성만 남은 지갑을 클라이언트가 접속할 때 바로잡는다)
+  const rsKeep = `(${rsSame} || (${n('rs')} == 0 && root.child('${pre}users/' + auth.uid + '/own/rod2').val() != true))`;
+  const ksKeep = `(${ksSame} || (${n('ks')} == 0 && root.child('${pre}users/' + auth.uid + '/own/rod3').val() != true))`; // 먹이·주문서·성·금덩이: 그 전용 쓰기가 아니면 그대로 (es 는 소모만)
   // 구매 표시(b)는 안 쓰면 그대로. 예외: 강화에 실패해 낚싯대가 부서지는 쓰기(주문서 −1, 성 0)는 b 를 지울 수 있다.
   //  b 가 그 낚싯대로 남아 있으면 부서진 뒤에도 보유 등록 규칙(own: b 가 그 품목)이 통과해 공짜로 되살릴 수 있었다 (2026-11-11 수정)
   const bKeep = `(${n('b', "''")} == ${d('b', "''")} || (!newData.child('b').exists() && ${n('es')} == ${d('es')} - 1 && (${n('rs')} == 0 || ${n('ks')} == 0)))`;
-  const noSpend = `(${dS} == 0 && ${bKeep} && ${n('gt', "''")} == ${d('gt', "''")} && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${pxSame} && ${btNoUp} && (${enhance} || ${kEnhance} || ${mineW} || (${esNoUp} && ${rsSame} && ${kingSame})))`;
+  const noSpend = `(${dS} == 0 && ${bKeep} && ${n('gt', "''")} == ${d('gt', "''")} && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${pxSame} && ${btNoUp} && (${enhance} || ${kEnhance} || ${mineW} || (${esNoUp} && ${gnSame} && ${gaSame} && ${rsKeep} && ${ksKeep})))`;
   const buyBait = `(${bIs('bait')} && ${n('bait')} > ${d('bait')} && ${dS} == ${price('bait')} * (${n('bait')} - ${d('bait')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${gearSame})`;
   // 강화 주문서 묶음 구매: es 가 늘어난 만큼 × 가격 (2026-11-10)
   const buyScroll = `(${bIs('scroll')} && ${n('es')} > ${d('es')} && ${dS} == ${price('scroll')} * (${n('es')} - ${d('es')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${baitNoUp} && ${pxSame} && ${rsSame} && ${kingSame} && ${btNoUp})`;
@@ -78,8 +81,9 @@ function walletValidate(pre = '') {
   const CB = `root.child('casino/r/' + newData.child('cb').val()`;
   const bet = `(${bIs('race')} && ${dS} == ${n('ca')} && ${n('ca')} >= 100 && ${n('ca')} <= ${MAXBET} && ${n('ca')} % 100 == 0 && ${n('ch', '-1')} >= 0 && ${n('ch', '-1')} <= 4 && ${n('ch', '-1')} % 1 == 0 && newData.child('cb').isString() && ${CB} + '/o').exists() && !${CB} + '/at').exists() && ${crSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame})`;
   const spend = `(${noSpend} || (${dS} > 0 && newData.child('b').isString() && (${buyBait} || ${buyScroll} || ${buyBat} || ${feed} || ${craft} || ${buyOne} || ${bet})))`;
-  // 성(rs)이 0 보다 크면 명품 낚싯대를 가지고 있어야 한다 (부서지면 rs 도 0 으로 쓴다). 킹 성(ks)도 같다: 0 보다 크면 킹 낚싯대 보유
-  const rodOwned = `(${n('rs')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod2').val() === true) && (${n('ks')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod3').val() === true)`;
+  // 성(rs)을 올리려면 명품 낚싯대를 가지고 있어야 한다 (킹 성 ks 는 킹 낚싯대). 성이 그대로인 쓰기에는 묻지 않는다:
+  //  예전엔 "성 > 0 이면 보유"를 모든 쓰기에 물어서, 낚싯대 없이 성만 남은 지갑은 코인 획득·구매까지 전부 거부됐다 (2026-11-11 실제 발생)
+  const rodOwned = `(${rsSame} || ${n('rs')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod2').val() === true) && (${ksSame} || ${n('ks')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod3').val() === true)`;
   // 관리자 지급(관리자 페이지의 코인 지급/회수): 관리자가 쓰는 지갑은 형식만 보고 나머지 검사를 건너뛴다. 지급 표시 gf 는 관리자만 바꿀 수 있다
   const admin = `root.child('admins/' + auth.uid).val() === true`;
   const gfSame = `newData.child('gf/at').val() == data.child('gf/at').val() && newData.child('gf/n').val() == data.child('gf/n').val()`;

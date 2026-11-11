@@ -1,4 +1,4 @@
-import { ref, get, onValue, runTransaction, update, serverTimestamp } from 'firebase/database';
+import { ref, get, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ArmorKey, type GiftMark } from '../shared/shop';
@@ -23,7 +23,7 @@ export class WalletMgr {
       this.wallet = (s.val() as Wallet | null) || { c: 0, e: 0 };
       const first = !this.loaded;
       this.loaded = true;
-      if (first) void this.deliverPending();
+      if (first) { void this.deliverPending(); void this.healStars(); }
       this.checkGift();
       this.listeners.forEach((f) => f());
     });
@@ -178,27 +178,48 @@ export class WalletMgr {
   buyScrolls(price: number, n = 1): Promise<boolean> {
     return this.spend('scroll', price * n, (c) => ({ ...c, es: (c.es || 0) + n }));
   }
-  // 강화 1회: 주문서 1장을 쓰며 성공이면 rs+1, 실패면 rs=0 (명품 낚싯대 삭제는 호출한 쪽이 이어서 한다). 결과는 여기서 굴린다 (낚시처럼 클라이언트 신뢰)
-  // 'none': 주문서 없음/최대, 'ok': 성공, 'broke': 실패(부서짐)
-  enhanceRod(): Promise<'none' | 'ok' | 'broke'> {
+  // 강화 1회: 주문서 1장을 쓰며 성공이면 rs+1, 실패면 명품 낚싯대가 부서진다. 결과는 여기서 굴린다 (낚시처럼 클라이언트 신뢰)
+  // 'none': 주문서 없음/최대, 'ok': 성공, 'broke': 실패(부서짐. 보관함에서도 이미 지웠다. 좋은 낚싯대 rod1 은 남는다)
+  private enhancing = false; // 강화 쓰기가 진행 중 (그 사이에 또 누른 것은 무시)
+  async enhanceRod(): Promise<'none' | 'ok' | 'broke'> {
     const stars = this.stars;
-    if (this.scrolls <= 0 || stars >= ROD_MAX_STARS || !this.w.profile.own?.rod2) return Promise.resolve('none');
+    if (this.enhancing || this.scrolls <= 0 || stars >= ROD_MAX_STARS || !this.w.profile.own?.rod2) return 'none';
     const ok = Math.random() < enhanceChance(stars);
-    return this.tx((c) => {
-      if ((c.es || 0) <= 0) return null;
-      const cur = c.rs || 0;
-      if (cur !== stars) return null; // 다른 탭에서 바뀜
-      const n: Wallet = { ...c, es: (c.es || 0) - 1, rs: ok ? cur + 1 : 0 };
-      if (!ok) delete n.b; // 부서졌다: 마지막 구매 표시를 지운다. 남겨 두면 그게 이 낚싯대일 때 다음 접속의 deliverPending 이 공짜로 다시 등록해 준다 (2026-11-11 수정)
-      return n;
-    }).then((done) => (!done ? 'none' : ok ? 'ok' : 'broke'));
+    this.enhancing = true;
+    try {
+      if (ok) {
+        const done = await this.tx((c) => {
+          if ((c.es || 0) <= 0) return null;
+          const cur = c.rs || 0;
+          if (cur !== stars) return null; // 다른 탭에서 바뀜
+          return { ...c, es: (c.es || 0) - 1, rs: cur + 1 };
+        });
+        return done ? 'ok' : 'none';
+      }
+      return (await this.breakWrite('rod2', { es: increment(-1), rs: 0 })) ? 'broke' : 'none';
+    } finally { this.enhancing = false; }
   }
-  // 부서진 명품 낚싯대를 보관함에서 지운다 (본인 삭제는 규칙이 허용). 좋은 낚싯대(rod1)는 남는다
-  async breakRod(): Promise<void> {
-    try { await update(ref(db), { [`users/${this.w.uid}/own/rod2`]: null }); } catch (e) { console.warn('rod2 삭제 실패', e); }
+  // 부서지는 쓰기: 지갑(주문서 −1, 성 0, 구매 표시 삭제)과 보관함의 낚싯대 삭제를 쓰기 한 번에 한다 (2026-11-11).
+  //  - 따로 쓰던 때에는 그 사이에 상점이 다시 그려지며 생긴 "강화 100%" 버튼이 눌려, 곧 지워질 낚싯대가 ★1 이 되고 낚싯대만 사라진 지갑이 생겼다.
+  //    그러면 "성이 있으면 낚싯대 보유" 규칙에 걸려 그 지갑의 모든 쓰기가 거부됐다 (실제 발생, 계정 하나)
+  //  - 구매 표시 b 를 지우는 이유: 남겨 두면 그게 이 낚싯대일 때 다음 접속의 deliverPending 이 공짜로 다시 등록해 준다
+  private async breakWrite(item: string, walletPatch: Record<string, unknown>): Promise<boolean> {
+    const uid = this.w.uid;
+    const upd: Record<string, unknown> = { [`wallet/${uid}/b`]: null, [`users/${uid}/own/${item}`]: null };
+    for (const [k, v] of Object.entries(walletPatch)) upd[`wallet/${uid}/${k}`] = v;
+    try { await update(ref(db), upd); } catch (e) { console.warn('강화 실패 쓰기가 거부됨', e); return false; }
     const p = this.w.profile;
-    if (p.own) { const own = { ...p.own }; delete own.rod2; p.own = own; }
+    if (p.own) { const own = { ...p.own }; delete own[item]; p.own = own; }
     this.listeners.forEach((f) => f());
+    return true;
+  }
+  // 낚싯대가 없는데 성이 남은 지갑을 0 으로 바로잡는다 (접속할 때 한 번). 규칙은 그 낚싯대가 보관함에 없을 때만 주문서 없이 0 으로 되돌리기를 받는다
+  private async healStars(): Promise<void> {
+    const own = this.w.profile.own || {};
+    const badRs = (this.wallet.rs || 0) > 0 && !own.rod2, badKs = (this.wallet.ks || 0) > 0 && !own[KING_ROD_ID];
+    if (!badRs && !badKs) return;
+    const ok = await this.tx((c) => ({ ...c, ...(badRs ? { rs: 0 } : {}), ...(badKs ? { ks: 0 } : {}) }));
+    if (ok) console.info('낚싯대 없이 남아 있던 강화 성을 0 으로 바로잡음');
   }
 
   // ---- 킹 낚싯대 (2026-11-11) ----
@@ -225,26 +246,24 @@ export class WalletMgr {
     this.listeners.forEach((f) => f());
     return 'ok';
   }
-  // 킹 낚싯대 강화 1회: 주문서 1장 + 금덩이 1개. 성공이면 ks+1, 실패면 ks=0 (보관함에서 지우는 것은 호출한 쪽이 breakKing 으로 이어서 한다)
-  enhanceKing(): Promise<'none' | 'ok' | 'broke'> {
+  // 킹 낚싯대 강화 1회: 주문서 1장 + 금덩이 1개. 성공이면 ks+1, 실패면 킹 낚싯대가 부서진다 (보관함에서도 같은 쓰기로 지운다. 명품 낚싯대 rod2 와 그 30성은 남는다)
+  async enhanceKing(): Promise<'none' | 'ok' | 'broke'> {
     const stars = this.kingStars;
-    if (!this.owns(KING_ROD_ID) || this.scrolls <= 0 || this.gold < KING_ENHANCE_GOLD || stars >= KING_MAX_STARS) return Promise.resolve('none');
+    if (this.enhancing || !this.owns(KING_ROD_ID) || this.scrolls <= 0 || this.gold < KING_ENHANCE_GOLD || stars >= KING_MAX_STARS) return 'none';
     const ok = Math.random() < enhanceChance(stars);
-    return this.tx((c) => {
-      if ((c.es || 0) <= 0 || (c.gn || 0) < KING_ENHANCE_GOLD) return null;
-      const cur = c.ks || 0;
-      if (cur !== stars) return null; // 다른 탭에서 바뀜
-      const n: Wallet = { ...c, es: (c.es || 0) - 1, gn: (c.gn || 0) - KING_ENHANCE_GOLD, ks: ok ? cur + 1 : 0 };
-      if (!ok) delete n.b; // 부서졌다: 마지막 구매 표시(rod3 일 수 있다)를 지워 다음 접속 때 공짜로 다시 등록되지 않게
-      return n;
-    }).then((done) => (!done ? 'none' : ok ? 'ok' : 'broke'));
-  }
-  // 부서진 킹 낚싯대를 보관함에서 지운다. 명품 낚싯대(rod2)와 그 30성은 남는다
-  async breakKing(): Promise<void> {
-    try { await update(ref(db), { [`users/${this.w.uid}/own/${KING_ROD_ID}`]: null }); } catch (e) { console.warn('rod3 삭제 실패', e); }
-    const p = this.w.profile;
-    if (p.own) { const own = { ...p.own }; delete own[KING_ROD_ID]; p.own = own; }
-    this.listeners.forEach((f) => f());
+    this.enhancing = true;
+    try {
+      if (ok) {
+        const done = await this.tx((c) => {
+          if ((c.es || 0) <= 0 || (c.gn || 0) < KING_ENHANCE_GOLD) return null;
+          const cur = c.ks || 0;
+          if (cur !== stars) return null; // 다른 탭에서 바뀜
+          return { ...c, es: (c.es || 0) - 1, gn: (c.gn || 0) - KING_ENHANCE_GOLD, ks: cur + 1 };
+        });
+        return done ? 'ok' : 'none';
+      }
+      return (await this.breakWrite(KING_ROD_ID, { es: increment(-1), gn: increment(-KING_ENHANCE_GOLD), ks: 0 })) ? 'broke' : 'none';
+    } finally { this.enhancing = false; }
   }
 
   // 꾸미기·장비 구매: 지갑에서 값을 빼며 무엇을 샀는지(b) 적고, 이어서 보관함에 넣는다 (규칙이 b 를 보고 보유 등록을 허용)

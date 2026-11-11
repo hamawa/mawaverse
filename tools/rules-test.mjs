@@ -388,6 +388,29 @@ await expect('allow', 'P231 빠따를 가진 채 미끼 구매 (빠따 그대로
 await seed({ c: 2000000, e: 2000000, bt: 995 });
 w = await cur();
 await expect('deny', 'P232 999개를 넘겨 구매', () => W({ ...w, c: w.c - BP * 5, sp: BP * 5, b: 'bat', bt: 1000 }));
+// Q. 낚싯대 없이 성만 남은 지갑 (2026-11-11 실제 발생): 통째로 막히지 않고, 스스로 0 으로 되돌릴 수 있다. 부서지는 쓰기는 지갑과 보관함을 한 번에
+await rootDb.ref(`${UP}/own`).update({ rod2: null, rod3: null });
+await seed({ c: 1000, e: 1000, es: 3, rs: 1, ks: 2 });
+w = await cur();
+await expect('allow', 'Q240 성이 남았는데 낚싯대가 없어도 코인 획득', () => W({ ...w, c: w.c + 10, e: w.e + 10 }));
+w = await cur();
+await expect('allow', 'Q241 성이 남았는데 낚싯대가 없어도 미끼 구매', () => W({ ...w, c: w.c - prices.bait, sp: (w.sp || 0) + prices.bait, b: 'bait', bait: 1 }));
+w = await cur();
+if (!ONLY_WALLET) await expect('deny', 'Q242 낚싯대 없이 성 올리기', () => W({ ...w, es: w.es - 1, rs: 2 }));
+await expect('deny', 'Q243 주문서 없이 킹 성 올리기', () => W({ ...w, ks: 3 }));
+await expect('deny', 'Q244 바로잡는 척하며 코인도 +100 은 되지만 성을 다른 값으로는 못 바꾼다', () => W({ ...w, c: w.c + 100, e: w.e + 100, rs: 5 }));
+if (!ONLY_WALLET) await expect('allow', 'Q245 낚싯대가 없으니 주문서 없이 성을 0 으로 (접속할 때 바로잡기)', () => W({ ...w, rs: 0, ks: 0 }));
+await rootDb.ref(`${UP}/own/rod2`).set(true);
+await seed({ c: 1000, e: 1000, sp: 15000, b: 'rod2', es: 3, rs: 12 });
+w = await cur();
+await expect('deny', 'Q246 낚싯대가 있는데 주문서 없이 성을 0 으로', () => W({ ...w, rs: 0 }));
+if (!ONLY_WALLET) {
+  await expect('deny', 'Q247 부서지는 쓰기인데 주문서를 안 씀', () => userDb.ref().update({ [`${WP}/rs`]: 0, [`${WP}/b`]: null, [`${UP}/own/rod2`]: null }));
+  await expect('allow', 'Q248 강화 실패를 한 번에: 주문서 −1·성 0·구매 표시 삭제·보관함의 낚싯대 삭제', () => userDb.ref().update({ [`${WP}/es`]: ServerValue.increment(-1), [`${WP}/rs`]: 0, [`${WP}/b`]: null, [`${UP}/own/rod2`]: null }));
+  const after = await cur(), ownAfter = (await rootDb.ref(`${UP}/own/rod2`).get()).val();
+  if (after.rs !== 0 || after.es !== 2 || after.b !== undefined || ownAfter !== null) { fail++; console.log('  FAIL 부서진 뒤 상태가 기대와 다름', JSON.stringify(after), ownAfter); } else pass++;
+  await expect('deny', 'Q249 부서진 명품 낚싯대를 값 안 내고 다시 보유 등록', () => userDb.ref(`${UP}/own/rod2`).set(true));
+}
 await rootDb.ref().update({ [WP]: null, [UP]: null, [PP]: null });
 await rootDb.ref('approved').update({ [T]: null, 'zz-rules-gift': null });
 console.log(`\n결과: 통과 ${pass}, 실패 ${fail}`);

@@ -333,7 +333,7 @@ export function openShop(h: ShopHost): void {
         if (chance < 1 && !(await confirmModal(`★${stars} → ★${stars + 1} 강화에 도전할까요? 성공 ${Math.round(chance * 100)}%. 실패하면 명품 낚싯대(15,000)가 부서져 좋은 낚싯대로 돌아가고 성은 0 이 됩니다.`))) { go.disabled = false; return; }
         const r = await h.wallet.enhanceRod();
         if (r === 'ok') h.toast(`✨ 강화 성공! 명품 낚싯대 ★${stars + 1}`);
-        else if (r === 'broke') { await h.wallet.breakRod(); h.toast(`💥 강화 실패… 명품 낚싯대가 부서졌다. 좋은 낚싯대로 돌아갑니다. (★${stars} 소멸)`, true); }
+        else if (r === 'broke') h.toast(`💥 강화 실패… 명품 낚싯대가 부서졌다. 좋은 낚싯대로 돌아갑니다. (★${stars} 소멸)`, true);
         else h.toast('강화하지 못했습니다. (주문서 없음)', true);
         render();
       };
@@ -387,7 +387,7 @@ export function openShop(h: ShopHost): void {
           if (chance < 1 && !(await confirmModal(`★${ks} → ★${ks + 1} 강화에 도전할까요? 성공 ${Math.round(chance * 100)}%. 실패하면 ${king.name}가 부서져 명품 ★${KING_NEED_STARS} 으로 돌아가고, 다시 만들려면 ${fmtCoins(kp)}과 금덩이 ${KING_CRAFT_GOLD}개가 듭니다.`))) { go.disabled = false; return; }
           const r = await h.wallet.enhanceKing();
           if (r === 'ok') h.toast(`✨ 강화 성공! ${king.name} ★${ks + 1}`);
-          else if (r === 'broke') { await h.wallet.breakKing(); h.toast(`💥 강화 실패… ${king.name}가 부서졌다. 명품 ★${KING_NEED_STARS} 으로 돌아갑니다. (★${ks} 소멸)`, true); }
+          else if (r === 'broke') h.toast(`💥 강화 실패… ${king.name}가 부서졌다. 명품 ★${KING_NEED_STARS} 으로 돌아갑니다. (★${ks} 소멸)`, true);
           else h.toast('강화하지 못했습니다. (주문서나 금덩이가 없음)', true);
           render('[data-king="go"]');
         };
