@@ -6,7 +6,9 @@ import { drawHat, nameStyle, petCanvas, mountCanvas } from './cosmetics';
 import {
   HATS, NAME_COLORS, FX, PET_GOODS, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, ARMOR_KEY, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
+  KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
 } from '../shared/shop';
+import { fmtGold } from '../shared/mine';
 import type { WalletMgr } from './wallet';
 import type { UserProfile, ServerConfig } from '../shared/types';
 
@@ -321,6 +323,61 @@ export function openShop(h: ShopHost): void {
       row.append(btns);
       box.append(row);
     }
+    // 킹 낚싯대 (2026-11-11): 명품 30성이 있어야 금덩이 + 코인으로 만든다. 만든 뒤에는 주문서 1장 + 금덩이 1개로 강화하고, 실패하면 부서져 다시 만들어야 한다. 선물 버튼은 없다
+    if (h.wallet.owns('rod2')) {
+      const king = ROD_GOODS[2], kp = priceOf(king, prices);
+      const gold = h.wallet.gold, scrolls = h.wallet.scrolls, sp = priceOf(SCROLL, prices);
+      const row = el('div', { class: 'shop-good enh' });
+      const btns = el('div', { class: 'row', style: 'gap:6px;flex-wrap:wrap;justify-content:flex-end' });
+      if (!h.wallet.owns(KING_ROD_ID)) {
+        const rs = h.wallet.stars;
+        const missing = rs < KING_NEED_STARS ? `명품 낚싯대 ★${KING_NEED_STARS} 이 필요합니다 (지금 ★${rs})` : gold < KING_CRAFT_GOLD ? `금덩이가 모자랍니다 (${gold}/${KING_CRAFT_GOLD}). 포탈로 금광에 가서 캐세요` : h.wallet.balance < kp ? '코인이 모자랍니다' : '';
+        row.append(el('div', { class: 'ic', text: king.icon }), el('div', { class: 'txt' }, [
+          el('div', { class: 'nm', text: `${king.name} · ${fmtGold(gold)}` }),
+          el('div', { class: 'ds', text: `${king.desc} 제작: 명품 ★${KING_NEED_STARS}${rs >= KING_NEED_STARS ? ' ✅' : ` (지금 ★${rs})`} · 금덩이 ${KING_CRAFT_GOLD}개${gold >= KING_CRAFT_GOLD ? ' ✅' : ` (보유 ${gold})`} · ${fmtCoins(kp)}. 명품 낚싯대와 30성은 그대로 남는다.` }),
+        ]));
+        const make = el('button', { class: 'btn small primary', text: `제작 ${fmtCoins(kp)} + 🟡${KING_CRAFT_GOLD}` });
+        if (missing) { make.disabled = true; make.title = missing; }
+        make.onclick = async () => {
+          make.disabled = true;
+          if (!(await confirmModal(`${king.name}를 만들까요? ${fmtCoins(kp)}과 금덩이 ${KING_CRAFT_GOLD}개가 듭니다. 강화에 실패해 부서지면 다시 만들어야 합니다.`))) { make.disabled = false; return; }
+          const r = await h.wallet.craftKing(kp);
+          if (r === 'ok') h.toast(`👑 ${king.name} 완성! 이제 가끔 킹 사이즈가 낚입니다.`);
+          else h.toast(r === 'need' ? `명품 낚싯대 ★${KING_NEED_STARS} 이 필요합니다.` : r === 'gold' ? '금덩이가 모자랍니다.' : r === 'coins' ? '코인이 모자랍니다.' : '만들지 못했습니다. 잠시 후 다시 시도하세요.', true);
+          render();
+        };
+        btns.append(make);
+      } else {
+        const ks = h.wallet.kingStars;
+        const chance = ks >= KING_MAX_STARS ? 0 : enhanceChance(ks);
+        const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+        row.append(el('div', { class: 'ic', text: king.icon }), el('div', { class: 'txt' }, [
+          el('div', { class: 'nm', text: `${king.name} ★${ks}${ks >= KING_MAX_STARS ? ' (최고)' : ''} · 주문서 ${scrolls}장 · ${fmtGold(gold)}` }),
+          el('div', { class: 'ds', text: `${ks >= KING_MAX_STARS ? '더 강화할 수 없습니다.' : `강화 1회에 주문서 1장 + 금덩이 ${KING_ENHANCE_GOLD}개. 다음 강화 성공 ${Math.round(chance * 100)}%, 실패하면 ${king.name}가 부서져 명품 ★${KING_NEED_STARS} 으로 돌아갑니다(다시 제작).`} 지금 킹 사이즈 확률 ${pct(kingChance(ks))}${ks < KING_MAX_STARS ? ` → 다음 ${pct(kingChance(ks + 1))}` : ''}. 낚시 확률은 명품 ★${KING_BASE_STARS} 과 같다(고정).` }),
+        ]));
+        for (const n of [1, 10]) {
+          const b = el('button', { class: 'btn small', text: `주문서 ${n}장 ${fmtCoins(sp * n)}` });
+          if (h.wallet.balance < sp * n) { b.disabled = true; b.title = '코인이 모자랍니다'; }
+          b.onclick = async () => { b.disabled = true; if (await h.wallet.buyScrolls(sp, n)) h.toast(`📜 강화 주문서 ${n}장 구매`); else h.toast('코인이 모자랍니다.', true); render(); };
+          btns.append(b);
+        }
+        const go = el('button', { class: 'btn small primary', text: ks >= KING_MAX_STARS ? '최고 강화' : `강화 (${Math.round(chance * 100)}%)` });
+        go.dataset.king = 'go';
+        if (scrolls <= 0 || gold < KING_ENHANCE_GOLD || ks >= KING_MAX_STARS) { go.disabled = true; go.title = scrolls <= 0 ? '주문서가 없습니다' : gold < KING_ENHANCE_GOLD ? '금덩이가 없습니다' : ''; }
+        go.onclick = async () => {
+          go.disabled = true;
+          if (chance < 1 && !(await confirmModal(`★${ks} → ★${ks + 1} 강화에 도전할까요? 성공 ${Math.round(chance * 100)}%. 실패하면 ${king.name}가 부서져 명품 ★${KING_NEED_STARS} 으로 돌아가고, 다시 만들려면 ${fmtCoins(kp)}과 금덩이 ${KING_CRAFT_GOLD}개가 듭니다.`))) { go.disabled = false; return; }
+          const r = await h.wallet.enhanceKing();
+          if (r === 'ok') h.toast(`✨ 강화 성공! ${king.name} ★${ks + 1}`);
+          else if (r === 'broke') { await h.wallet.breakKing(); h.toast(`💥 강화 실패… ${king.name}가 부서졌다. 명품 ★${KING_NEED_STARS} 으로 돌아갑니다. (★${ks} 소멸)`, true); }
+          else h.toast('강화하지 못했습니다. (주문서나 금덩이가 없음)', true);
+          render('[data-king="go"]');
+        };
+        btns.append(go);
+      }
+      row.append(btns);
+      box.append(row);
+    }
     box.append(gearRow(NET_GOODS[0], '채집 실패가 절반으로 줄었습니다.'));
     box.append(gearRow(NET_GOODS[1], '이제 휘두르면 무조건 잡습니다.', !h.wallet.owns('net1') ? '튼튼한 잠자리채를 먼저 사야 합니다' : undefined));
     box.append(el('h4', { style: 'margin:10px 0 0', text: '👊 밀치기' }));
@@ -337,7 +394,7 @@ export function openShop(h: ShopHost): void {
     const oldGrid = pane.querySelector<HTMLElement>('.shop-grid');
     const scrollers = [oldGrid, pane, body, m.root].filter((x): x is HTMLElement => !!x && x.scrollTop > 0).map((x) => [x === oldGrid ? 'grid' : x, x.scrollTop] as const);
     head.innerHTML = '';
-    head.append(el('span', { text: `잔액 ${fmtCoins(h.wallet.balance)}` }), el('span', { class: 'muted', text: `누적 ${fmtCoins(h.wallet.wallet.e || 0)} · 낚시·게임 점수 1점 = 1코인` }));
+    head.append(el('span', { text: `잔액 ${fmtCoins(h.wallet.balance)}${h.wallet.gold > 0 ? ` · ${fmtGold(h.wallet.gold)}` : ''}` }), el('span', { class: 'muted', text: `누적 ${fmtCoins(h.wallet.wallet.e || 0)} · 낚시·게임 점수 1점 = 1코인` }));
     tabBtns.forEach((b, id) => b.classList.toggle('active', id === tab));
     pane.innerHTML = '';
     if (tab === 'fish') pane.append(fishPane());

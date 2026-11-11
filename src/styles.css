@@ -236,6 +236,8 @@ table tr.off td { opacity: 0.5; }
 .fish-card .nm { font-weight: bold; font-size: 13px; margin-top: 2px; }
 .fish-card .meta { color: var(--muted); font-size: 11px; }
 .fish-card .best { color: #ffe9a8; }
+.fish-card .king { opacity: 0.55; }
+.fish-card .king.on { opacity: 1; color: #ffd84d; font-weight: bold; }
 /* 상점 */
 .shop-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: bold; flex-wrap: wrap; }
 .shop-head .muted { font-weight: normal; font-size: 12px; }

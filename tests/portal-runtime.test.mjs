@@ -139,7 +139,7 @@ function fishingRig() {
     switching: false, map,
     me: { x: 1, y: 1, dir: 0, moving: false, locked: false, roomId: null },
     profile: { own: {} },
-    wallet: { autoReelActive: () => true, bait: 0, baitOn: false, stars: 0, takeBait: async () => {} },
+    wallet: { autoReelActive: () => true, bait: 0, baitOn: false, stars: 0, fishStars: 0, shownStars: 0, kingStars: 0, takeBait: async () => {} },
     contest: { active: () => null },
     catchNote() {}, toast() {},
   };

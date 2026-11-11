@@ -23,7 +23,15 @@ const PET_FOOD_STEP = 4;  // 먹이 하나마다 다음 먹이 +4 코인 (shared
 const pxSame = PET_IDS.map((id) => `${n('px/' + id)} == ${d('px/' + id)}`).join(' && ');
 // 강화 주문서(es)·성(rs): 안 사면 es 는 늘 수 없고, rs 는 "es 가 1 줄어드는 쓰기"에서만 +1 또는 0 으로 바뀐다 (2026-11-10)
 const esNoUp = `${n('es')} <= ${d('es')}`, rsSame = `${n('rs')} == ${d('rs')}`;
-const enhance = `(${n('es')} == ${d('es')} - 1 && (${n('rs')} == ${d('rs')} + 1 || ${n('rs')} == 0) && ${n('rs')} <= 30)`;
+// 금광·킹 낚싯대 (2026-11-11). gn: 금덩이, ga: 마지막 채광 시각, ks: 킹 낚싯대 성. 아래 세 값은 shared/mine.ts·shared/shop.ts 와 같아야 한다
+const MINE_GAP_MS = 2500, MINE_MAX = 3, KING_CRAFT_GOLD = 100;
+const gnSame = `${n('gn')} == ${d('gn')}`, gaSame = `${n('ga')} == ${d('ga')}`, ksSame = `${n('ks')} == ${d('ks')}`;
+const kingSame = `${gnSame} && ${gaSame} && ${ksSame}`; // 채광·제작·킹 강화 쓰기가 아니면 세 칸 모두 그대로 (다른 구매에 끼워 넣지 못하게)
+const enhance = `(${n('es')} == ${d('es')} - 1 && (${n('rs')} == ${d('rs')} + 1 || ${n('rs')} == 0) && ${n('rs')} <= 30 && ${kingSame})`;
+// 킹 낚싯대 강화: 주문서 1장과 금덩이 1개가 같이 줄 때만 킹 성이 +1 또는 0
+const kEnhance = `(${n('es')} == ${d('es')} - 1 && ${n('gn')} == ${d('gn')} - 1 && (${n('ks')} == ${d('ks')} + 1 || ${n('ks')} == 0) && ${n('ks')} <= 30 && ${rsSame} && ${gaSame})`;
+// 채광: 금덩이가 1~MINE_MAX 개 늘고, 채광 시각은 지금이며 지난 채광에서 MINE_GAP_MS 이상 지났다. 코인·주문서·성은 그대로
+const mineW = `(${n('gn')} > ${d('gn')} && ${n('gn')} - ${d('gn')} <= ${MINE_MAX} && (${n('gn')} - ${d('gn')}) % 1 == 0 && newData.child('ga').val() == now && (!data.child('ga').exists() || now - data.child('ga').val() >= ${MINE_GAP_MS}) && ${dE} == 0 && ${n('es')} == ${d('es')} && ${rsSame} && ${ksSame})`;
 
 function walletValidate(pre = '') {
   const base = `newData.hasChildren(['c', 'e']) && newData.child('c').isNumber() && newData.child('e').isNumber() && newData.child('c').val() >= 0`;
@@ -43,26 +51,31 @@ function walletValidate(pre = '') {
   // 선물 대상 gt 는 구매 쓰기에서만 바뀐다 (안 쓰면 그대로). 그래서 한 번 결제로 나와 상대 둘 다 등록하는 일이 없다
   // 경마 배팅 표시 cb/ch/ca 는 b='race' 결제 쓰기에서만 바뀐다 (다른 구매에 끼워 넣어 싸게 배팅하지 못하게)
   const cbSame = `${n('cb', "''")} == ${d('cb', "''")} && ${n('ch', '-1')} == ${d('ch', '-1')} && ${n('ca', '0')} == ${d('ca', '0')}`;
-  const gearSame = `${pxSame} && ${esNoUp} && ${rsSame}`; // 먹이·주문서·성: 그 전용 쓰기가 아니면 그대로 (es 는 소모만)
-  const noSpend = `(${dS} == 0 && ${n('b', "''")} == ${d('b', "''")} && ${n('gt', "''")} == ${d('gt', "''")} && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${pxSame} && (${enhance} || (${esNoUp} && ${rsSame})))`;
+  const gearSame = `${pxSame} && ${esNoUp} && ${rsSame} && ${kingSame}`; // 먹이·주문서·성·금덩이: 그 전용 쓰기가 아니면 그대로 (es 는 소모만)
+  // 구매 표시(b)는 안 쓰면 그대로. 예외: 강화에 실패해 낚싯대가 부서지는 쓰기(주문서 −1, 성 0)는 b 를 지울 수 있다.
+  //  b 가 그 낚싯대로 남아 있으면 부서진 뒤에도 보유 등록 규칙(own: b 가 그 품목)이 통과해 공짜로 되살릴 수 있었다 (2026-11-11 수정)
+  const bKeep = `(${n('b', "''")} == ${d('b', "''")} || (!newData.child('b').exists() && ${n('es')} == ${d('es')} - 1 && (${n('rs')} == 0 || ${n('ks')} == 0)))`;
+  const noSpend = `(${dS} == 0 && ${bKeep} && ${n('gt', "''")} == ${d('gt', "''")} && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${pxSame} && (${enhance} || ${kEnhance} || ${mineW} || (${esNoUp} && ${rsSame} && ${kingSame})))`;
   const buyBait = `(${bIs('bait')} && ${n('bait')} > ${d('bait')} && ${dS} == ${price('bait')} * (${n('bait')} - ${d('bait')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${gearSame})`;
   // 강화 주문서 묶음 구매: es 가 늘어난 만큼 × 가격 (2026-11-10)
-  const buyScroll = `(${bIs('scroll')} && ${n('es')} > ${d('es')} && ${dS} == ${price('scroll')} * (${n('es')} - ${d('es')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${baitNoUp} && ${pxSame} && ${rsSame})`;
+  const buyScroll = `(${bIs('scroll')} && ${n('es')} > ${d('es')} && ${dS} == ${price('scroll')} * (${n('es')} - ${d('es')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${baitNoUp} && ${pxSame} && ${rsSame} && ${kingSame})`;
+  // 킹 낚싯대 제작 (2026-11-11): 값은 가격표대로, 명품 성이 30(그대로)이고 명품 낚싯대를 가지고 있으며, 금덩이가 정확히 KING_CRAFT_GOLD 만큼 줄고, 킹 성은 0. 선물(gt) 불가
+  const craft = `(${bIs('rod3')} && ${dS} == ${price('rod3')} && ${d('rs')} == 30 && ${rsSame} && root.child('${pre}users/' + auth.uid + '/own/rod2').val() === true && ${n('gn')} == ${d('gn')} - ${KING_CRAFT_GOLD} && ${n('ks')} == 0 && !newData.child('gt').exists() && ${gaSame} && ${sameAr} && ${sameAb} && ${cbSame} && ${baitNoUp} && ${pxSame} && ${esNoUp})`;
   // 펫 먹이 = 구매와 동시에 먹이기 (2026-11-10): pp 에 적은 펫의 px 만 k 개 오르고 나머지 펫은 그대로.
   //  가격은 먹은 수에 비례해 오른다 (shared/shop.ts foodCost 와 같은 식): 사용액 == 기본가 × k + STEP × (k × 먹은 수 + k(k−1)/2)
   const PX = `newData.child('px/' + newData.child('pp').val()).val()`, PXD = `(data.child('px/' + newData.child('pp').val()).exists() ? data.child('px/' + newData.child('pp').val()).val() : 0)`;
   const K = `(${PX} - ${PXD})`;
   const feedCost = `(${price('petfood')} * ${K} + ${PET_FOOD_STEP} * (${K} * ${PXD} + ${K} * (${K} - 1) / 2))`;
-  const feed = `(${bIs('petfood')} && newData.child('pp').isString() && ${price('petfood')} > 0 && newData.child('px/' + newData.child('pp').val()).isNumber() && ${K} >= 1 && ${K} % 1 == 0 && ${dS} == ${feedCost} && (${PET_IDS.map((id) => `(newData.child('pp').val() == '${id}' || ${n('px/' + id)} == ${d('px/' + id)})`).join(' && ')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${baitNoUp} && ${esNoUp} && ${rsSame})`;
+  const feed = `(${bIs('petfood')} && newData.child('pp').isString() && ${price('petfood')} > 0 && newData.child('px/' + newData.child('pp').val()).isNumber() && ${K} >= 1 && ${K} % 1 == 0 && ${dS} == ${feedCost} && (${PET_IDS.map((id) => `(newData.child('pp').val() == '${id}' || ${n('px/' + id)} == ${d('px/' + id)})`).join(' && ')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${baitNoUp} && ${esNoUp} && ${rsSame} && ${kingSame})`;
   // 자동 버프 품목은 autoreel/autoreel30/autoreel60, autobug/autobug30/autobug60 (2026-11-09: 30분·1시간 추가). 그 구매 쓰기에서만 ar/ab 가 바뀔 수 있다
-  const buyOne = `(newData.child('b').val() != 'bait' && newData.child('b').val() != 'race' && newData.child('b').val() != 'scroll' && newData.child('b').val() != 'petfood' && ${dS} == ${priceB} && ${baitNoUp} && ${cbSame} && ${gearSame} && (newData.child('b').val().beginsWith('autoreel') || ${sameAr}) && (newData.child('b').val().beginsWith('autobug') || ${sameAb}))`;
+  const buyOne = `(newData.child('b').val() != 'bait' && newData.child('b').val() != 'race' && newData.child('b').val() != 'scroll' && newData.child('b').val() != 'petfood' && newData.child('b').val() != 'rod3' && ${dS} == ${priceB} && ${baitNoUp} && ${cbSame} && ${gearSame} && (newData.child('b').val().beginsWith('autoreel') || ${sameAr}) && (newData.child('b').val().beginsWith('autobug') || ${sameAb}))`;
   // 경마 배팅 결제: 금액은 100 단위로 100 ~ config/casinoMax(기본 10000), 말은 0~4, 라운드는 열려 있어야(o 있고 at 없음). 수령 표시 cr 은 그대로
   const MAXBET = `(root.child('config/casinoMax').isNumber() ? root.child('config/casinoMax').val() : 10000)`;
   const CB = `root.child('casino/r/' + newData.child('cb').val()`;
   const bet = `(${bIs('race')} && ${dS} == ${n('ca')} && ${n('ca')} >= 100 && ${n('ca')} <= ${MAXBET} && ${n('ca')} % 100 == 0 && ${n('ch', '-1')} >= 0 && ${n('ch', '-1')} <= 4 && ${n('ch', '-1')} % 1 == 0 && newData.child('cb').isString() && ${CB} + '/o').exists() && !${CB} + '/at').exists() && ${crSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame})`;
-  const spend = `(${noSpend} || (${dS} > 0 && newData.child('b').isString() && (${buyBait} || ${buyScroll} || ${feed} || ${buyOne} || ${bet})))`;
-  // 성(rs)이 0 보다 크면 명품 낚싯대를 가지고 있어야 한다 (부서지면 rs 도 0 으로 쓴다)
-  const rodOwned = `(${n('rs')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod2').val() === true)`;
+  const spend = `(${noSpend} || (${dS} > 0 && newData.child('b').isString() && (${buyBait} || ${buyScroll} || ${feed} || ${craft} || ${buyOne} || ${bet})))`;
+  // 성(rs)이 0 보다 크면 명품 낚싯대를 가지고 있어야 한다 (부서지면 rs 도 0 으로 쓴다). 킹 성(ks)도 같다: 0 보다 크면 킹 낚싯대 보유
+  const rodOwned = `(${n('rs')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod2').val() === true) && (${n('ks')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod3').val() === true)`;
   // 관리자 지급(관리자 페이지의 코인 지급/회수): 관리자가 쓰는 지갑은 형식만 보고 나머지 검사를 건너뛴다. 지급 표시 gf 는 관리자만 바꿀 수 있다
   const admin = `root.child('admins/' + auth.uid).val() === true`;
   const gfSame = `newData.child('gf/at').val() == data.child('gf/at').val() && newData.child('gf/n').val() == data.child('gf/n').val()`;
@@ -104,6 +117,9 @@ function walletBlock(pre, ind) {
       child('pp', 'newData.isString() && newData.val().length <= 20'),  // 마지막으로 먹인 펫
       child('es', 'newData.isNumber() && newData.val() >= 0 && newData.val() <= 999'), // 강화 주문서 개수
       child('rs', 'newData.isNumber() && newData.val() >= 0 && newData.val() <= 30'),  // 명품 낚싯대 성
+      child('gn', 'newData.isNumber() && newData.val() >= 0 && newData.val() % 1 == 0'), // 금덩이 (2026-11-11)
+      child('ga', 'newData.isNumber() && newData.val() <= now'),                         // 마지막 채광 시각
+      child('ks', 'newData.isNumber() && newData.val() >= 0 && newData.val() <= 30'),  // 킹 낚싯대 성
       `${K}"gf": { "n": { ".validate": "newData.isNumber()" }, "at": { ".validate": "newData.isNumber()" }, "$other": { ".validate": false } }`,
       child('ad', 'newData.isNumber()'),
       child('an', 'newData.isNumber()'),

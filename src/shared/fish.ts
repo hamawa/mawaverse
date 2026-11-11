@@ -67,6 +67,7 @@ export const fishPool = (d = new Date(), list = activeFish(), contest = false): 
 export const fishChance = (id: string, pool: FishDef[]): number => fishColl.chance(id, pool);
 export const pickFish = (rand = Math.random, d = new Date(), opt?: PickOpt): FishDef => fishColl.pick(rand, d, opt);
 export const rollSize = (f: FishDef, rand = Math.random): number => fishColl.rollSize(f, rand);
+export const rollKingSize = (f: FishDef, rand = Math.random): number => fishColl.rollKingSize(f, rand); // 킹 낚싯대: 최대 크기 × 1.5~2.0
 export function fmtSize(cm: number): string { return `${cm}cm`; }
 
 export function reactWindowMs(f: FishDef): number { return f.junk ? JUNK_REACT_MS : REACT_MS[f.rarity]; }

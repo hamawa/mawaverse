@@ -39,6 +39,7 @@ export interface Entity {
   fx: string | null;
   pet: PetView | null;         // 데리고 다니는 펫 (한 칸 뒤)
   ghost?: boolean;             // 마피아 유령: 반투명 (유령에게만 보임. 산 사람 화면에는 아예 안 들어온다)
+  mining?: boolean;            // 금광에서 곡괭이질 중 (곡괭이를 휘두르는 모습)
 }
 // 마피아 시체: 죽은 자리에 누운 아바타
 export interface BodyView { uid: string; avatar: string; nick: string; x: number; y: number }
@@ -224,6 +225,7 @@ export function render(eng: Engine, st: RenderState): void {
         }
         if (e.hat) drawHat(ctx, e.hat, dx, dy, spriteTop(spr), ddir);
         if (e.fishing) drawRod(ctx, e, e.fishing, st.now);
+        if (e.mining) drawPickaxe(ctx, e, st.now);
         ctx.globalAlpha = 1;
       },
     });
@@ -332,6 +334,34 @@ function handPos(e: Entity): [number, number] {
   const ox = e.dir === 2 ? 7 : e.dir === 1 ? -7 : 5;
   return [cx + ox, cy];
 }
+// 곡괭이질 (금광 채광 중): 손에서 곡괭이를 들어 올렸다가 바라보는 쪽으로 내리찍기를 0.6초마다 되풀이한다. 찍는 순간 끝에서 금가루가 튄다
+function drawPickaxe(ctx: CanvasRenderingContext2D, e: Entity, now: number): void {
+  const [hx, hy] = handPos(e);
+  const p = ((now + (e.uid.charCodeAt(0) || 0) * 37) % 600) / 600; // 사람마다 박자가 조금 어긋나게
+  // 들어 올린 각 → 내리찍은 각 (화면 기준, 오른쪽 0 · 아래 +). 0~0.6 천천히 들고, 0.6~0.75 빠르게 찍고, 나머지는 잠깐 멈춤
+  const [up, down] = e.dir === 2 ? [-2.3, 0.35] : e.dir === 1 ? [Math.PI + 2.3, Math.PI - 0.35] : e.dir === 3 ? [-0.3, -1.75] : [-1.1, 1.3];
+  const lift = p < 0.6 ? Math.sin((p / 0.6) * Math.PI / 2) : p < 0.75 ? 1 - (p - 0.6) / 0.15 : 0; // 1 = 다 든 상태, 0 = 찍은 상태
+  const ang = down + (up - down) * lift;
+  const L = 13, tx = hx + Math.cos(ang) * L, ty = hy + Math.sin(ang) * L;
+  ctx.lineCap = 'round';
+  // 자루
+  ctx.strokeStyle = '#262626'; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+  ctx.strokeStyle = '#9a6a35'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+  // 머리: 자루 끝에 가로로 걸친 휜 쇠
+  const nx = -Math.sin(ang), ny = Math.cos(ang), bx = Math.cos(ang), by = Math.sin(ang);
+  const head = (w: number, color: string) => {
+    ctx.strokeStyle = color; ctx.lineWidth = w;
+    ctx.beginPath(); ctx.moveTo(tx + nx * 6 - bx * 2.5, ty + ny * 6 - by * 2.5); ctx.quadraticCurveTo(tx + bx * 2, ty + by * 2, tx - nx * 6 - bx * 2.5, ty - ny * 6 - by * 2.5); ctx.stroke();
+  };
+  head(4, '#262626'); head(2, '#cfd8e3');
+  ctx.lineCap = 'butt';
+  // 찍는 순간의 금가루
+  if (p >= 0.72 && p < 0.92) {
+    const a = 1 - (p - 0.72) / 0.2, sx = tx + bx * 3, sy = ty + by * 3;
+    ctx.fillStyle = `rgba(255, 226, 110, ${a})`;
+    for (let i = 0; i < 4; i++) { const d = (1 - a) * 7 + 2, th = ang + (i - 1.5) * 0.7; ctx.fillRect(Math.round(sx + Math.cos(th) * d), Math.round(sy + Math.sin(th) * d - (1 - a) * 3), 2, 2); }
+  }
+}
 // 찌 위치. 던진 직후 0.3초 동안 손에서 물까지 포물선, 그 뒤 둥실거림. 입질 중이면 푹 잠기며 흔들린다
 function bobberPos(e: Entity, fv: FishingView, now: number): [number, number, number] {
   const bx = fv.x * TILE + TILE / 2, by = fv.y * TILE + TILE / 2 + 2;
@@ -348,9 +378,27 @@ function drawBobber(ctx: CanvasRenderingContext2D, e: Entity, fv: FishingView, n
     ctx.strokeStyle = `rgba(255,255,255,${0.6 * (1 - k)})`; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.ellipse(bx, by + 2, 4 + k * (fv.bite ? 10 : 6), 2 + k * (fv.bite ? 5 : 3), 0, 0, Math.PI * 2); ctx.stroke();
   }
+  if (fv.rod === 3) { drawCrown(ctx, bx, by + 2, 1, now); return; } // 킹 낚싯대: 찌가 금색 왕관
   ctx.fillStyle = '#e8402a'; ctx.beginPath(); ctx.arc(bx, by, 3, Math.PI, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(bx, by, 3, 0, Math.PI); ctx.fill();
   ctx.strokeStyle = '#262626'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(bx, by, 3, 0, Math.PI * 2); ctx.stroke();
+}
+// 금색 왕관 (킹 낚싯대의 찌와 낚싯대 끝). (cx, base) = 아랫변 가운데, k = 크기 배수. 가끔 반짝인다
+function drawCrown(ctx: CanvasRenderingContext2D, cx: number, base: number, k: number, now: number): void {
+  const w = 5 * k, h = 6 * k;
+  const path = () => {
+    ctx.beginPath();
+    ctx.moveTo(cx - w, base); ctx.lineTo(cx - w, base - h); ctx.lineTo(cx - w / 2, base - h / 2); ctx.lineTo(cx, base - h - k); ctx.lineTo(cx + w / 2, base - h / 2); ctx.lineTo(cx + w, base - h); ctx.lineTo(cx + w, base);
+    ctx.closePath();
+  };
+  ctx.lineJoin = 'round';
+  path(); ctx.strokeStyle = '#3a2406'; ctx.lineWidth = 2.5; ctx.stroke();
+  path(); ctx.fillStyle = '#ffd84d'; ctx.fill();
+  ctx.fillStyle = '#b8791a'; ctx.fillRect(cx - w, base - 1.5 * k, w * 2, 1.5 * k); // 아래 띠
+  ctx.fillStyle = '#e8402a'; ctx.fillRect(Math.round(cx) - 1, Math.round(base - h / 2) - 1, 2, 2); // 가운데 보석
+  ctx.lineJoin = 'miter';
+  const t = Math.sin(now / 380 + cx * 0.7);
+  if (t > 0.75) { ctx.fillStyle = '#ffffff'; const x = Math.round(cx + w - 1), y = Math.round(base - h); ctx.fillRect(x - 2, y, 5, 1); ctx.fillRect(x, y - 2, 1, 5); }
 }
 // 낚싯대(손 → 끝)와 늘어진 낚싯줄(끝 → 찌)
 function drawRod(ctx: CanvasRenderingContext2D, e: Entity, fv: FishingView, now: number): void {
@@ -358,13 +406,19 @@ function drawRod(ctx: CanvasRenderingContext2D, e: Entity, fv: FishingView, now:
   const [bx, by] = bobberPos(e, fv, now);
   const tx = hx + (bx - hx) * 0.5, ty = Math.min(hy, by) - 12;
   ctx.lineCap = 'round';
-  // 낚싯대 색: 기본 나무색, 좋은 낚싯대 은색, 명품 낚싯대 금색
-  const rodColor = fv.rod === 2 ? '#ffd84d' : fv.rod === 1 ? '#cfd8e3' : '#8a5a2b';
-  ctx.strokeStyle = '#262626'; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
-  ctx.strokeStyle = rodColor; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
+  // 낚싯대 색: 기본 나무색, 좋은 낚싯대 은색, 명품 낚싯대 금색. 킹 낚싯대는 더 굵은 금색에 붉은 마디, 끝에 왕관
+  const king = fv.rod === 3;
+  const rodColor = (fv.rod || 0) >= 2 ? '#ffd84d' : fv.rod === 1 ? '#cfd8e3' : '#8a5a2b';
+  ctx.strokeStyle = king ? '#3a2406' : '#262626'; ctx.lineWidth = king ? 4.5 : 3.5; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+  ctx.strokeStyle = rodColor; ctx.lineWidth = king ? 3 : 2; ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+  if (king) {
+    ctx.fillStyle = '#e8402a';
+    for (const q of [0.3, 0.62]) ctx.fillRect(Math.round(hx + (tx - hx) * q) - 1, Math.round(hy + (ty - hy) * q) - 1, 3, 3);
+  }
+  ctx.strokeStyle = king ? 'rgba(255,236,160,0.9)' : 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(tx, ty); ctx.quadraticCurveTo((tx + bx) / 2, Math.max(ty, by) + 3, bx, by - 3); ctx.stroke();
   ctx.lineCap = 'butt';
+  if (king) drawCrown(ctx, tx, ty + 1, 0.8, now);
 }
 
 // 화면 밖 목표(월드 px)를 가리키는 가장자리 화살표 + 이름표. 화면 중심에서 목표로 향하는 선이 화면 테두리(여백 안쪽)와 만나는 점에 그린다

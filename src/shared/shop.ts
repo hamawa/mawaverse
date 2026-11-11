@@ -136,10 +136,12 @@ export const ARMOR_KEY: Partial<Record<string, ArmorKey>> = { pusharmor: 'pa', t
 export const ROD_GOODS: ShopItem[] = [
   { id: 'rod1', kind: 'rod', name: '좋은 낚싯대', price: 5000, icon: '🎣', desc: '희귀 이상이 1.5배 잘 물고 꽝은 절반. 미끼와 겹치면 곱해진다. 영구.' },
   { id: 'rod2', kind: 'rod', name: '명품 낚싯대', price: 15000, icon: '🌟', desc: '희귀 이상이 2.5배 잘 물고 꽝은 1/4. 좋은 낚싯대가 있어야 함. 강화 주문서로 30성까지 강화할 수 있다 (실패하면 부서져 좋은 낚싯대로 돌아감).' },
+  { id: 'rod3', kind: 'rod', name: '킹 낚싯대', price: 20000, icon: '👑', desc: '명품 낚싯대 30성이 있어야 만들 수 있다(금덩이 100개 + 코인). 확률은 명품 35성과 같고, 잡을 때 가끔 최대 크기를 넘는 킹 사이즈가 나온다. 강화할수록 킹 사이즈가 잘 나온다. 선물할 수 없다.' },
 ];
-export const ROD_BOOST = [1, 1.5, 2.5];
-export const ROD_JUNK = [1, 0.5, 0.25];
-export function rodTierOf(own?: Record<string, true> | null): number { return own?.rod2 ? 2 : own?.rod1 ? 1 : 0; }
+// 등급별 배수 (0 기본, 1 좋은, 2 명품, 3 킹). 킹 낚싯대는 명품과 같은 배수에 강화 성만 35성으로 고정해 쓴다 (KING_BASE_STARS)
+export const ROD_BOOST = [1, 1.5, 2.5, 2.5];
+export const ROD_JUNK = [1, 0.5, 0.25, 0.25];
+export function rodTierOf(own?: Record<string, true> | null): number { return own?.rod3 ? 3 : own?.rod2 ? 2 : own?.rod1 ? 1 : 0; }
 
 // ---- 낚싯대 강화 (2026-11-10) ----
 // 명품 낚싯대(금색)만 강화할 수 있다. 주문서(상점 200코인, 지갑 es 에 보관) 1장으로 1성 도전. 성공하면 +1성(지갑 rs), 실패하면 명품 낚싯대가 부서져
@@ -153,6 +155,20 @@ export const STAR_TIER_MUL = 0.04;
 export function enhanceChance(stars: number): number { return stars < 10 ? 1 : Math.max(0.5, 0.95 - 0.007 * (stars - 10)); } // stars → stars+1 성공 확률
 export function starFactor(stars: number): number { return 1 + STAR_TIER_MUL * stars; } // 등급 r 가중치 배수 = starFactor^r
 export const fmtStars = (n: number): string => (n > 0 ? `★${n}` : '');
+
+// ---- 킹 낚싯대 (2026-11-11) ----
+// 명품 30성을 달성한 사람의 다음 목표. 금광에서 캔 금덩이(지갑 gn)와 코인으로 만든다(명품 낚싯대와 그 30성은 소모하지 않는다).
+// 확률은 킹 성과 상관없이 명품 35성으로 고정이라, 만드는 순간 수입이 8~12% 오르고 그 뒤로는 늘지 않는다. 킹 성은 킹 사이즈(최대 크기 × 1.5~2.0) 확률만 올린다.
+// 강화는 주문서 1장 + 금덩이 1개, 확률표와 30성 상한은 명품과 같다(enhanceChance). 실패하면 킹 낚싯대가 부서져(보관함에서 삭제, 킹 성 0) 명품 30성으로 돌아가고 다시 만들어야 한다.
+// 규칙: 제작은 b='rod3' 결제 쓰기에서 명품 성이 30이고 금덩이가 정확히 KING_CRAFT_GOLD 만큼 줄 때만, 킹 성은 "주문서 1장과 금덩이 1개가 같이 주는 쓰기"에서만 +1 또는 0 (tools/gen-rules.cjs)
+export const KING_ROD_ID = 'rod3';
+export const KING_CRAFT_GOLD = 100;   // 제작에 드는 금덩이 (gen-rules.cjs 의 KING_CRAFT_GOLD 와 같아야 한다)
+export const KING_ENHANCE_GOLD = 1;   // 강화 1회에 드는 금덩이 (주문서 1장과 함께. 규칙이 정확히 1개 주는지 본다)
+export const KING_NEED_STARS = ROD_MAX_STARS; // 제작 자격: 명품 낚싯대 30성
+export const KING_BASE_STARS = 35;    // 킹 낚싯대의 낚시 확률 = 명품 35성 (고정)
+export const KING_MAX_STARS = 30;
+// 킹 사이즈 확률: 0성 1% → 30성 5%
+export function kingChance(stars: number): number { return 0.01 + (0.04 / KING_MAX_STARS) * Math.max(0, Math.min(KING_MAX_STARS, stars)); }
 // 상위 잠자리채 2단계 (영구). 1단계는 실패 확률 절반, 2단계는 무조건 성공 (2026-11-09)
 export const NET_GOODS: ShopItem[] = [
   { id: 'net1', kind: 'net', name: '튼튼한 잠자리채', price: 3000, icon: '🥅', desc: '채집에 실패할 확률이 절반으로. 영구.' },
@@ -176,7 +192,8 @@ export function priceOf(item: ShopItem, prices?: Record<string, number> | null):
 // ab: 자동 채집 만료 시각, rd: 마지막으로 룰렛을 돌린 날짜(dayKey), ad/an/bn: 예전 하루 한도 카운트(2026-11-05 한도 해제로 안 씀. 기존 지갑에 남은 값은 다음 자동 구매 때 지워지고, 규칙은 숫자만 허용)
 // b: 마지막으로 산 품목 id (사용액이 그 품목 가격과 같아야 바뀔 수 있고, 보유 등록은 b 가 그 품목일 때만 허용). rd 는 KST 0시(ms), 예전 값은 'YYYYMMDD' 문자열
 // wt/we/md: 예전 코인 획득 속도 상한(10분 창)·신화 보상 날짜. 2026-11-10 상한을 없애며 더 쓰지 않는다 (옛 지갑에 남은 값은 규칙이 숫자로만 허용)
-export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?: number; bu?: boolean; rd?: number | string; ab?: number; b?: string; wt?: number; we?: number; gf?: { n: number; at: number }; gt?: string; cb?: string; ch?: number; ca?: number; cr?: string; md?: number; ad?: number; an?: number; bn?: number; px?: Record<string, number>; pp?: string; es?: number; rs?: number }
+export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?: number; bu?: boolean; rd?: number | string; ab?: number; b?: string; wt?: number; we?: number; gf?: { n: number; at: number }; gt?: string; cb?: string; ch?: number; ca?: number; cr?: string; md?: number; ad?: number; an?: number; bn?: number; px?: Record<string, number>; pp?: string; es?: number; rs?: number; gn?: number; ga?: number; ks?: number }
+// gn: 가진 금덩이 (2026-11-11. 금광 채광으로 늘고 킹 낚싯대 제작·강화로 준다), ga: 마지막 채광 시각(서버 시각. 규칙이 간격을 본다), ks: 킹 낚싯대 강화 성(0~30. 주문서 1장 + 금덩이 1개가 같이 줄 때만 +1 또는 0)
 // cb/ch/ca: 마지막 경마 배팅(라운드 id, 말 번호, 금액. b='race' 결제 쓰기에서만 바뀜) → casino/r/{cb}/bets/{uid} 에 그대로 적어야 배팅이 성립. cr: 배당을 받은 마지막 라운드 id (커지기만 함, 한 라운드 한 번)
 // px/{펫 id}: 그 펫에게 먹인 누적 먹이 (2026-11-10. b='petfood' 결제 쓰기에서 pp 에 적은 펫만 사용액/가격 만큼 오른다), pp: 마지막으로 먹인 펫
 // es: 강화 주문서 개수 (b='scroll' 결제에서만 는다), rs: 명품 낚싯대 강화 성(0~30. es 가 1 줄어드는 쓰기에서만 +1 또는 0 으로 바뀐다. 0 보다 크면 rod2 를 가지고 있어야 함)

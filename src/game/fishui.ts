@@ -84,7 +84,10 @@ export function openFishBook(user: FishUser): void {
     const gone = Object.entries(book).filter(([id]) => !known.has(id));
     const found = mainList.filter((f) => book[f.id]).length, junkFound = junkList.filter((f) => book[f.id]).length;
     const total = Object.values(book).reduce((s, e) => s + (e.c || 0), 0);
-    pane.append(el('div', { class: 'muted', style: 'margin-bottom:8px', text: `${k.label} ${found}/${mainList.length}종 · 꽝 ${junkFound}/${junkList.length}종 · 총 ${total}마리 · 이번 주 ${week?.p || 0}점${k.base === 'bug' ? ' · 풀밭·꽃밭에서 걸어가 옆에서 F (달리면 도망감)' : ''}` }));
+    // 킹 도감 (물고기만, 2026-11-11): 킹 낚싯대로 잡은 킹 사이즈를 어종마다 센다
+    const isFish = k.base === 'fish';
+    const kingFound = mainList.filter((f) => (book[f.id]?.k || 0) > 0).length;
+    pane.append(el('div', { class: 'muted', style: 'margin-bottom:8px', text: `${k.label} ${found}/${mainList.length}종 · 꽝 ${junkFound}/${junkList.length}종 · 총 ${total}마리 · 이번 주 ${week?.p || 0}점${isFish ? ` · 👑 킹 도감 ${kingFound}/${mainList.length}종` : ''}${k.base === 'bug' ? ' · 풀밭·꽃밭에서 걸어가 옆에서 F (달리면 도망감)' : ''}` }));
     const grid = el('div', { class: 'fish-grid' });
     for (const f of [...mainList, ...junkList]) {
       const mine = book[f.id];
@@ -95,8 +98,9 @@ export function openFishBook(user: FishUser): void {
       card.append(el('div', { class: 'ic', text: f.icon }), nm, el('div', { class: 'meta', text: sub }));
       if (mine) card.append(el('div', { class: 'meta', text: f.junk ? `${mine.c}개` : `${mine.c}마리 · 내 최대 ${k.unit(mine.m)}` }));
       else card.append(el('div', { class: 'meta', text: '아직 못 잡음' }));
+      if (isFish && !f.junk) card.append(el('div', { class: 'meta king' + (mine?.k ? ' on' : ''), text: mine?.k ? `👑 킹 사이즈 ${mine.k}마리` : '👑 킹 사이즈 없음' }));
       if (off) card.append(el('div', { class: 'meta', text: '지금은 안 나옴' }));
-      if (!f.junk) { const b = best[f.id]; card.append(el('div', { class: 'meta best', text: b ? `🏆 ${b.n} ${k.unit(b.s)}` : '🏆 기록 없음' })); }
+      if (!f.junk) { const b = best[f.id]; card.append(el('div', { class: 'meta best', text: b ? `🏆 ${b.k ? '👑 ' : ''}${b.n} ${k.unit(b.s)}` : '🏆 기록 없음' })); }
       card.title = f.desc;
       card.onclick = () => { const d = card.querySelector('.desc'); if (d) d.remove(); else card.append(el('div', { class: 'meta desc', text: f.desc })); };
       grid.append(card);

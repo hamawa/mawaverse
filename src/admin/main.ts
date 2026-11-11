@@ -428,7 +428,7 @@ function tabAudit(main: HTMLElement): void {
     };
     for (const [uid, u] of Object.entries(users).sort((a, b) => (wallets[b[0]]?.e || 0) - (wallets[a[0]]?.e || 0))) {
       const w = wallets[uid] || { c: 0, e: 0 };
-      const gear = (u.own?.rod2 ? `🌟 명품 ★${w.rs || 0}` : u.own?.rod1 ? '🎣 좋은' : '-') + (w.px ? ' · 펫 ' + Object.entries(w.px).map(([id, xp]) => `${itemById(id)?.icon || id} Lv.${petLevel(xp)}`).join(' ') : '');
+      const gear = (u.own?.rod3 ? `👑 킹 ★${w.ks || 0} · ` : '') + (u.own?.rod2 ? `🌟 명품 ★${w.rs || 0}` : u.own?.rod1 ? '🎣 좋은' : '-') + (w.gn ? ` · 🟡 ${w.gn}` : '') + (w.px ? ' · 펫 ' + Object.entries(w.px).map(([id, xp]) => `${itemById(id)?.icon || id} Lv.${petLevel(xp)}`).join(' ') : '');
       // 선물로 받은 것(gifts)은 본인이 쓴 코인이 아니므로 뺀다 (2026-11-09)
       const ownVal = Object.keys(u.own || {}).filter((id) => !u.gifts?.[id]).reduce((s, id) => { const it = itemById(id); return s + (it ? priceOf(it, cfg.prices) : 0); }, 0);
       const gap = ownVal - (w.sp || 0);

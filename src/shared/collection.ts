@@ -92,6 +92,13 @@ export class Collection {
     return f.max < 10 ? Math.round(v * 10) / 10 : Math.round(v);
   }
 
+  // 킹 사이즈 (킹 낚싯대, 2026-11-11): 그 종의 최대 크기 × 1.5~2.0. 큰 쪽일수록 드물다. 보통 낚시로는 최대 크기를 넘지 못하므로 항상 기존 기록보다 크다
+  rollKingSize(f: CollDef, rand = Math.random): number {
+    if (f.junk) return 0;
+    const v = f.max * (1.5 + 0.5 * Math.pow(rand(), 1.6));
+    return f.max < 10 ? Math.round(v * 10) / 10 : Math.round(v);
+  }
+
   toRecord(f: CollDef, ord: number): CollDefRecord {
     const r: CollDefRecord = { name: f.name, icon: f.icon, rarity: f.rarity, min: f.min, max: f.max, w: f.w, desc: f.desc, ord };
     if (f.junk) r.junk = true;
@@ -130,7 +137,7 @@ export class Collection {
 export function pointsOf(f: CollDef): number { return f.junk ? 0 : RARITY_POINTS[f.rarity]; }
 
 // ---- DB 레코드 (물고기·곤충 공용) ----
-export interface BookEntry { c: number; m: number; f: number }               // {base}/book/{uid}/{id}: 마릿수, 최대 크기, 처음 잡은 시각
+export interface BookEntry { c: number; m: number; f: number; k?: number }   // {base}/book/{uid}/{id}: 마릿수, 최대 크기, 처음 잡은 시각, k: 킹 사이즈로 잡은 마릿수(물고기만, 2026-11-11)
 export interface WeekEntry { n: string; p: number; c: number; at: number }   // {base}/week/{weekKey}/{uid}: 닉, 점수, 마릿수, 마지막 시각
-export interface BestEntry { u: string; n: string; s: number; at: number }   // {base}/best/{id}: 서버 최고 기록
-export interface FeedEntry { u: string; n: string; f: string; s: number; ts: number } // {base}/feed/{pushId}: 영웅 이상 공지
+export interface BestEntry { u: string; n: string; s: number; at: number; k?: number }   // {base}/best/{id}: 서버 최고 기록. k=1 이면 킹 사이즈
+export interface FeedEntry { u: string; n: string; f: string; s: number; ts: number; k?: number } // {base}/feed/{pushId}: 영웅 이상 공지. k=1 이면 킹 사이즈

@@ -420,9 +420,13 @@ export class Net {
   setRoom(roomId: string | null): void {
     set(ref(db, `players/${this.w.uid}/r`), roomId).catch(() => {});
   }
-  // 낚시 중이면 찌가 있는 물 타일, 아니면 null. a=1 자동 낚시, r=낚싯대 등급(1~2, 남의 화면에서 색이 다르다), s=강화 성(★n 표시)
+  // 낚시 중이면 찌가 있는 물 타일, 아니면 null. a=1 자동 낚시, r=낚싯대 등급(1~3, 남의 화면에서 색이 다르다. 3 = 킹 낚싯대), s=강화 성(★n 표시. 킹 낚싯대면 킹 성)
   setFishing(t: { x: number; y: number } | null, auto = false, rod = 0, stars = 0): void {
     set(ref(db, `players/${this.w.uid}/f`), t ? { ...t, ...(auto ? { a: 1 } : {}), ...(rod ? { r: rod } : {}), ...(stars ? { s: stars } : {}) } : null).catch(() => {});
+  }
+  // 채광 중 표시 (금광): 곡괭이질마다 쓰지 않고 처음 칠 때 켜고, 자리를 뜨거나 한동안 안 치면 끈다 (mine.ts). 맵을 옮길 때는 mapSwitchUpdate 가 같이 비운다
+  setMining(on: boolean): void {
+    set(ref(db, `players/${this.w.uid}/mn`), on ? true : null).catch(() => {});
   }
   // 펫의 누적 먹이(경험치)를 presence 에 싣는다 (먹이를 줬거나 펫을 바꿨을 때). 0 이면 지운다
   setPetXp(xp: number): void {

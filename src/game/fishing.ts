@@ -2,11 +2,11 @@ import { ref, update, push, set, runTransaction, serverTimestamp, increment, onV
 import { db } from '../firebase/app';
 import { serverNow, onNewChild, readOwn, rememberOwn, forgetOwn } from '../firebase/db';
 import { isWater } from './map';
-import { AUTO_REST_MS, ROD_BOOST, ROD_JUNK, rodTierOf, starFactor } from '../shared/shop';
+import { AUTO_REST_MS, ROD_BOOST, ROD_JUNK, rodTierOf, starFactor, kingChance } from '../shared/shop';
 import type { Net } from './net';
 import type { WorldCtx } from './state';
 import {
-  pickFish, rollSize, fmtSize, reactWindowMs, fishPoints, weekKey, fishById, setFishDefs, defsFromDb, RARITY_NAME, ANNOUNCE_RARITY,
+  pickFish, rollSize, rollKingSize, fmtSize, reactWindowMs, fishPoints, weekKey, fishById, setFishDefs, defsFromDb, RARITY_NAME, ANNOUNCE_RARITY,
   BITE_WAIT_MIN_MS, BITE_WAIT_MAX_MS, type FishDef, type FishBookEntry, type FishBest, type FishFeed,
 } from '../shared/fish';
 import { MYTHIC } from '../shared/collection';
@@ -25,7 +25,7 @@ function makeTicker(ms: number, fn: () => void): () => void {
 }
 
 // 렌더러에 넘기는 낚시 상태 (내 캐릭터와 다른 사람 모두 같은 형태)
-export interface FishingView { x: number; y: number; bite: boolean; since: number; auto?: boolean; rod?: number; stars?: number } // rod: 낚싯대 등급 0~2 (색이 다르다), stars: 명품 낚싯대 강화 성 (찌 옆에 ★n)
+export interface FishingView { x: number; y: number; bite: boolean; since: number; auto?: boolean; rod?: number; stars?: number } // rod: 낚싯대 등급 0~3 (색이 다르다. 3 = 킹 낚싯대: 왕관), stars: 강화 성 (찌 옆에 ★n. 킹 낚싯대면 킹 성)
 
 // 낚시: 물가에 서서 물을 바라보고 F → 찌를 던지고 3~10초 기다림 → "!" 가 뜨면 제한시간 안에 F.
 // 서버 코드가 없으므로 어떤 물고기가 걸렸는지는 클라이언트가 정한다 (작은 모임용이라 이 정도로).
@@ -62,8 +62,9 @@ export class Fishing {
       const f = fishById(e.f);
       if (!f) return;
       // 남의 대어 소식은 채팅에 안 남기고 전설만 모두에게 토스트 한 줄 (2026-11-09). 신화는 모두에게 큰 배너
-      if (f.rarity >= MYTHIC) this.w.banner(`${f.icon} ${e.n} 님이 신화 등급 ${f.name}을(를) 낚았습니다!`, `${fmtSize(e.s)} · 서버 전체에 단 하나의 순간`);
-      else if (f.rarity >= 3) this.w.toast(`🎣 ${e.n} 님이 ${RARITY_NAME[f.rarity]} 등급 ${f.name}(${fmtSize(e.s)})를 낚았습니다!`);
+      const crown = e.k ? '👑 킹 사이즈 ' : '';
+      if (f.rarity >= MYTHIC) this.w.banner(`${f.icon} ${e.n} 님이 신화 등급 ${f.name}을(를) 낚았습니다!`, `${crown}${fmtSize(e.s)} · 서버 전체에 단 하나의 순간`);
+      else if (f.rarity >= 3) this.w.toast(`🎣 ${e.n} 님이 ${RARITY_NAME[f.rarity]} 등급 ${crown}${f.name}(${fmtSize(e.s)})를 낚았습니다!`);
     });
   }
   stop(): void {
@@ -75,7 +76,7 @@ export class Fishing {
 
   get active(): boolean { return this.state !== 'idle'; }
   view(): FishingView | null {
-    return this.state === 'idle' ? null : { x: this.target.x, y: this.target.y, bite: this.state === 'bite', since: this.castAt, auto: this.w.wallet.autoReelActive(), rod: rodTierOf(this.w.profile.own), stars: this.w.wallet.stars };
+    return this.state === 'idle' ? null : { x: this.target.x, y: this.target.y, bite: this.state === 'bite', since: this.castAt, auto: this.w.wallet.autoReelActive(), rod: rodTierOf(this.w.profile.own), stars: this.w.wallet.shownStars };
   }
 
   // 지금 던질 수 있는 물 타일: 땅(물이 아닌 타일)에 서서 바라보는 칸이 물일 때
@@ -98,12 +99,13 @@ export class Fishing {
     const baited = wallet.bait > 0 && wallet.baitOn;
     // 낚싯대 등급(상점): 희귀 이상 가중치 ×ROD_BOOST, 꽝 ×ROD_JUNK. 명품 낚싯대 강화 성(2026-11-10): 등급 r 가중치에 starFactor^r 을 더 곱한다 (높은 등급일수록 크게)
     const rod = rodTierOf(this.w.profile.own);
-    const stars = wallet.stars;
+    // 확률에 쓰는 성: 킹 낚싯대(2026-11-11)는 킹 성과 상관없이 명품 35성으로 고정. 남에게 보이는 성(찌 옆 ★)은 킹 성
+    const stars = wallet.fishStars;
     // 미끼: 꽝·일반 제외(희귀 이상 확정)만. 영웅·전설 배수는 없다 (2026-11-09 두 번째 조정). 신화는 장비·미끼·강화와 무관 (collection.ts)
     this.fish = pickFish(undefined, undefined, { contest: !!this.w.contest.active(), boost: ROD_BOOST[rod], junkMul: ROD_JUNK[rod], tierMul: starFactor(stars), ...(baited ? { noJunk: true, minRarity: 1 } : {}) });
     this.state = 'cast';
     this.castAt = performance.now();
-    this.show(t, wallet.autoReelActive(), rod, stars);
+    this.show(t, wallet.autoReelActive(), rod, wallet.shownStars);
     if (baited) {
       const left = wallet.bait - 1;
       void wallet.takeBait();
@@ -179,13 +181,15 @@ export class Fishing {
     this.biteAt = 0; this.catchAt = 0; this.autoNextCast = performance.now() + AUTO_REST_MS;
     if (!this.w.wallet.autoReelActive()) this.show(null); // 자동 낚시 중에는 곧 같은 자리에 다시 던지므로 찌를 그대로 둔다 (자리를 뜨면 cancel·autoTick 이 거둔다)
     const w = this.w;
-    const size = rollSize(f);
+    // 킹 사이즈 (킹 낚싯대, 2026-11-11): 1% + 킹 성마다 조금씩(30성 5%) 확률로 최대 크기 × 1.5~2.0. 꽝은 해당 없음. 등급·코인·점수는 그대로 (크기와 무관)
+    const king = !f.junk && rodTierOf(w.profile.own) >= 3 && Math.random() < kingChance(w.wallet.kingStars);
+    const size = king ? rollKingSize(f) : rollSize(f);
     const contest = this.w.contest.active();
     const mult = this.w.contest.multiplier();
     const pts = fishPoints(f) * mult;
     const sizeTxt = size ? ` ${fmtSize(size)}` : '';
     // 채팅·말풍선 대신 화면 아래 한 줄 알림 + 내 기록 (2026-11-09)
-    w.catchNote('fish', f.junk ? `🎣 ${f.icon} ${f.name}… 꽝!` : `🎣 ${f.icon} ${RARITY_NAME[f.rarity]} 등급 ${f.name}${sizeTxt}를 낚았다! (+${pts}점 · 💰+${pts}${mult > 1 ? ' · 대회 ' + mult + '배' : ''})`);
+    w.catchNote('fish', f.junk ? `🎣 ${f.icon} ${f.name}… 꽝!` : `🎣 ${king ? '👑 킹 사이즈! ' : ''}${f.icon} ${RARITY_NAME[f.rarity]} 등급 ${f.name}${sizeTxt}를 낚았다! (+${pts}점 · 💰+${pts}${mult > 1 ? ' · 대회 ' + mult + '배' : ''})`);
     this.saving = true;
     try {
       const wk = weekKey();
@@ -193,7 +197,9 @@ export class Fishing {
       const contestPath = contest ? `fish/contest/${contest.key}/${w.uid}` : null;
       // 잡을 때마다 내 기록을 다시 읽지 않는다 (2026-11-10): 도감 칸은 세션 동안 기억해 두고(첫 등록 여부·최대 크기에 필요), 주간·대회 점수는 서버에서 더하게 한다(increment)
       const b = await readOwn<FishBookEntry>(bookPath);
-      const book = { c: (b?.c || 0) + 1, m: Math.max(b?.m || 0, size), f: b?.f || serverTimestamp() };
+      // k: 킹 사이즈로 잡은 마릿수 (킹 도감). 한 번이라도 잡은 종에만 칸이 생긴다
+      const kings = (b?.k || 0) + (king ? 1 : 0);
+      const book = { c: (b?.c || 0) + 1, m: Math.max(b?.m || 0, size), f: b?.f || serverTimestamp(), ...(kings ? { k: kings } : {}) };
       const tally = (path: string) => ({ [`${path}/n`]: w.profile.nick, [`${path}/p`]: increment(pts), [`${path}/c`]: increment(1), [`${path}/at`]: serverTimestamp() });
       const upd: Record<string, unknown> = { [bookPath]: book, ...tally(weekPath) };
       if (contestPath) Object.assign(upd, tally(contestPath)); // 대회 중 잡은 것만 집계
@@ -201,14 +207,16 @@ export class Fishing {
       rememberOwn(bookPath, { ...book, f: b?.f || serverNow() });
       if (pts > 0) void w.wallet.earn(pts); // 점수만큼 코인
       if (!b) { const t = f.junk ? `${f.icon} 꽝 컬렉션에 추가: ${f.name}` : `${f.icon} 도감에 새로 등록: ${f.name}`; w.toast(t); w.catchLog.add('fish', t); }
-      // 종류별 서버 최고 기록 (더 클 때만)
+      if (king && !b?.k) { const t = `👑 킹 도감에 새로 등록: ${f.name}`; w.toast(t); w.catchLog.add('fish', t); }
+      // 종류별 서버 최고 기록 (더 클 때만). 킹 사이즈면 k 표시 (낚시 표지판에 👑)
       if (size > 0 && size > (this.bestSeen.get(f.id) ?? -1)) {
-        runTransaction(ref(db, `fish/best/${f.id}`), (cur: FishBest | null) => (!cur || size > cur.s ? { u: w.uid, n: w.profile.nick, s: size, at: serverNow() } : undefined), { applyLocally: false })
-          .then((res) => { this.bestSeen.set(f.id, (res.snapshot.val() as FishBest | null)?.s ?? size); if (res.committed) { const t = `🏆 ${f.name} 최고 기록 갱신! ${fmtSize(size)}`; w.toast(t); w.catchLog.add('fish', t); } })
+        runTransaction(ref(db, `fish/best/${f.id}`), (cur: FishBest | null) => (!cur || size > cur.s ? { u: w.uid, n: w.profile.nick, s: size, at: serverNow(), ...(king ? { k: 1 } : {}) } : undefined), { applyLocally: false })
+          .then((res) => { this.bestSeen.set(f.id, (res.snapshot.val() as FishBest | null)?.s ?? size); if (res.committed) { const t = `🏆 ${f.name} 최고 기록 갱신! ${king ? '👑 ' : ''}${fmtSize(size)}`; w.toast(t); w.catchLog.add('fish', t); } })
           .catch(() => {});
       }
+      // 소식은 지금처럼 영웅 이상만 (킹 사이즈를 전부 알리면 도배된다). 킹 사이즈면 왕관만 붙인다
       if (!f.junk && f.rarity >= ANNOUNCE_RARITY) {
-        const feed: FishFeed = { u: w.uid, n: w.profile.nick, f: f.id, s: size, ts: serverTimestamp() as unknown as number };
+        const feed: FishFeed = { u: w.uid, n: w.profile.nick, f: f.id, s: size, ts: serverTimestamp() as unknown as number, ...(king ? { k: 1 } : {}) };
         await set(push(ref(db, 'fish/feed')), feed);
       }
       this.net.stat('fish');

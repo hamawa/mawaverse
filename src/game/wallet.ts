@@ -1,7 +1,7 @@
 import { ref, get, onValue, runTransaction, update, serverTimestamp } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ArmorKey, type GiftMark } from '../shared/shop';
+import { AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ArmorKey, type GiftMark } from '../shared/shop';
 import { dayKey, kstDayStart } from '../shared/util';
 import type { WorldCtx } from './state';
 
@@ -152,6 +152,14 @@ export class WalletMgr {
     return this.spend('petfood', (c) => foodCost(base, c.px?.[petId] || 0, n), (c) => ({ ...c, pp: petId, px: { ...(c.px || {}), [petId]: (c.px?.[petId] || 0) + n } }));
   }
 
+  // ---- 금광 채광 (2026-11-11) ----
+  get gold(): number { return this.wallet.gn || 0; }
+  // 곡괭이질 한 번의 보상: 금덩이 n 개(1~3)와 채광 시각. 규칙이 지난 채광(ga)에서 MINE_GAP_MS 이상 지났는지 본다. 코인·구매 기록은 건드리지 않는다
+  mine(n: number): Promise<boolean> {
+    if (n <= 0) return Promise.resolve(false);
+    return this.tx((c) => ({ ...c, gn: (c.gn || 0) + n, ga: serverTimestamp() as unknown as number }));
+  }
+
   // ---- 낚싯대 강화 (2026-11-10) ----
   get scrolls(): number { return this.wallet.es || 0; }
   get stars(): number { return this.w.profile.own?.rod2 ? this.wallet.rs || 0 : 0; } // rod2 가 없으면 성도 없다 (부서진 뒤 남은 값은 다음 강화 쓰기에서 0 으로)
@@ -168,7 +176,9 @@ export class WalletMgr {
       if ((c.es || 0) <= 0) return null;
       const cur = c.rs || 0;
       if (cur !== stars) return null; // 다른 탭에서 바뀜
-      return { ...c, es: (c.es || 0) - 1, rs: ok ? cur + 1 : 0 };
+      const n: Wallet = { ...c, es: (c.es || 0) - 1, rs: ok ? cur + 1 : 0 };
+      if (!ok) delete n.b; // 부서졌다: 마지막 구매 표시를 지운다. 남겨 두면 그게 이 낚싯대일 때 다음 접속의 deliverPending 이 공짜로 다시 등록해 준다 (2026-11-11 수정)
+      return n;
     }).then((done) => (!done ? 'none' : ok ? 'ok' : 'broke'));
   }
   // 부서진 명품 낚싯대를 보관함에서 지운다 (본인 삭제는 규칙이 허용). 좋은 낚싯대(rod1)는 남는다
@@ -176,6 +186,52 @@ export class WalletMgr {
     try { await update(ref(db), { [`users/${this.w.uid}/own/rod2`]: null }); } catch (e) { console.warn('rod2 삭제 실패', e); }
     const p = this.w.profile;
     if (p.own) { const own = { ...p.own }; delete own.rod2; p.own = own; }
+    this.listeners.forEach((f) => f());
+  }
+
+  // ---- 킹 낚싯대 (2026-11-11) ----
+  get kingStars(): number { return this.w.profile.own?.rod3 ? this.wallet.ks || 0 : 0; } // rod3 가 없으면 성도 없다
+  // 낚시 확률에 쓰는 성: 킹 낚싯대는 킹 성과 상관없이 명품 35성으로 고정
+  get fishStars(): number { return this.w.profile.own?.rod3 ? KING_BASE_STARS : this.stars; }
+  // 남에게 보이는 성 (찌 옆 ★n): 킹 낚싯대면 킹 성
+  get shownStars(): number { return this.w.profile.own?.rod3 ? this.kingStars : this.stars; }
+  // 제작: 명품 낚싯대 30성이 있어야 하고, 코인(가격표)과 금덩이 KING_CRAFT_GOLD 개가 한 쓰기에서 같이 준다 (b='rod3'). 명품 낚싯대와 그 30성은 그대로.
+  // 'need': 자격 미달, 'gold'/'coins': 모자람, 'fail': 그새 바뀌었거나 규칙이 거부
+  async craftKing(price: number): Promise<'ok' | 'need' | 'gold' | 'coins' | 'fail'> {
+    if (this.owns(KING_ROD_ID)) return 'fail';
+    if (!this.owns('rod2') || (this.wallet.rs || 0) < KING_NEED_STARS) return 'need';
+    if (this.gold < KING_CRAFT_GOLD) return 'gold';
+    if (this.balance < price) return 'coins';
+    const ok = await this.tx((c) => {
+      if ((c.c || 0) < price || (c.gn || 0) < KING_CRAFT_GOLD || (c.rs || 0) !== KING_NEED_STARS) return null;
+      const n: Wallet = { ...c, c: (c.c || 0) - price, sp: (c.sp || 0) + price, b: KING_ROD_ID, gn: (c.gn || 0) - KING_CRAFT_GOLD, ks: 0 };
+      delete n.gt; // 선물할 수 없는 품목: 규칙도 gt 가 없을 때만 받는다
+      return n;
+    });
+    if (!ok) return 'fail';
+    await this.deliver(KING_ROD_ID);
+    this.listeners.forEach((f) => f());
+    return 'ok';
+  }
+  // 킹 낚싯대 강화 1회: 주문서 1장 + 금덩이 1개. 성공이면 ks+1, 실패면 ks=0 (보관함에서 지우는 것은 호출한 쪽이 breakKing 으로 이어서 한다)
+  enhanceKing(): Promise<'none' | 'ok' | 'broke'> {
+    const stars = this.kingStars;
+    if (!this.owns(KING_ROD_ID) || this.scrolls <= 0 || this.gold < KING_ENHANCE_GOLD || stars >= KING_MAX_STARS) return Promise.resolve('none');
+    const ok = Math.random() < enhanceChance(stars);
+    return this.tx((c) => {
+      if ((c.es || 0) <= 0 || (c.gn || 0) < KING_ENHANCE_GOLD) return null;
+      const cur = c.ks || 0;
+      if (cur !== stars) return null; // 다른 탭에서 바뀜
+      const n: Wallet = { ...c, es: (c.es || 0) - 1, gn: (c.gn || 0) - KING_ENHANCE_GOLD, ks: ok ? cur + 1 : 0 };
+      if (!ok) delete n.b; // 부서졌다: 마지막 구매 표시(rod3 일 수 있다)를 지워 다음 접속 때 공짜로 다시 등록되지 않게
+      return n;
+    }).then((done) => (!done ? 'none' : ok ? 'ok' : 'broke'));
+  }
+  // 부서진 킹 낚싯대를 보관함에서 지운다. 명품 낚싯대(rod2)와 그 30성은 남는다
+  async breakKing(): Promise<void> {
+    try { await update(ref(db), { [`users/${this.w.uid}/own/${KING_ROD_ID}`]: null }); } catch (e) { console.warn('rod3 삭제 실패', e); }
+    const p = this.w.profile;
+    if (p.own) { const own = { ...p.own }; delete own[KING_ROD_ID]; p.own = own; }
     this.listeners.forEach((f) => f());
   }
 

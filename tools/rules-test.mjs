@@ -6,8 +6,7 @@ import { initializeApp, cert } from 'firebase-admin/app';
 import { getDatabase, ServerValue } from 'firebase-admin/database';
 const sa = JSON.parse(readFileSync('serviceAccount.json', 'utf8'));
 // DB 주소는 .env.local 의 VITE_FIREBASE_DATABASE_URL (또는 환경변수 DATABASE_URL) 에서 읽는다
-const databaseURL = process.env.DATABASE_URL || (/^s*VITE_FIREBASE_DATABASE_URLs*=s*["']?([^"'
-]+)/m.exec(readFileSync('.env.local', 'utf8')) || [])[1];
+const databaseURL = process.env.DATABASE_URL || (/^\s*VITE_FIREBASE_DATABASE_URL\s*=\s*["']?([^"'\r\n]+)/m.exec(readFileSync('.env.local', 'utf8')) || [])[1];
 if (!databaseURL) throw new Error('.env.local 의 VITE_FIREBASE_DATABASE_URL 또는 환경변수 DATABASE_URL 이 필요합니다.');
 const rootDb = getDatabase(initializeApp({ credential: cert(sa), databaseURL }));
 const T = 'zz-rules-test';
@@ -23,6 +22,16 @@ const prices = (await rootDb.ref('config/prices').get()).val();
 // 배포된 규칙은 가입 승인된 계정만 통과시킨다(tools/gen-gate.cjs): 시험 계정을 승인 목록에 넣었다가 끝에 뺀다.
 // 평일 09~18시(KST)에는 관리자가 아닌 계정의 쓰기가 전부 거부되므로 그 시간에는 결과가 맞지 않는다
 await rootDb.ref('approved').update({ [T]: true, 'zz-rules-gift': true });
+// 가짜 uid 로 바꿔 쓰는 연결이 실제로 그 uid 로 인증될 때까지 기다린다. 에뮬레이터에서는 처음 몇 초 동안 관리 권한으로 붙어 있어 "거부돼야 할 쓰기"가 전부 통과했다 (2026-11-11).
+// 관리자만 쓸 수 있는 칸에 써 보고 거부되면 준비된 것 (통과한 값은 지운다)
+for (let i = 0; ; i++) {
+  let denied = false;
+  try { await userDb.ref('config/zzProbe').set(true); } catch { denied = true; }
+  if (denied) break;
+  await rootDb.ref('config/zzProbe').remove();
+  if (i >= 40) { console.error('가짜 uid 인증이 적용되지 않는다 (config 쓰기가 계속 통과). 중단'); process.exit(1); }
+  await new Promise((r) => setTimeout(r, 500));
+}
 const kstToday = () => { const t = Date.now() + 32400000; return t - (t % 86400000); };
 let pass = 0, fail = 0;
 const seed = (w) => rootDb.ref(WP).set(w);
@@ -280,6 +289,82 @@ if (PRE === '' && !ONLY_WALLET) {
   await expect('allow', 'G51 버전 ' + minV + ' 클라이언트의 입장', () => userDb.ref(PP).set(node(minV)));
   await expect('allow', 'G52 이미 들어와 있는 노드의 이동 쓰기', () => userDb.ref(PP + '/x').set(2));
 }
+// O. 금광·킹 낚싯대 (2026-11-11): 금덩이(gn)는 채광 쓰기(간격 2.5초, 1~3개)로만 늘고, 제작(b='rod3')은 명품 30성 + 금덩이 100개 + 가격표, 킹 성(ks)은 주문서 1장 + 금덩이 1개가 같이 줄 때만
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+if (!prices.rod3) { console.error('config/prices 에 rod3 가 없다. 먼저 넣을 것'); process.exit(1); }
+const KP = prices.rod3;
+await rootDb.ref(`${UP}/own`).update({ rod2: true, rod3: null });
+await seed({ c: 50000, e: 50000 });
+w = await cur();
+await expect('deny', 'O170 채광 시각 없이 금덩이 +1', () => W({ ...w, gn: 1 }));
+await expect('deny', 'O171 채광 시각을 과거로 적고 금덩이 +1', () => W({ ...w, gn: 1, ga: Date.now() - 60000 }));
+await expect('deny', 'O172 한 번에 금덩이 4개', () => W({ ...w, gn: 4, ga: TS }));
+await expect('deny', 'O173 금덩이 0.5개', () => W({ ...w, gn: 0.5, ga: TS }));
+await expect('deny', 'O174 채광하면서 코인도 +10', () => W({ ...w, c: w.c + 10, e: w.e + 10, gn: 1, ga: TS }));
+await expect('allow', 'O175 채광 +3', () => W({ ...w, gn: 3, ga: TS }));
+w = await cur();
+await expect('deny', 'O176 2.5초가 지나기 전에 또 채광', () => W({ ...w, gn: w.gn + 1, ga: TS }));
+await expect('deny', 'O177 채광 시각만 바꾸기 (금덩이 그대로)', () => W({ ...w, ga: TS }));
+await expect('deny', 'O178 미끼 사면서 금덩이 끼워 넣기', () => W({ ...w, c: w.c - prices.bait, sp: prices.bait, b: 'bait', bait: 1, gn: w.gn + 1, ga: TS }));
+await expect('deny', 'O179 주문서 사면서 금덩이 끼워 넣기', () => W({ ...w, c: w.c - SC, sp: SC, b: 'scroll', es: 1, gn: w.gn + 100 }));
+await expect('deny', 'O180 단품(밀짚모자) 사면서 킹 성 끼워 넣기', () => W({ ...w, c: w.c - prices.straw, sp: prices.straw, b: 'straw', ks: 1 }));
+await expect('deny', 'O181 펫 먹이 사면서 금덩이 끼워 넣기', () => W({ ...w, c: w.c - prices.petfood, sp: prices.petfood, b: 'petfood', pp: 'petdog', px: { petdog: 1 }, gn: w.gn + 1, ga: TS }));
+await expect('allow', 'O182 획득 (금덩이·채광 시각 그대로)', () => W({ ...w, c: w.c + 10, e: w.e + 10 }));
+await sleep(2700);
+w = await cur();
+await expect('allow', 'O183 2.5초 뒤 다시 채광 +1', () => W({ ...w, gn: w.gn + 1, ga: TS }));
+// 제작
+await seed({ c: 50000, e: 50000, gn: 150, rs: 29, es: 5 });
+w = await cur();
+const craft = (o = {}) => ({ ...w, c: w.c - KP, sp: (w.sp || 0) + KP, b: 'rod3', gn: w.gn - 100, ks: 0, ...o });
+await expect('deny', 'O190 명품 29성으로 제작', () => W(craft()));
+await seed({ c: 50000, e: 50000, gn: 150, rs: 30, es: 5 });
+w = await cur();
+await expect('deny', 'O191 금덩이를 99개만 내고 제작', () => W(craft({ gn: w.gn - 99 })));
+await expect('deny', 'O192 금덩이를 안 내고 제작', () => W(craft({ gn: w.gn })));
+await expect('deny', 'O193 코인을 1 덜 내고 제작', () => W(craft({ c: w.c - KP + 1, sp: KP - 1 })));
+await expect('deny', 'O194 제작하면서 킹 성 5', () => W(craft({ ks: 5 })));
+await expect('deny', 'O195 제작하면서 명품 성을 0 으로', () => W(craft({ rs: 0 })));
+await expect('deny', 'O196 제작을 선물로 (gt)', () => W(craft({ gt: 'zz-rules-gift' })));
+await expect('deny', 'O197 일반 구매 분기로 rod3 (금덩이 그대로, 값만 냄)', () => W({ ...w, c: w.c - KP, sp: KP, b: 'rod3' }));
+if (!ONLY_WALLET) {
+  await rootDb.ref(`${UP}/own/rod2`).remove();
+  await expect('deny', 'O198 명품 낚싯대 없이 제작 (성만 30)', () => W(craft()));
+  await rootDb.ref(`${UP}/own/rod2`).set(true);
+  await expect('deny', 'O199 결제 전에 킹 낚싯대 보유 등록', () => userDb.ref(`${UP}/own/rod3`).set(true));
+}
+await expect('allow', 'O200 킹 낚싯대 제작 (금덩이 −100, 가격표대로)', () => W(craft()));
+w = await cur();
+if (!ONLY_WALLET) await expect('deny', 'O201 킹 낚싯대 없이 킹 강화 (+1성)', () => W({ ...w, es: w.es - 1, gn: w.gn - 1, ks: 1 }));
+if (!ONLY_WALLET) await expect('allow', 'O202 결제 뒤 킹 낚싯대 보유 등록', () => userDb.ref(`${UP}/own/rod3`).set(true));
+else await rootDb.ref(`${UP}/own/rod3`).set(true);
+// 킹 강화
+await expect('deny', 'O203 주문서만 쓰고 킹 성 +1 (금덩이 그대로)', () => W({ ...w, es: w.es - 1, ks: 1 }));
+await expect('deny', 'O204 금덩이만 쓰고 킹 성 +1 (주문서 그대로)', () => W({ ...w, gn: w.gn - 1, ks: 1 }));
+await expect('deny', 'O205 한 번에 킹 성 +2', () => W({ ...w, es: w.es - 1, gn: w.gn - 1, ks: 2 }));
+await expect('deny', 'O206 킹 강화에 명품 성 변경 끼워 넣기', () => W({ ...w, es: w.es - 1, gn: w.gn - 1, ks: 1, rs: 0 }));
+await expect('allow', 'O207 킹 강화 성공 (+1성, 주문서 −1, 금덩이 −1)', () => W({ ...w, es: w.es - 1, gn: w.gn - 1, ks: 1 }));
+w = await cur();
+await expect('deny', 'O208 강화 성공인데 구매 표시(b)를 지움 (실패 쓰기에서만 지울 수 있다)', () => { const n = { ...w, es: w.es - 1, gn: w.gn - 1, ks: 2 }; delete n.b; return W(n); });
+await expect('deny', 'O209 아무것도 안 하고 구매 표시(b)만 지움', () => { const n = { ...w }; delete n.b; return W(n); });
+await expect('allow', 'O210 킹 강화 실패 (킹 성 0, 구매 표시 지움)', () => { const n = { ...w, es: w.es - 1, gn: w.gn - 1, ks: 0 }; delete n.b; return W(n); });
+w = await cur();
+if (!ONLY_WALLET) {
+  await rootDb.ref(`${UP}/own/rod3`).remove(); // 부서져서 보관함에서 지움
+  await expect('deny', 'O211 부서진 킹 낚싯대를 값 안 내고 다시 보유 등록 (구매 표시가 지워졌다)', () => userDb.ref(`${UP}/own/rod3`).set(true));
+}
+await expect('allow', 'O212 부서진 뒤 명품 30성은 그대로 두고 획득', () => W({ ...w, c: w.c + 10, e: w.e + 10 }));
+// 명품 낚싯대도 같다: 마지막 구매가 rod2 인 채 부서져도 공짜로 되살릴 수 없다 (2026-11-11 수정)
+await seed({ c: 50000, e: 50000, sp: prices.rod2, b: 'rod2', es: 2, rs: 12 });
+w = await cur();
+await expect('allow', 'O213 명품 강화 실패 (성 0, 구매 표시 지움)', () => { const n = { ...w, es: 1, rs: 0 }; delete n.b; return W(n); });
+if (!ONLY_WALLET) {
+  await rootDb.ref(`${UP}/own/rod2`).remove();
+  await expect('deny', 'O214 부서진 명품 낚싯대를 값 안 내고 다시 보유 등록', () => userDb.ref(`${UP}/own/rod2`).set(true));
+}
+await seed({ c: 50000, e: 50000, sp: prices.rod2, b: 'rod2', es: 2, rs: 12 });
+w = await cur();
+await expect('allow', 'O215 옛 클라이언트의 실패 쓰기 (구매 표시를 안 지움)도 그대로 통과', () => W({ ...w, es: 1, rs: 0 }));
 await rootDb.ref().update({ [WP]: null, [UP]: null, [PP]: null });
 await rootDb.ref('approved').update({ [T]: null, 'zz-rules-gift': null });
 console.log(`\n결과: 통과 ${pass}, 실패 ${fail}`);

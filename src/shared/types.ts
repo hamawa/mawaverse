@@ -54,6 +54,7 @@ export interface PlayerState {
   z?: boolean | null;   // 탭이 뒤에 있어 자리 비움 (💤 표시)
   v?: number;           // 클라이언트 버전 (CLIENT_VERSION). 규칙이 입장할 때 config/minVersion 이상인지 본다
   m?: string | null;    // 있는 맵 id (shared/maps.ts). 없으면 기본 맵 (옛 클라이언트와 같다)
+  mn?: boolean | null;  // 금광에서 채광 중 (곡괭이질이 남에게 보이게. 곡괭이질마다 쓰지 않고 켜고 끌 때만)
 }
 
 export type Channel = 'near' | 'all' | 'w' | 'sys' | 'notice' | 'g'; // g: 마피아 유령 채팅. (파티 채팅 'p' 는 2026-11-10 파티 기능과 함께 삭제)

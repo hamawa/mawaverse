@@ -55,7 +55,7 @@ export function mapSwitchUpdate(uid: string, from: { mapId: string; x: number; y
     [`occ/${occupancyKey(to.mapId, to.x, to.y)}`]: uid,
     [`${p}/m`]: to.mapId === MAIN_MAP_ID ? null : to.mapId,
     [`${p}/x`]: to.x, [`${p}/y`]: to.y, [`${p}/d`]: to.d,
-    [`${p}/f`]: null, [`${p}/e`]: null, [`${p}/push`]: null, [`${p}/pull`]: null, [`${p}/toss`]: null, [`${p}/tp`]: null,
+    [`${p}/f`]: null, [`${p}/e`]: null, [`${p}/mn`]: null, [`${p}/push`]: null, [`${p}/pull`]: null, [`${p}/toss`]: null, [`${p}/tp`]: null,
   };
   if (from.ownsOld) upd[`occ/${occupancyKey(from.mapId, from.x, from.y)}`] = null;
   return upd;

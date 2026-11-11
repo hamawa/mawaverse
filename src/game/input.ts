@@ -14,6 +14,7 @@ export class Input {
   private shift = false;       // Shift 를 누르고 있으면 달리기
   private touchRun = false;    // 모바일 달리기 버튼을 누르고 있는 동안
   enabled = true;              // 채팅 입력 중이면 false
+  interactRepeat = false;      // 방금 온 F 가 키를 누르고 있어서 반복된 것인가 (채광은 누를 때마다 한 번만 친다)
   onAction: ((a: Action) => void) | null = null;
 
   constructor() {
@@ -53,7 +54,7 @@ export class Input {
     // Space: 키 가이드 열기/닫기. preventDefault 로 포커스가 남은 HUD 버튼이 같이 눌리는 것과 페이지 스크롤을 막는다
     if (e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); if (!e.repeat) this.onAction?.('help'); return; }
     if (e.key === 'Escape') { this.onAction?.('escape'); return; }
-    if (e.key === 'f' || e.key === 'F' || e.key === 'ㄹ') { this.onAction?.('interact'); return; }
+    if (e.key === 'f' || e.key === 'F' || e.key === 'ㄹ') { this.interactRepeat = e.repeat; this.onAction?.('interact'); return; }
     if (e.key === 'g' || e.key === 'G' || e.key === 'ㅎ') { this.onAction?.('toss'); return; }
     if (e.key in KEY_EMOTE && !e.ctrlKey && !e.altKey && !e.metaKey) { this.onAction?.({ emote: KEY_EMOTE[e.key] }); }
   }
@@ -81,5 +82,5 @@ export class Input {
     if (this.tap && performance.now() - this.tap.at < 300) { const d = this.tap.d; this.tap = null; return d; }
     return null;
   }
-  trigger(a: Action): void { this.onAction?.(a); }
+  trigger(a: Action): void { this.interactRepeat = false; this.onAction?.(a); }
 }

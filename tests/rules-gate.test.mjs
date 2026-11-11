@@ -170,6 +170,10 @@ await expect('맵: 다른 공간의 좌표로 점유 키를 위조', 'deny', () 
 await expect('맵: 존재하지 않는 맵 이동', 'deny', () => ok.ref('players/OK/m').set('missing'));
 await expect('맵: 잘못된 맵 ID', 'deny', () => ok.ref('players/OK/m').set('../island'));
 await expect('맵: 저장된 맵 ID 허용', 'allow', () => ok.ref('players/OK/m').set('island'));
+await expect('맵: 코드에 든 금광 맵 허용', 'allow', () => ok.ref('players/OK/m').set('gold-mine'));
+await expect('맵: 채광 중 표시는 true 만', 'allow', () => ok.ref('players/OK/mn').set(true));
+await expect('맵: 채광 중 표시에 다른 값', 'deny', () => ok.ref('players/OK/mn').set(1));
+await expect('맵: 채광 중 표시 지우기', 'allow', () => ok.ref('players/OK/mn').remove());
 await root.ref('players/OK/m').set('main');
 await expect('맵: 목적지 점유가 있으면 이동 거부', 'deny', () => ok.ref().update({
   'occ/1_1': null, 'occ/portal-garden~1_1': 'OK', 'players/OK/m': 'portal-garden',

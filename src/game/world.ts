@@ -34,6 +34,8 @@ import { BugHunt } from './bugs';
 import { TossMgr } from './toss';
 import { openMole } from './moleui';
 import { DigMgr } from './dig';
+import { MineMgr } from './mine';
+import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
@@ -117,6 +119,7 @@ export class World implements WorldCtx {
   mafiaHud = new MafiaHud(this); // uid·nick(getter)·mafia·toast
   toss = new TossMgr(this, this.net, { cancelFishing: () => this.fishing.cancel() });
   dig = new DigMgr(this, this.net);
+  mine = new MineMgr(this, this.net);
   private lastCoinTick = 0;
   private lastMafiaHud = 0;
   private rouletteUnsub: (() => void) | null = null;
@@ -312,6 +315,7 @@ export class World implements WorldCtx {
     this.contest.tick(now);
     this.bugs.tick(now);
     this.dig.tick(now);
+    this.mine.tick(now);
     this.casino.tick();
     this.syncCasinoPanel();
     this.mafia.tick(now);
@@ -350,7 +354,7 @@ export class World implements WorldCtx {
       isMe: true, ready: !!(me.roomId && this.rooms[me.roomId]?.members?.[this.uid]?.ready), pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null,
       pet: this.pets.view(this.uid, this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp()),
-      ghost: iGhost,
+      ghost: iGhost, mining: this.mine.active,
     }];
     for (const rp of this.players.values()) {
       if (!this.onMyMap(rp.st)) continue; // 다른 맵에 있는 사람은 그리지 않는다
@@ -364,7 +368,7 @@ export class World implements WorldCtx {
         fishing: rp.st.f ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
         hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null,
         pet: this.pets.view(rp.uid, rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0),
-        ghost,
+        ghost, mining: !!rp.st.mn,
       });
     }
     return list;
@@ -445,6 +449,7 @@ export class World implements WorldCtx {
   leaveForTeleport(): void {
     const me = this.me;
     this.fishing.cancel();
+    this.mine.cancel();
     if (me.roomId) { const left = me.roomId; me.roomId = null; this.net.setRoom(null); this.roomMgr.leave(left); }
   }
   // 화면 갱신(rAF)이 멈춰 있나: 탭이 뒤에 있거나 창이 가려지거나 PC 가 잠겨 있으면 tick 이 돌지 않는다.
@@ -592,7 +597,7 @@ export class World implements WorldCtx {
     Object.assign(me, { x, y, fromX: x, fromY: y, dispX: x, dispY: y, moving: false, pushMore: null, bubble: null, pose: 'none', emoteId: 0 });
     this.waterHoldUntil = 0;
     this.fishing.cancel(); // 맵을 읽는 사이 자동 낚시가 옛 맵 물에 다시 던졌을 수 있다
-    this.bugs.clear(); this.toss.clear(); this.pets.forget(this.uid);
+    this.bugs.clear(); this.toss.clear(); this.pets.forget(this.uid); this.mine.left();
     for (const rp of this.players.values()) rp.bubble = null;
     // lastHint 는 그대로 둔다: 여기서 비우면 화면의 '이동 중…' 안내와 어긋나, 도착한 칸에 안내가 없을 때 그 문구가 지워지지 않는다. 다음 프레임의 updateHint 가 새 맵 기준으로 맞춘다
     this.events.emit('players');
@@ -610,7 +615,7 @@ export class World implements WorldCtx {
 
   // ---------- 상호작용 ----------
   // F 로 할 수 있는 것과 그 안내 위치. 우선순위: 게시판 → 낚시 중 → 물가(낚시 시작) → 낚시 표지판
-  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' } | null {
+  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' } | null {
     const me = this.me;
     if (me.roomId) return null;
     if (this.switching) return { x: me.x, y: me.y - 1, text: '🌀 이동 중…', kind: 'portal' };
@@ -623,6 +628,9 @@ export class World implements WorldCtx {
       return { x: ma.spot.x, y: ma.spot.y - 1, text: this.mafia.holding() ? `${ma.spot.def.verb} 중… 움직이지 마세요` : `F ${ma.spot.def.verb} (5초 버티기)`, kind: 'mafia' };
     }
     if (this.boardZone && nearZone(this.boardZone, me.x, me.y, 1)) return { x: this.boardZone.x + 1, y: this.boardZone.y - 1, text: 'F 게시판 보기', kind: 'board' };
+    // 금광: 금덩어리를 보고 서 있으면 채광. 캐는 자리는 포탈 범위와 겹치지 않게 놓여 있다 (tests/maps.test.mjs)
+    if (this.mine.active) return { x: me.x, y: me.y - 1, text: '⛏ 금을 캐는 중… (움직이면 허탕)', kind: 'mining' };
+    if (this.mine.target()) return { x: me.x, y: me.y - 1, text: 'F 금 캐기', kind: 'mine' };
     const fv = this.fishing.view();
     const bug = this.bugs.targetView();
     // 포탈 옆이라도 하던 낚시·바로 옆 벌레·삽질·발밑 보물 자리가 먼저다 (2026-11-11: 포탈 옆에 잡힌 보물 자리를 팔 수 없던 문제). 그 일이 끝나면 다시 포탈 안내가 뜬다
@@ -679,6 +687,7 @@ export class World implements WorldCtx {
     else if (ch.kind === 'cast') this.fishing.cast();
     else if (ch.kind === 'bug') { if (this.bugs.swing()) this.doEmote(11); } // 잠자리채 휘두르기 (남들에게도 보임)
     else if (ch.kind === 'dig') { if (this.dig.begin()) this.doEmote(13); }
+    else if (ch.kind === 'mine') { if (!this.input.interactRepeat) this.mine.begin(); } // 키를 누르고 있어 반복된 F 로는 치지 않는다 (한 번 누르면 한 번)
     else if (ch.kind === 'arcade') { this.input.releaseAll(); openMole({ uid: this.uid, nick: this.profile.nick, wallet: this.wallet, input: this.input, toast: (m, e) => this.toast(m, e), stat: (k) => this.net.stat(k) }); }
     else if (ch.kind === 'sign') { this.input.releaseAll(); this.openFishBook(); }
   }
@@ -858,7 +867,8 @@ export class World implements WorldCtx {
   }
   private coinText(): string {
     const a = this.contest.active();
-    return fmtCoins(this.wallet.balance) + (this.wallet.autoReelActive() ? ` · 🤖 ${this.wallet.autoReelLeftText()}` : '') + (this.wallet.autoBugActive() ? ` · 🥅 ${this.wallet.autoBugLeftText()}` : '') + (a ? ` · 🏁 ${fmtLeft(a.end - serverNow())}` : '');
+    // 금광에 있는 동안은 금덩이 개수도 같이 보인다
+    return fmtCoins(this.wallet.balance) + (this.mapId === GOLD_MINE_MAP_ID ? ` · ${fmtGold(this.wallet.gold)}` : '') + (this.wallet.autoReelActive() ? ` · 🤖 ${this.wallet.autoReelLeftText()}` : '') + (this.wallet.autoBugActive() ? ` · 🥅 ${this.wallet.autoBugLeftText()}` : '') + (a ? ` · 🏁 ${fmtLeft(a.end - serverNow())}` : '');
   }
   private changeAvatarFlow(): void {
     let sel = this.profile.avatar;
