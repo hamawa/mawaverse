@@ -250,6 +250,91 @@ await expect('경마: 거부된 배팅은 코인을 빼지 않는다', 'allow', 
 await expect('경마: 옛 방식(결제 먼저)', 'allow', () => ok.ref('wallet/OK').set({ c: 700, e: 1000, sp: 300, b: 'race', cb: 'R3', ch: 2, ca: 300 }));
 await expect('경마: 옛 방식(기록 나중)', 'allow', () => ok.ref('casino/r/R3/bets/OK').set({ h: 2, a: 300, n: '닉' }));
 
+// ---------- 슬롯 방: 슬롯·홀짝 (2026-11-12) ----------
+// 베팅(it = 서버 시각) → 정산(ic = it, 받는 돈은 it 에서 계산한 결과와 같아야) 두 단계.
+// 시험용 규칙도 이용 시간 말고는 진짜 서버 시각을 쓴다. 그래서 베팅은 서버 시각으로 쓰고, 정산은 "원하는 결과가 나오는 시각에 베팅해 둔 지갑"을 만들어 놓고 본다
+{
+  const SH = (t) => ((t % 9973) * 7919 + 4421) % 9973;
+  const TIERS = [[10, 50], [40, 50], [240, 10], [739, 4], [1936, 2], [2734, 1]];
+  const TS = ServerValue.TIMESTAMP;
+  let cursor = Date.now() - 3600000;
+  const atWhere = (pred) => { for (let t = cursor + 1; ; t++) if (pred(SH(t))) { cursor = t; return t; } }; // 지난 한 시간 안의 시각
+  await setNow('2026-11-14 13:00:00');
+  const fresh = (w = {}) => root.ref('wallet/OK').set({ c: 100000, e: 100000, ...w });
+  // 그 시각(t)에 걸어 둔 지갑 (아직 정산 전)
+  const betAt = (t, bet, kind, pick) => fresh({ c: 100000 - bet, sp: bet, b: kind === 's' ? 'slot' : 'oddeven', ik: kind, ib: bet, ...(kind === 'o' ? { ip: pick } : {}), it: t });
+  const betW = (bet, kind, pick, extra = {}) => ({ 'wallet/OK/c': 100000 - bet, 'wallet/OK/sp': bet, 'wallet/OK/b': kind === 's' ? 'slot' : 'oddeven', 'wallet/OK/ik': kind, 'wallet/OK/ib': bet, ...(kind === 'o' ? { 'wallet/OK/ip': pick } : {}), 'wallet/OK/it': TS, ...extra });
+  const settleW = (t, bet, win, extra = {}) => ({ 'wallet/OK/c': 100000 - bet + win, 'wallet/OK/e': 100000 + win, 'wallet/OK/ic': t, ...extra });
+  await root.ref('slot/jp').set(12000);
+
+  // 베팅 쓰기
+  await fresh();
+  await expect('슬롯: 150코인 (100 단위 아님)', 'deny', () => ok.ref().update(betW(150, 's')));
+  await expect('슬롯: 한도(10,000) 초과', 'deny', () => ok.ref().update(betW(10100, 's')));
+  await expect('슬롯: 시각이 서버 시각이 아님', 'deny', () => ok.ref().update(betW(500, 's', 0, { 'wallet/OK/it': Date.now() - 5000 })));
+  await expect('슬롯: 낸 돈과 건 돈이 다름', 'deny', () => ok.ref().update({ ...betW(500, 's'), 'wallet/OK/c': 99900, 'wallet/OK/sp': 100 }));
+  await expect('슬롯: 홀짝 표시(ip)를 끼워 넣음', 'deny', () => ok.ref().update({ ...betW(500, 's'), 'wallet/OK/ip': 1 }));
+  await expect('슬롯: 잭팟에 3% 보다 많이 쌓기', 'deny', () => ok.ref().update(betW(500, 's', 0, { 'slot/jp': 12000 + 5000 })));
+  await expect('슬롯: 베팅 없이 잭팟 금액만 올리기', 'deny', () => ok.ref('slot/jp').set(99999));
+  await expect('슬롯: 잭팟 금액 지우기', 'deny', () => ok.ref('slot/jp').remove());
+  await expect('슬롯: 베팅 + 잭팟 3%', 'allow', () => ok.ref().update(betW(500, 's', 0, { 'slot/jp': 12015 })));
+  await expect('슬롯: 정산 전에 또 베팅', 'deny', () => ok.ref().update({ 'wallet/OK/c': 99000, 'wallet/OK/sp': 1000, 'wallet/OK/b': 'slot', 'wallet/OK/ik': 's', 'wallet/OK/ib': 500, 'wallet/OK/it': TS }));
+  await expect('슬롯: 정산 전에도 보통 획득은 된다', 'allow', () => ok.ref().update({ 'wallet/OK/c': 99510, 'wallet/OK/e': 100010 }));
+  await expect('슬롯: 보통 획득에 베팅 시각을 바꿔 끼우기', 'deny', () => ok.ref().update({ 'wallet/OK/c': 99520, 'wallet/OK/e': 100020, 'wallet/OK/it': TS }));
+  await expect('슬롯: 보통 획득에 정산 표시를 끼워 큰돈 받기', 'deny', async () => { const it = (await root.ref('wallet/OK/it').get()).val(); return ok.ref().update({ 'wallet/OK/c': 999510, 'wallet/OK/e': 1000010, 'wallet/OK/ic': it }); });
+
+  // 정산: 칸마다 받는 돈이 정확히 같아야 한다 (500코인을 건 판)
+  const tierCases = [...TIERS.map(([below, mult], i) => ({ name: `${mult}배 칸(${i})`, pred: (h) => h < below && (i === 0 || h >= TIERS[i - 1][0]), mult })), { name: '꽝', pred: (h) => h >= 2734, mult: 0 }];
+  for (const c of tierCases) {
+    const t = atWhere(c.pred), win = 500 * c.mult;
+    await betAt(t, 500, 's');
+    await expect(`슬롯 정산 ${c.name}: 더 많이 받기`, 'deny', () => ok.ref().update(settleW(t, 500, win + 500)));
+    if (win > 0) await expect(`슬롯 정산 ${c.name}: 덜 받기`, 'deny', () => ok.ref().update(settleW(t, 500, win - 500)));
+    await expect(`슬롯 정산 ${c.name}: 다른 시각으로 표시`, 'deny', () => ok.ref().update(settleW(t + 1, 500, win)));
+    await expect(`슬롯 정산 ${c.name}: 정확히 ${win}`, 'allow', () => ok.ref().update(settleW(t, 500, win)));
+    await expect(`슬롯 정산 ${c.name}: 두 번 받기`, 'deny', () => ok.ref().update({ 'wallet/OK/c': 100000 - 500 + win * 2 + 100, 'wallet/OK/e': 100000 + win * 2 + 100, 'wallet/OK/ic': t + 1 }));
+  }
+
+  // 잭팟: 1,000코인 이상 건 잭팟 칸. 쌓인 금액을 받고 같은 쓰기에서 시작 금액(10,000)으로 되돌려야 한다
+  let t = atWhere((h) => h < 10);
+  await betAt(t, 1000, 's'); await root.ref('slot/jp').set(34590);
+  await expect('잭팟: 되돌리지 않고 받기', 'deny', () => ok.ref().update(settleW(t, 1000, 34590)));
+  await expect('잭팟: 쌓인 금액보다 많이', 'deny', () => ok.ref().update(settleW(t, 1000, 60000, { 'slot/jp': 10000 })));
+  await expect('잭팟: 50배로 받기', 'deny', () => ok.ref().update(settleW(t, 1000, 50000)));
+  await expect('잭팟: 쌓인 금액을 받고 되돌리기', 'allow', () => ok.ref().update(settleW(t, 1000, 34590, { 'slot/jp': 10000 })));
+  await expect('잭팟: 받은 뒤 또 되돌리기', 'deny', () => ok.ref('slot/jp').set(10000));
+  // 잭팟이 아닌 판에서 금액 되돌리기
+  t = atWhere((h) => h >= 2734);
+  await betAt(t, 1000, 's'); await root.ref('slot/jp').set(50000);
+  await expect('잭팟: 꽝인 판에서 금액 되돌리기', 'deny', () => ok.ref().update(settleW(t, 1000, 0, { 'slot/jp': 10000 })));
+  await expect('잭팟: 꽝인 판에서 쌓인 금액 받기', 'deny', () => ok.ref().update(settleW(t, 1000, 50000, { 'slot/jp': 10000 })));
+  await expect('슬롯 정산 꽝: 0', 'allow', () => ok.ref().update(settleW(t, 1000, 0)));
+
+  // 간격: 지난 판에서 1초 안에는 다음 판을 못 연다
+  await fresh({ ik: 's', ib: 1000, it: Date.now() - 300, ic: Date.now() - 300 });
+  await root.ref('wallet/OK').update({ ic: (await root.ref('wallet/OK/it').get()).val() });
+  await expect('슬롯: 지난 판에서 1초 안에 다시', 'deny', () => ok.ref().update(betW(100, 's')));
+  const old = Date.now() - 5000;
+  await fresh({ ik: 's', ib: 1000, it: old, ic: old });
+  await expect('슬롯: 1초 넘게 지난 뒤', 'allow', () => ok.ref().update(betW(100, 's')));
+
+  // 홀짝
+  await fresh();
+  await expect('홀짝: 고른 쪽이 없음', 'deny', () => ok.ref().update({ ...betW(1000, 'o', 1), 'wallet/OK/ip': null }));
+  await expect('홀짝: 고른 쪽이 2', 'deny', () => ok.ref().update(betW(1000, 'o', 2)));
+  await expect('홀짝: 홀에 1,000', 'allow', () => ok.ref().update(betW(1000, 'o', 1)));
+  t = atWhere((h) => h % 2 === 1);
+  await betAt(t, 1000, 'o', 1);
+  await expect('홀짝: 맞혔는데 2배 받기', 'deny', () => ok.ref().update(settleW(t, 1000, 2000)));
+  await expect('홀짝: 정산하며 고른 쪽 바꾸기', 'deny', () => ok.ref().update(settleW(t, 1000, 1900, { 'wallet/OK/ip': 0 })));
+  await expect('홀짝: 맞혀서 1.9배', 'allow', () => ok.ref().update(settleW(t, 1000, 1900)));
+  t = atWhere((h) => h % 2 === 0);
+  await betAt(t, 1000, 'o', 1);
+  await expect('홀짝: 틀렸는데 받기', 'deny', () => ok.ref().update(settleW(t, 1000, 1900)));
+  await expect('홀짝: 틀려서 0', 'allow', () => ok.ref().update(settleW(t, 1000, 0)));
+  await root.ref().update({ 'wallet/OK': null, 'slot/jp': null });
+}
+
 // ---------- 게시판: 패치 노트 분류는 관리자만 (2026-11-12) ----------
 const post = (u, cat) => ({ title: '제목', body: '내용', u, n: '닉', ts: 1, cc: 0, cat });
 await expect('게시판: 일반 사용자가 똥글 쓰기', 'allow', () => ok.ref('board/posts/p-junk').set(post('OK', 'junk')));

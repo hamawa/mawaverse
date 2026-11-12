@@ -16,7 +16,8 @@ const COLORS = ['#3f6b4a', '#5a4a2f', '#2f4f6b', '#6b2f5a', '#4a6b2f', '#6b5a2f'
 export function watchRouletteFeed(w: WorldCtx): () => void {
   return onNewChild('roulette/feed', serverNow(), 5, (s) => {
     const e = s.val() as RouletteFeed;
-    w.events.emit('log', { channel: 'notice', from: '', text: `🎰 ${e.n} 님이 오늘의 룰렛에서 ${e.v}코인을 뽑았습니다!`, ts: e.ts || serverNow() });
+    const text = e.k === 'jp' ? `💎 ${e.n} 님이 슬롯 잭팟 ${Math.floor(e.v).toLocaleString('ko-KR')}코인을 터뜨렸습니다!` : e.k === '777' ? `7️⃣ ${e.n} 님이 슬롯에서 트리플 세븐! ${Math.floor(e.v).toLocaleString('ko-KR')}코인` : `🎰 ${e.n} 님이 오늘의 룰렛에서 ${e.v}코인을 뽑았습니다!`;
+    w.events.emit('log', { channel: 'notice', from: '', text, ts: e.ts || serverNow() });
   });
 }
 

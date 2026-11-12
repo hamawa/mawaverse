@@ -24,6 +24,7 @@ import { Pets } from './pets';
 import { PetRide } from './petride';
 import { CasinoMgr } from './casino';
 import { CasinoPanel } from './casinoui';
+import { SlotPanel } from './slotui';
 import { MafiaMgr } from './mafia';
 import { MafiaHud, openMafiaLobby } from './mafiaui';
 import { openBoard } from './boardui';
@@ -115,6 +116,7 @@ export class World implements WorldCtx {
   petRide = new PetRide(this, this.net);
   casino = new CasinoMgr(this);
   casinoPanel = new CasinoPanel(this); // config 가 바뀌어도 보도록 월드 자체를 넘긴다 (uid·wallet·config·casino·toast)
+  slotPanel = new SlotPanel(this);     // 슬롯 방 판 (슬롯·홀짝)
   mafia = new MafiaMgr(this);
   mafiaHud = new MafiaHud(this); // uid·nick(getter)·mafia·toast
   toss = new TossMgr(this, this.net, { cancelFishing: () => this.fishing.cancel() });
@@ -740,17 +742,18 @@ export class World implements WorldCtx {
       const rs = this.rooms[me.roomId];
       const z = this.roomMgr.zoneOf(me.roomId);
       const n = rs?.members ? Object.keys(rs.members).length : 1;
-      hint = this.hud.mobile ? null : `🎰 카지노 ${n}/${z?.cap || '?'} · 오른쪽 판에서 배팅 · 나가려면 판의 나가기 (F 로 판 열기/닫기)`; // 모바일은 경마 판이 화면을 덮는다
+      hint = this.hud.mobile ? null : `${z?.label || '방'} ${n}/${z?.cap || '?'} · 오른쪽 판에서 배팅 · 나가려면 판의 나가기 (F 로 판 열기/닫기)`; // 모바일은 판이 화면을 덮는다
     } else { const ch = this.canvasHint(); if (ch) hint = ch.text; }
     if (hint !== this.lastHint) { this.lastHint = hint; this.hud.setHint(hint); }
   }
-  // 카지노 방 안에 있는 동안 경마 판을 띄운다 (나가면 닫힘). F 로 잠깐 닫을 수 있다
+  // 방 안에 있는 동안 그 방의 판을 띄운다 (나가면 닫힘). F 로 잠깐 닫을 수 있다. 방 id 마다 판이 정해져 있다: casino 경마장 · slots 슬롯 방
   private casinoHidden = false;
   private syncCasinoPanel(): void {
-    const inCasino = !!this.me.roomId; // 방은 카지노뿐이다
-    if (inCasino && !this.casinoHidden && !this.casinoPanel.open) this.casinoPanel.show();
-    else if ((!inCasino || this.casinoHidden) && this.casinoPanel.open) this.casinoPanel.hide();
-    if (!inCasino) this.casinoHidden = false;
+    const room = this.me.roomId;
+    const want = !room || this.casinoHidden ? null : room === 'slots' ? this.slotPanel : room === 'casino' ? this.casinoPanel : null;
+    for (const p of [this.casinoPanel, this.slotPanel]) if (p !== want && p.open) p.hide();
+    if (want && !want.open) want.show();
+    if (!room) this.casinoHidden = false;
   }
   interact(): void {
     if (this.switching) return; // 목적지를 읽는 동안 옛 맵에서 낚시·채집·삽질 등을 시작하지 않는다
@@ -1015,7 +1018,7 @@ export class World implements WorldCtx {
     this.stopped = true;
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
-    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.wallet.stop(); this.contest.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.casinoPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
+    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.wallet.stop(); this.contest.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});
     await this.net.leave(replaced);
     document.body.classList.remove('mobile');

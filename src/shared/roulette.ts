@@ -13,4 +13,4 @@ export function rollRoulette(rand = Math.random): number {
   for (let i = 0; i < ROULETTE.length; i++) { r -= ROULETTE[i].w; if (r <= 0) return i; }
   return ROULETTE.length - 1;
 }
-export interface RouletteFeed { u: string; n: string; v: number; ts: number } // roulette/feed: 500 이상 당첨 공지
+export interface RouletteFeed { u: string; n: string; v: number; ts: number; k?: 'jp' | '777' } // roulette/feed: 500 이상 당첨 공지. k: 슬롯 방에서 터진 것 (jp 잭팟, 777 트리플 세븐. 2026-11-12)

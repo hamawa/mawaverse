@@ -3,6 +3,7 @@ import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ArmorKey, type GiftMark } from '../shared/shop';
 import { dayKey, kstDayStart } from '../shared/util';
+import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
 import type { WorldCtx } from './state';
 
 // 코인 지갑. 모든 쓰기는 wallet/{uid} 노드 전체를 트랜잭션으로 바꾼다. 서버 코드가 없으므로 규칙(database.rules.json)이 노드 단위로 검사한다 (2026-11-06 치팅 방지):
@@ -23,7 +24,7 @@ export class WalletMgr {
       this.wallet = (s.val() as Wallet | null) || { c: 0, e: 0 };
       const first = !this.loaded;
       this.loaded = true;
-      if (first) { void this.deliverPending(); void this.healStars(); }
+      if (first) { void this.deliverPending(); void this.healStars(); void this.settlePendingInstant(); }
       this.checkGift();
       this.listeners.forEach((f) => f());
     });
@@ -123,6 +124,52 @@ export class WalletMgr {
       if (c.cr && c.cr >= rid) return null;
       return { ...c, c: (c.c || 0) + win, e: (c.e || 0) + win, cr: rid };
     });
+  }
+  // ---- 슬롯 방의 즉석 게임: 슬롯·홀짝 (2026-11-12. 설계는 shared/slots.ts 머리말) ----
+  // 정산 안 한 판이 남아 있나 (it != ic)
+  instantPending(): boolean { const w = this.wallet; return typeof w.it === 'number' && w.ic !== w.it; }
+  // 베팅: 지갑에서 값을 빼며 it = 서버 시각을 남긴다 (슬롯이면 같은 쓰기에서 잭팟에 3% 를 쌓는다). 돌려주는 값은 서버가 적은 그 판의 시각. 실패하면 null
+  async instantBet(kind: InstantKind, bet: number, pick?: number): Promise<number | null> {
+    if (this.balance < bet) return null;
+    const uid = this.w.uid, W = `wallet/${uid}`;
+    const upd: Record<string, unknown> = {
+      [`${W}/c`]: increment(-bet), [`${W}/sp`]: increment(bet), [`${W}/b`]: kind === 's' ? 'slot' : 'oddeven', [`${W}/gt`]: null,
+      [`${W}/ik`]: kind, [`${W}/ib`]: bet, [`${W}/ip`]: kind === 'o' ? pick : null, [`${W}/it`]: serverTimestamp(),
+    };
+    if (kind === 's') upd['slot/jp'] = increment(jackpotAdd(bet));
+    try {
+      await update(ref(db), upd);
+      const it = (await get(ref(db, `${W}/it`))).val(); // 서버가 적은 시각 (쓰기 직후 내 화면에 먼저 오는 추정값이 아니라)
+      return typeof it === 'number' ? it : null;
+    } catch (e) { console.warn('즉석 게임 베팅이 거부됨', e); return null; }
+  }
+  // 정산: 그 판(it)의 결과대로 받는다. 꽝이면 0 을 받는 정산(ic 만 바뀐다). 잭팟이면 쌓인 금액을 받고 같은 쓰기에서 시작 금액으로 되돌린다.
+  // 돌려주는 값은 받은 돈 (정산할 판이 없거나 실패하면 null)
+  async instantSettle(): Promise<{ kind: InstantKind; at: number; bet: number; win: number; jackpot: boolean } | null> {
+    const uid = this.w.uid, W = `wallet/${uid}`;
+    for (let tries = 0; tries < 3; tries++) {
+      const cur = (await get(ref(db, W))).val() as Wallet | null;
+      if (!cur || typeof cur.it !== 'number' || cur.ic === cur.it || !cur.ik || !cur.ib) return null;
+      const at = cur.it, bet = cur.ib, kind = cur.ik;
+      const upd: Record<string, unknown> = { [`${W}/ic`]: at };
+      let win = 0, jackpot = false;
+      if (kind === 's') {
+        const r = slotResult(at, bet);
+        jackpot = r.jackpot;
+        if (jackpot) { win = Number((await get(ref(db, 'slot/jp'))).val()) || 0; upd['slot/jp'] = JACKPOT_SEED; }
+        else win = bet * r.mult;
+      } else win = oddEvenPayout(at, bet, cur.ip ?? -1);
+      if (win > 0) { upd[`${W}/c`] = increment(win); upd[`${W}/e`] = increment(win); }
+      try { await update(ref(db), upd); return { kind, at, bet, win, jackpot }; }
+      catch (e) { console.warn('즉석 게임 정산이 거부됨 (잭팟 금액이 그새 바뀌었으면 다시 읽어 시도)', e); if (!jackpot) return null; }
+    }
+    return null;
+  }
+  // 접속할 때: 지난번에 정산하지 못한 판(돌리는 중에 나갔거나 끊김)이 있으면 받는다
+  private async settlePendingInstant(): Promise<void> {
+    if (!this.instantPending()) return;
+    const r = await this.instantSettle();
+    if (r && r.win > 0) this.w.toast(`${r.kind === 's' ? '🎰 지난 슬롯' : '🎲 지난 홀짝'} 판의 💰 ${r.win.toLocaleString('ko-KR')} 을 받았습니다.`);
   }
   // 자동 버프를 더 살 수 있는 최대 시간(ms): 남은 시간을 뺀 것
   autoRoom(kind: 'fish' | 'bug'): number { return Math.max(0, AUTO_MAX_MS - Math.max(0, (this.wallet[kind === 'fish' ? 'ar' : 'ab'] || 0) - serverNow())); }

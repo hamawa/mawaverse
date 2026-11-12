@@ -98,6 +98,22 @@ body.mobile #casino .horse { padding: 8px; }
 body.mobile #casino .horse .ic { font-size: 20px; }
 body.mobile #casino .amts .btn { padding: 8px 10px; }
 body.mobile.in-casino #mobile { display: none; }
+/* 슬롯 방 판 (#casino.slots): 탭 · 잭팟 · 릴 · 결과 · 돌리기 */
+#casino.slots .tabs { display: flex; gap: 4px; margin: 6px 0; }
+#casino.slots .tabs .btn { flex: 1; }
+#casino.slots .tabs .btn.on { border-color: var(--accent); background: #3a2f12; color: #ffe9a8; }
+#casino.slots .jp { text-align: center; color: #e6d6f0; margin: 2px 0 6px; word-break: keep-all; }
+#casino.slots .jp b { color: #9be7ff; font-size: 15px; }
+#casino.slots .reels { display: flex; justify-content: center; gap: 8px; margin: 4px 0; }
+#casino.slots .reels span { width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; font-size: 36px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 216, 77, 0.45); border-radius: 10px; text-shadow: none; }
+#casino.slots .reels.die span { width: 84px; height: 84px; font-size: 60px; }
+#casino.slots .res { text-align: center; min-height: 20px; margin: 6px 0; font-weight: bold; color: #ffd84d; word-break: keep-all; }
+#casino.slots .go { display: block; width: 100%; margin-top: 8px; }
+#casino.slots .picks { display: flex; gap: 6px; }
+#casino.slots .picks .go { flex: 1; }
+#casino.slots .pay { font-size: 11px; margin-top: 8px; }
+body.mobile #casino.slots .reels span { width: 84px; height: 84px; font-size: 48px; }
+body.mobile #casino.slots .go { padding: 12px; font-size: 16px; }
 #catch-note { position: absolute; left: 50%; bottom: 190px; transform: translateX(-50%); max-width: 90vw; padding: 6px 14px; border-radius: 999px; background: rgba(6, 12, 8, 0.4); border: 1px solid rgba(255, 255, 255, 0.22); color: #fff; font-size: 13px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 4px rgba(0, 0, 0, 0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 25; }
 #catch-note.on { opacity: 1; animation: note-in 0.2s ease; }
 body.note-on #hint { display: none; } /* 알림이 뜨는 동안 같은 자리의 안내는 숨김 */
