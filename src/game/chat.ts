@@ -11,6 +11,7 @@ export class Chat {
   private unsubs: (() => void)[] = [];
   private lastSent = 0;
   private lastWhisperFrom: string | null = null;
+  private whisperTo: string | null = null; // 마지막으로 귓속말을 보낸 상대 uid. 일반 채팅을 보내면 풀린다 (2026-11-12)
   private trimTimer = 0;
 
   constructor(private w: WorldCtx) {}
@@ -62,6 +63,15 @@ export class Chat {
     if (at && w.isTileVisible(at[0], at[1])) w.setBubble(m.f, { text: m.t, kind: 'w', at: performance.now() });
   }
 
+  // 채팅창을 열 때 미리 넣어 둘 글: 마지막에 보낸 것이 귓속말이고 그 상대가 아직 접속해 있으면 "/w 닉 " (2026-11-12, 귓속말로 대화를 이어 가기 불편하다는 요청)
+  // 받은 귓속말로는 바뀌지 않는다: 일반 채팅을 치려다 귓속말로 나가지 않게, 내가 보냈을 때만
+  stickyPrefix(): string | null {
+    const uid = this.whisperTo;
+    if (!uid) return null;
+    if (!this.w.players.has(uid)) { this.whisperTo = null; return null; }
+    return `/w ${this.w.nickOf(uid)} `;
+  }
+
   async send(raw: string): Promise<void> {
     const w = this.w;
     let text = raw.trim();
@@ -97,12 +107,14 @@ export class Chat {
       const key = push(ref(db, 'mafia/chat')).key!;
       upd[`mafia/chat/${key}`] = { ...base, t: text };
       upd[`logs/chat/${logKey}`] = { ...base, c: 'g', t: text };
+      this.whisperTo = null;
       w.setBubble(w.uid, { text, kind: 'near', at: performance.now() });
     } else if (channel === 'near') {
       const key = push(ref(db, 'chat/public')).key!;
       upd[`chat/public/${key}`] = { ...base, t: text, c: channel, x: w.me.x, y: w.me.y, ...(w.mapId === MAIN_MAP_ID ? {} : { m: w.mapId }) }; // m: 규칙이 내 presence 의 맵과 대조 (없으면 기본 맵)
       upd[`logs/chat/${logKey}`] = { ...base, c: channel, t: text };
       upd[`users/${w.uid}/lastMsg`] = serverTimestamp();
+      this.whisperTo = null; // 일반 채팅을 보냈다: 다음에 채팅창을 열 때 귓속말 상대를 미리 넣지 않는다
       // 내 말풍선은 즉시 표시
       w.setBubble(w.uid, { text, kind: channel, at: performance.now() });
     } else {
@@ -116,6 +128,7 @@ export class Chat {
       upd[`logs/chat/${logKey}`] = { ...base, c: 'w', to: toUid, toNick, t: text };
       upd[`users/${w.uid}/lastMsg`] = serverTimestamp();
       w.events.emit('log', { channel: 'w', uid: w.uid, from: w.profile.nick, to: toNick, text, ts: serverNow(), self: true });
+      this.whisperTo = toUid;
       w.setBubble(w.uid, { text, kind: 'w', at: performance.now() });
     }
     this.lastSent = now;

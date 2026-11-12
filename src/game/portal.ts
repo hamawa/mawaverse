@@ -61,10 +61,10 @@ export function mapSwitchUpdate(uid: string, from: { mapId: string; x: number; y
   return upd;
 }
 
-// 커피 내기 방·카지노는 기본 맵에서만: 방 상태(rooms/{zone id})가 맵 구분 없이 하나라, 맵을 복제하면 같은 방을 나눠 쓰게 된다
-export const PRIMARY_ONLY_ROOM_MSG = '☕ 커피 내기·🎰 카지노는 기본 맵에서만 할 수 있어요';
+// 카지노는 기본 맵에서만: 방 상태(rooms/{zone id})가 맵 구분 없이 하나라, 맵을 복제하면 같은 방을 나눠 쓰게 된다
+export const PRIMARY_ONLY_ROOM_MSG = '🎰 카지노는 기본 맵에서만 할 수 있어요';
 export function primaryOnlyRoom(mapId: string, z: { kind: string } | null | undefined): boolean {
-  return !!z && (z.kind === 'room' || z.kind === 'casino') && mapId !== MAIN_MAP_ID;
+  return !!z && z.kind === 'casino' && mapId !== MAIN_MAP_ID;
 }
 
 // 포탈 옆에서 F 를 다른 일에 양보하나: 직접 던진 낚시·바로 옆 벌레·삽질 중·발밑 보물 자리가 있으면 그쪽이 먼저다.

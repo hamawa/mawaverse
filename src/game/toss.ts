@@ -46,11 +46,11 @@ export class TossMgr {
     const w = this.w, me = w.me;
     const [dx, dy] = dirVec(me.dir);
     if (!w.profile.own?.tossbag) {
-      for (let i = 1; i <= TOSS_RANGE; i++) { const rp = w.playerAt(me.x + dx * i, me.y + dy * i); if (rp) return [rp]; }
+      for (let i = 1; i <= TOSS_RANGE; i++) { const rp = w.playerAt(me.x + dx * i, me.y + dy * i); if (rp && !rp.st.r) return [rp]; } // st.r: 카지노 안에 앉아 있는 사람은 건드릴 수 없다 (2026-11-12)
       return [];
     }
     const out: RemotePlayer[] = [];
-    for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = w.playerAt(x, y); if (rp && !out.includes(rp)) out.push(rp); }
+    for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = w.playerAt(x, y); if (rp && !rp.st.r && !out.includes(rp)) out.push(rp); }
     return out;
   }
 
@@ -101,6 +101,7 @@ export class TossMgr {
   // 나한테 날아온 것
   onHitMe(m: TossMsg): void {
     const w = this.w;
+    if (w.me.roomId) return; // 카지노 안에 앉아 있는 동안은 말랑이도 안 맞는다
     this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now() });
     this.land(() => {
       const me = w.me, now = performance.now();

@@ -4,7 +4,9 @@ export type Action = 'interact' | 'chat' | 'escape' | 'toss' | 'help' | { emote:
 
 // 방향키와 WASD. e.code 기준이라 한/영 입력 상태와 무관하게 동작한다
 const CODE_DIR: Record<string, Dir> = { ArrowDown: 0, ArrowLeft: 1, ArrowRight: 2, ArrowUp: 3, KeyS: 0, KeyA: 1, KeyD: 2, KeyW: 3 };
-const KEY_EMOTE: Record<string, number> = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '0': 10, r: 14, R: 14, 'ㄱ': 14 }; // R: 끌기
+const KEY_EMOTE: Record<string, number> = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '0': 10 }; // 0: 옛 밀치기 키 (안내에서는 뺐지만 당분간 같이 동작)
+// 밀치기 E · 끌기 R · 말랑이 T (2026-11-12. 그 전엔 0 · R · G 라 손이 흩어졌다). e.code 기준이라 한/영 입력 상태와 무관하다. G 는 옛 말랑이 키(당분간 같이 동작)
+const CODE_ACT: Record<string, Action> = { KeyE: { emote: 10 }, KeyR: { emote: 14 }, KeyT: 'toss', KeyG: 'toss' };
 // Alt+2 → 채팅 입력창에 귓속말 프리픽스(/w)를 채워서 연다. (전체 채팅 채널은 없어져 Alt+1 을, 파티가 없어져 Alt+3 을 뺐다)
 // Ctrl+1/2/3 은 Chrome/Edge 가 "N번째 탭으로 이동"으로 예약해 페이지에 전달하지 않지만, 전달되는 브라우저에서는 같이 동작한다.
 const CODE_PREFIX: Record<string, string> = { Digit2: '/w ' };
@@ -55,8 +57,9 @@ export class Input {
     if (e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); if (!e.repeat) this.onAction?.('help'); return; }
     if (e.key === 'Escape') { this.onAction?.('escape'); return; }
     if (e.key === 'f' || e.key === 'F' || e.key === 'ㄹ') { this.interactRepeat = e.repeat; this.onAction?.('interact'); return; }
-    if (e.key === 'g' || e.key === 'G' || e.key === 'ㅎ') { this.onAction?.('toss'); return; }
-    if (e.key in KEY_EMOTE && !e.ctrlKey && !e.altKey && !e.metaKey) { this.onAction?.({ emote: KEY_EMOTE[e.key] }); }
+    if (e.ctrlKey || e.altKey || e.metaKey) return; // Ctrl+R(새로고침)·Ctrl+T(새 탭) 같은 브라우저 단축키는 건드리지 않는다
+    if (e.code in CODE_ACT) { this.onAction?.(CODE_ACT[e.code]); return; }
+    if (e.key in KEY_EMOTE) { this.onAction?.({ emote: KEY_EMOTE[e.key] }); }
   }
   private keyup(e: KeyboardEvent): void {
     if (!e.isTrusted) return;

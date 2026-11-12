@@ -33,7 +33,7 @@ export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.B
 
 export interface Zone {
   id: string;
-  kind: 'room' | 'casino' | 'board' | 'label' | 'fish' | 'arcade' | 'portal' | 'mine'; // mine: 거대한 금덩어리(금광 맵에만. 그림 한 장으로 그린다), room: 커피 내기 방, casino: 카지노(정원 있음, 방처럼 입장), fish: 낚시 기록 표지판, arcade: 두더지 잡기 오락기 (옆에서 F), portal: 다른 맵으로 이동
+  kind: 'room' | 'casino' | 'board' | 'label' | 'fish' | 'arcade' | 'portal' | 'mine'; // mine: 거대한 금덩어리(금광 맵에만. 그림 한 장으로 그린다), room: 옛 커피 내기 방(2026-11-12 에 없앴다. 저장된 맵에 남아 있어도 아무 동작 없다), casino: 카지노(정원 있음. 들어가면 자리에 고정), fish: 낚시 기록 표지판, arcade: 두더지 잡기 오락기 (옆에서 F), portal: 다른 맵으로 이동
   x: number; y: number; w: number; h: number;
   cap?: number;
   door?: { x: number; y: number };
@@ -140,9 +140,20 @@ export function isWalkable(m: MapData, x: number, y: number): boolean {
   return WALKABLE_OBJECTS.has(m.objects[y * m.w + x]);
 }
 
-// 정원이 있는 방(커피 내기 방·카지노) 중 (x,y)를 품은 것
+// 정원이 있는 방(카지노) 중 (x,y)를 품은 것
 export function roomAt(m: MapData, x: number, y: number): Zone | undefined {
-  return m.zones.find((z) => (z.kind === 'room' || z.kind === 'casino') && x >= z.x && y >= z.y && x < z.x + z.w && y < z.y + z.h);
+  return m.zones.find((z) => z.kind === 'casino' && x >= z.x && y >= z.y && x < z.x + z.w && y < z.y + z.h);
+}
+// 카지노에 들어온 사람을 앉힐 자리: 방 안의 걸을 수 있는 빈 칸 중 문에서 가장 먼 칸. 문 칸은 다음 사람이 들어올 수 있게 비워 둔다 (2026-11-12)
+export function roomSeat(m: MapData, z: Zone, occupied: (x: number, y: number) => boolean): { x: number; y: number } | null {
+  const door = z.door || { x: z.x + Math.floor(z.w / 2), y: z.y + z.h - 1 };
+  let best: { x: number; y: number } | null = null, bestD = -1;
+  for (let y = z.y; y < z.y + z.h; y++) for (let x = z.x; x < z.x + z.w; x++) {
+    if ((x === door.x && y === door.y) || !isWalkable(m, x, y) || occupied(x, y)) continue;
+    const d = Math.abs(x - door.x) + Math.abs(y - door.y);
+    if (d > bestD) { bestD = d; best = { x, y }; }
+  }
+  return best;
 }
 export function zoneContains(z: Zone, x: number, y: number): boolean {
   return x >= z.x && y >= z.y && x < z.x + z.w && y < z.y + z.h;
@@ -179,27 +190,20 @@ export function emptyMap(id: string, name: string, w: number, h: number): MapDat
   return { id, name, w, h, ground: new Array(w * h).fill(G.GRASS), objects: new Array(w * h).fill(0), zones: [], spawn: { x: Math.floor(w / 2), y: Math.floor(h / 2) }, version: 1 };
 }
 
-// 방 크기(내부 가로x세로) : 정원 2..10명
-export const ROOM_SIZES: Record<number, [number, number]> = {
-  2: [2, 2], 3: [3, 2], 4: [3, 2], 5: [3, 2], 6: [3, 3], 7: [4, 2], 8: [4, 2], 9: [4, 3], 10: [4, 3],
-};
-
-// 커피 거리의 건물 두 채와 장식. 기본 맵 생성과, 관리자 편집본 맵에 같은 거리를 덧씌우는 데(tools) 같이 쓴다.
-// 건물은 y 5~9(문은 9번 줄 매트), 길은 y 10~11. 커피 내기 10인실 x 18~23, 카지노 x 34~41
+// 커피 거리의 건물과 장식. 기본 맵 생성과, 관리자 편집본 맵에 같은 거리를 덧씌우는 데(tools) 같이 쓴다.
+// 건물은 y 5~9(문은 9번 줄 매트), 길은 y 10~11. 카지노 x 34~41. 커피 내기 10인실(x 18~23)은 2026-11-12 에 헐고 그 자리에 파라솔 쉼터를 뒀다
 export const COFFEE_STREET_ROWS: [number, number] = [3, 11]; // 덧씌울 때 다시 그리는 줄 범위 (포함)
 export function buildCoffeeStreet(m: MapData, setO: (x: number, y: number, id: number) => void, building: (x: number, y: number, w: number, h: number, doorX: number, floor: number) => void): void {
-  const [iw, ih] = ROOM_SIZES[10];
-  {
-    const bw = iw + 2, bh = ih + 2, cx = 18, top = 10 - bh, doorX = cx + Math.floor(bw / 2);
-    building(cx, top, bw, bh, doorX, G.TILE_FLOOR);
-    m.zones.push({ id: 'room10', kind: 'room', x: cx + 1, y: top + 1, w: iw, h: ih + 1, cap: 10, door: { x: doorX, y: 9 }, exit: { x: doorX, y: 10 }, label: '☕ 커피 내기' });
-  }
+  // 옛 커피 내기 방 자리 (x 18~23, y 5~9): 파라솔 쉼터
+  setO(19, 7, O.UMBRELLA); setO(22, 7, O.UMBRELLA);
+  setO(19, 8, O.TABLE_ROUND); setO(18, 8, O.CHAIR); setO(20, 8, O.CHAIR);
+  setO(22, 8, O.TABLE_ROUND); setO(21, 8, O.CHAIR); setO(23, 8, O.CHAIR);
   {
     const cw = 6, ch = 3, bw = cw + 2, bh = ch + 2, cx = 34, top = 10 - bh, doorX = cx + Math.floor(bw / 2);
     building(cx, top, bw, bh, doorX, G.CARPET);
     m.zones.push({ id: 'casino', kind: 'casino', x: cx + 1, y: top + 1, w: cw, h: ch + 1, cap: 10, door: { x: doorX, y: 9 }, exit: { x: doorX, y: 10 }, label: '🎰 카지노' });
   }
-  // 거리 장식 (건물 x 18~23, 34~41 은 피한다)
+  // 거리 장식 (쉼터 x 18~23, 건물 x 34~41 은 피한다)
   for (const x of [3, 11, 27, 46, 55]) setO(x, 9, O.LAMP);
   for (const x of [6, 14, 30, 49, 52]) setO(x, 9, O.BENCH);
   for (const x of [8, 16, 25, 32, 43, 57]) setO(x, 9, O.POT);
@@ -249,7 +253,7 @@ export function buildDefaultMap(): MapData {
   for (const [x, y] of [[23, 15], [36, 15], [23, 26], [36, 26]]) setO(x, y, O.PLANT);
   m.zones.push({ id: 'lbl-plaza', kind: 'label', x: 20, y: 14, w: 20, h: 13, label: '중앙 광장' });
 
-  // ---- 커피 거리 (북쪽): ☕ 커피 내기 10인실 하나 + 🎰 카지노 (2026-11-09: 2~9인실은 수요가 없어 없앴다) ----
+  // ---- 커피 거리 (북쪽): 🎰 카지노 + 파라솔 쉼터 (커피 내기 방은 2026-11-12 에 없앴다) ----
   fillG(1, 10, 58, 2, G.PATH);
   fillG(29, 12, 2, 2, G.PATH);
   buildCoffeeStreet(m, setO, building);

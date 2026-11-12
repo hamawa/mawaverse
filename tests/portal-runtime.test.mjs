@@ -169,17 +169,16 @@ test('맵 이동이 끝나면 다음 타이머 주기에 다시 던진다', () =
   } finally { fishing.cancel(); }
 });
 
-// 커피 내기 방·카지노 상태(rooms/{zone id})는 맵 구분이 없다: 다른 맵에서는 입장 자체를 막는다
+// 카지노 상태(rooms/{zone id})는 맵 구분이 없다: 다른 맵에서는 입장 자체를 막는다
 const { Rooms } = await import('../src/game/rooms.ts');
-test('다른 맵의 방·카지노에는 입장 트랜잭션을 걸지 않고 거부, 기본 맵은 그대로 입장', async () => {
+test('다른 맵의 카지노에는 입장 트랜잭션을 걸지 않고 거부, 기본 맵은 그대로 입장', async () => {
   const w = { mapId: 'portal-garden', uid: 'me', profile: { nick: '닉', losses: 0 }, map: { zones: [] } };
   const rooms = new Rooms(w);
   globalThis.__tx = [];
-  assert.equal(await rooms.tryEnter({ id: 'cafe', kind: 'room', x: 0, y: 0, w: 2, h: 2, cap: 2 }), false);
   assert.equal(await rooms.tryEnter({ id: 'casino', kind: 'casino', x: 0, y: 0, w: 2, h: 2, cap: 8 }), false);
   assert.equal(globalThis.__tx.length, 0);
   w.mapId = 'main';
-  assert.equal(await rooms.tryEnter({ id: 'cafe', kind: 'room', x: 0, y: 0, w: 2, h: 2, cap: 2 }), true);
+  assert.equal(await rooms.tryEnter({ id: 'casino', kind: 'casino', x: 0, y: 0, w: 2, h: 2, cap: 8 }), true);
   assert.equal(globalThis.__tx.length, 1);
 });
 

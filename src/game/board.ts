@@ -10,13 +10,17 @@ export const COMMENT_MAX = 300;
 export interface PostRow { id: string; post: Post }
 
 // 글 분류. 글쓰기 때 고르고 이후 바꿀 수 없다. 분류가 없는 옛 글은 '전체' 탭에서만 보인다.
-export const BOARD_CATS: { id: BoardCat; label: string }[] = [
+// 패치 노트는 관리자만 쓴다(규칙도 막는다). 쓰면 config/patchNote 에 그 글을 적어, 접속자에게 "새 패치 노트" 한 줄이 뜬다 (world.ts checkPatchNote)
+export const BOARD_CATS: { id: BoardCat; label: string; adminOnly?: boolean }[] = [
+  { id: 'patch', label: '패치 노트', adminOnly: true },
   { id: 'promo', label: '홍보' },
   { id: 'meet', label: '벙개' },
   { id: 'junk', label: '똥글' },
 ];
 export const isBoardCat = (v: unknown): v is BoardCat => BOARD_CATS.some((c) => c.id === v);
 export const catLabel = (c?: BoardCat): string => BOARD_CATS.find((x) => x.id === c)?.label ?? '';
+// 글쓰기에서 고를 수 있는 분류
+export const writableCats = (isAdmin: boolean) => BOARD_CATS.filter((c) => isAdmin || !c.adminOnly);
 
 // cat 이 null 이면 전체(키 순), 아니면 그 분류만 (cat 인덱스 + 키 순). beforeKey 보다 오래된 글부터 POST_PAGE 개
 export async function loadPosts(cat: BoardCat | null, beforeKey?: string): Promise<PostRow[]> {
@@ -34,14 +38,16 @@ export async function loadPosts(cat: BoardCat | null, beforeKey?: string): Promi
   return rows.reverse();
 }
 
-export async function createPost(uid: string, nick: string, title: string, body: string, cat: BoardCat): Promise<void> {
+export async function createPost(uid: string, nick: string, title: string, body: string, cat: BoardCat, isAdmin = false): Promise<void> {
   const t = title.trim().slice(0, TITLE_MAX);
   const b = body.trim().slice(0, BODY_MAX);
-  if (!isBoardCat(cat)) throw new Error('분류를 고르세요.');
+  if (!isBoardCat(cat) || !writableCats(isAdmin).some((c) => c.id === cat)) throw new Error('분류를 고르세요.');
   if (!t) throw new Error('제목을 입력하세요.');
   if (!b) throw new Error('내용을 입력하세요.');
   const key = push(ref(db, 'board/posts')).key!;
-  await update(ref(db), { [`board/posts/${key}`]: { title: t, body: b, u: uid, n: nick, ts: serverTimestamp(), cc: 0, cat } });
+  const upd: Record<string, unknown> = { [`board/posts/${key}`]: { title: t, body: b, u: uid, n: nick, ts: serverTimestamp(), cc: 0, cat } };
+  if (cat === 'patch') upd['config/patchNote'] = { id: key, t }; // 알림의 열쇠는 글 id: 시각(serverTimestamp)은 쓴 사람 화면에 두 번 오므로 쓰지 않는다
+  await update(ref(db), upd);
 }
 
 export async function deletePost(id: string): Promise<void> {

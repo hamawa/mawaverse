@@ -1,4 +1,5 @@
-// 카지노 경마 판 (2026-11-09): 카지노 방 안에 있는 동안 오른쪽에 떠 있는 패널. 말 5마리 중 하나에 100~최대치(100 단위)를 건다.
+// 카지노 경마 판 (2026-11-09): 카지노 방 안에 있는 동안 오른쪽에 떠 있는 패널. 모바일은 화면 전체를 덮는다(채팅창과 위쪽 표시만 남긴다. 2026-11-12).
+// 방 안에서는 캐릭터가 자리에 고정되므로 나갈 때는 이 판의 나가기 버튼을 쓴다. 말 5마리 중 하나에 100~최대치(100 단위)를 건다.
 // 첫 배팅부터 20초 뒤 마감 → 8초 경주(모든 화면 동일, 시드 = 마감 서버 시각) → 결과·배당. 한 라운드에 한 번만.
 import { el } from '../shared/util';
 import { confirmModal } from './ui';
@@ -8,7 +9,7 @@ import type { CasinoMgr } from './casino';
 import type { WalletMgr } from './wallet';
 import type { ServerConfig } from '../shared/types';
 
-export interface CasinoHost { uid: string; wallet: WalletMgr; config: ServerConfig; casino: CasinoMgr; toast(msg: string, err?: boolean): void }
+export interface CasinoHost { uid: string; wallet: WalletMgr; config: ServerConfig; casino: CasinoMgr; toast(msg: string, err?: boolean): void; leaveCasino(): Promise<void> }
 
 export class CasinoPanel {
   private root: HTMLElement | null = null;
@@ -24,7 +25,8 @@ export class CasinoPanel {
   show(): void {
     if (this.root) return;
     const root = el('div', { id: 'casino' });
-    document.body.append(root);
+    (document.getElementById('app') || document.body).append(root); // #app 안에 넣어야 모바일에서 위쪽 표시·채팅창(#hud)이 판 위에 남는다 (#app 은 fixed 라 쌓임 맥락이 따로다)
+    document.body.classList.add('in-casino'); // 모바일: 판이 화면을 덮는 동안 조이스틱·버튼을 숨긴다 (styles.css)
     this.root = root;
     this.off = this.h.casino.listen(() => this.render(true));
     const offW = this.h.wallet.listen(() => this.render(true));
@@ -38,6 +40,7 @@ export class CasinoPanel {
     cancelAnimationFrame(this.raf);
     this.off?.(); this.off = null;
     this.root.remove(); this.root = null; this.canvas = null;
+    document.body.classList.remove('in-casino');
   }
 
   // force: 구조를 다시 그린다. 아니면 숫자(남은 시간)와 경주 캔버스만 갱신
@@ -50,7 +53,9 @@ export class CasinoPanel {
     root.innerHTML = '';
     const max = betMax(this.h.config.casinoMax);
     const head = el('div', { class: 'ch' });
-    head.append(el('b', { text: '🏇 경마' }), el('span', { class: 'cnt', id: 'casino-left' }));
+    const out = el('button', { class: 'btn small out', text: '🚪 나가기', title: '카지노에서 나가기' });
+    out.onclick = () => { out.disabled = true; void this.h.leaveCasino().finally(() => { out.disabled = false; }); };
+    head.append(el('b', { text: '🏇 경마' }), el('span', { class: 'cnt', id: 'casino-left' }), out);
     root.append(head);
     const sub = el('div', { class: 'sub' });
     if (st.phase === 'none') sub.textContent = `말을 골라 배팅하면 20초 뒤 출발! 맞히면 ${PAYOUT}배. 한 번에 ${BET_MIN.toLocaleString('ko-KR')}~${max.toLocaleString('ko-KR')}코인`;

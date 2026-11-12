@@ -289,7 +289,7 @@
             ".validate": "newData.isNumber()"
           },
           "cat": {
-            ".validate": "newData.isString() && newData.val().matches(/^(promo|meet|junk)$/)"
+            ".validate": "newData.isString() && (newData.val().matches(/^(promo|meet|junk)$/) || (newData.val() == 'patch' && root.child('admins/' + auth.uid).val() === true))"
           }
         }
       },

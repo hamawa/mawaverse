@@ -260,6 +260,7 @@ export class Net {
       if (!p) return;
       remove(ref(db, `players/${w.uid}/push`)).catch(() => {});
       if (serverNow() - p.t > 4000) return;
+      if (w.me.roomId) return; // 카지노 안에 앉아 있는 동안은 아무도 못 건드린다 (2026-11-12. 빠따도 안 통한다)
       const pusher = w.players.get(p.f);
       if (!pusher || !w.onMyMap(pusher.st)) return;
       const rx = Math.round(w.me.x - pusher.toX), ry = Math.round(w.me.y - pusher.toY);
@@ -284,7 +285,7 @@ export class Net {
       w.settleIfStalled(); // 뒤쪽 탭이라 화면 갱신이 멈춰 있으면 이전 걸음부터 마무리 (안 그러면 moving 이 풀리지 않아 계속 못 민다)
       if (w.me.locked || w.me.moving) return;
       const nx = w.me.x + p.dx, ny = w.me.y + p.dy;
-      if (!w.canStep(nx, ny)) return;
+      if (!w.canStep(nx, ny, true)) return;
       const pdir: Dir = p.dx === 1 ? 2 : p.dx === -1 ? 1 : p.dy === 1 ? 0 : 3;
       w.me.pushAt = performance.now(); w.me.pushDir = pdir;
       w.me.pushMore = p.n === 2 ? { dx: p.dx, dy: p.dy, dir: pdir } : null; // 장풍: 도착하면 한 칸 더 (world.afterStep)
@@ -297,6 +298,7 @@ export class Net {
       if (!p) return;
       remove(ref(db, `players/${w.uid}/pull`)).catch(() => {});
       if (serverNow() - p.t > 4000 || typeof p.x !== 'number' || typeof p.y !== 'number') return;
+      if (w.me.roomId) return; // 카지노 안: 끌기·갈고리도 안 통한다
       const puller = w.players.get(p.f);
       if (!puller || !w.onMyMap(puller.st)) return;
       const me = w.me;
@@ -317,7 +319,7 @@ export class Net {
       if (!open && w.petGuard()) { me.blockAt = performance.now(); w.toast(`🛡 펫이 ${puller.st.n} 의 끌기를 막았다.`); return; }
       w.settleIfStalled();
       if (me.locked || me.moving) return;
-      if (!w.canStep(p.x, p.y)) return;
+      if (!w.canStep(p.x, p.y, true)) return;
       const mx = p.x - me.x, my = p.y - me.y;
       const pdir: Dir = Math.abs(mx) >= Math.abs(my) ? (mx > 0 ? 2 : 1) : (my > 0 ? 0 : 3);
       const dist = Math.abs(mx) + Math.abs(my);

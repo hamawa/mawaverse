@@ -11,7 +11,7 @@ import { Engine } from './engine';
 import { Input } from './input';
 import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
-import { buildDefaultMap, buildPortalGarden, buildGoldMine, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
+import { buildDefaultMap, buildPortalGarden, buildGoldMine, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
 import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, playerMapId } from '../shared/maps';
 import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { openPortalPicker } from './portalui';
@@ -184,6 +184,7 @@ export class World implements WorldCtx {
 
     this.hud = new Hud(this.root, {
       sendChat: (t) => this.chat.send(t),
+      chatPrefill: () => this.chat.stickyPrefix(),
       openMyMenu: (x, y) => this.openMyMenu(x, y),
       openPlayerMenu: (uid, x, y) => this.openPlayerMenu(uid, x, y),
       onlineList: () => [{ uid: this.uid, nick: this.profile.nick }, ...[...this.players.values()].map((p) => ({ uid: p.uid, nick: p.st.n }))],
@@ -210,7 +211,8 @@ export class World implements WorldCtx {
     // 리스너 등록 전에 들어온 초기 상태 반영
     this.hud.setOnline(this.players.size + 1);
     this.hud.setAnnouncement(this.config.announcement?.text || null, this.config.announcement?.ts || 0);
-    this.chat.systemMessage(`${this.profile.nick} 님, MawaVerse에 오신 것을 환영합니다! Enter 로 채팅, F 로 상호작용, 물가에서 F 로 낚시, 풀밭 벌레 옆에서 F 로 채집, G 로 앞사람에게 말랑이 던지기, 0 으로 밀치기, R 로 끌기, 우클릭(모바일은 캐릭터 터치)으로 메뉴, 도움말 버튼이나 Space 로 키 가이드.`);
+    this.chat.systemMessage(`${this.profile.nick} 님, MawaVerse에 오신 것을 환영합니다! Enter 로 채팅, F 로 상호작용, 물가에서 F 로 낚시, 풀밭 벌레 옆에서 F 로 채집, E 로 밀치기, R 로 끌기, T 로 앞사람에게 말랑이 던지기, 우클릭(모바일은 캐릭터 터치)으로 메뉴, 도움말 버튼이나 Space 로 키 가이드.`);
+    this.checkPatchNote(false);
     this.engine.start((dt, now) => this.tick(dt, now));
     // 평일 근무시간 차단(관리자 설정으로 켰을 때): 차단이 시작되기 5분 전(08:55, 쉬는 시간이 끝나기 5분 전)에 안내하고 그 시각에 내보낸다 (관리자 제외). 그 5분 사이에 들어온 사람도 바로 안내를 본다
     // 차단 설정은 따로 구독한다: 이 칸은 누구나 읽을 수 있어서, 관리자가 차단을 켜는 순간에도 값이 확실히 온다 (config 전체는 차단되면 읽을 수 없다)
@@ -218,6 +220,21 @@ export class World implements WorldCtx {
       this.hoursUnsub = onValue(ref(db, 'config/hoursBlock'), (s) => { this.hoursBlock = s.val() === true; this.checkHours(); }, () => {});
       this.hoursTimer = window.setInterval(() => this.checkHours(), 1000);
     }
+  }
+
+  // 새 패치 노트 알림 (2026-11-12): 게시판에 패치 노트가 올라오면 config/patchNote 에 그 글의 id·제목이 적힌다. 이 브라우저에서 아직 알리지 않은 글이면 채팅창에 한 줄.
+  // live: 접속해 있는 동안 올라왔다 (새 버전이 막 배포됐을 테니 새로고침도 안내한다). 글 id(push 키)는 시간순이라 크기 비교로 새 글을 가린다
+  private patchSeen: string | null = null;
+  private checkPatchNote(live: boolean): void {
+    const pn = this.config.patchNote;
+    if (!pn || typeof pn.id !== 'string' || typeof pn.t !== 'string') return;
+    const key = `mv-patch-seen-${this.uid}`;
+    if (this.patchSeen === null) { this.patchSeen = ''; try { this.patchSeen = localStorage.getItem(key) || ''; } catch { /* ignore */ } }
+    if (pn.id <= this.patchSeen) return;
+    this.patchSeen = pn.id;
+    try { localStorage.setItem(key, pn.id); } catch { /* ignore */ }
+    this.chat.systemMessage(`📢 새 패치 노트: ${pn.t} · 광장 게시판(F)의 '패치 노트' 탭에서 볼 수 있어요.${live ? ' 새로고침하면 새 버전이 적용됩니다.' : ''}`);
+    if (live) this.toast('📢 새 패치 노트가 올라왔습니다. 새로고침하면 적용돼요.');
   }
 
   // 이용 시간 확인 (1초마다, 서버 시각 기준). 실제 차단은 보안 규칙이 하고, 여기는 안내와 퇴장 처리
@@ -243,8 +260,8 @@ export class World implements WorldCtx {
     document.addEventListener('visibilitychange', () => { if (!this.stopped && document.visibilityState !== 'visible') window.setTimeout(() => this.settleIfStalled(), 400); });
     this.events.on('players', () => { const n = this.players.size + 1; this.hud.setOnline(n); this.net.recordPeak(n); });
     this.events.on('config', (c) => this.hud.setAnnouncement(c.announcement?.text || null, c.announcement?.ts || 0));
+    this.events.on('config', () => this.checkPatchNote(true));
     this.events.on('profile', () => { this.checkGiftMark(); this.petRide.sync(); });
-    this.events.on('roomHint', (t) => this.hud.setHint(t));
     this.events.on('rooms', () => this.updateHint());
     this.events.on('toss', (target, m) => { if (target === this.uid) this.toss.onHitMe(m); else this.toss.onRemote(target, m); });
     this.events.on('wave', (fx, fy, tx, ty) => this.toss.wave(fx, fy, tx, ty)); // 장풍이 나에게 날아오면 💨
@@ -353,7 +370,7 @@ export class World implements WorldCtx {
     const list: Entity[] = [{
       uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: me.dir, moving: me.moving,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: me.pose, poseAt: me.poseAt, emoteId: me.emoteId, bubble: me.bubble,
-      isMe: true, ready: !!(me.roomId && this.rooms[me.roomId]?.members?.[this.uid]?.ready), pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
+      isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null,
       pet: this.pets.view(this.uid, this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
       ghost: iGhost, mining: this.mine.active,
@@ -367,7 +384,7 @@ export class World implements WorldCtx {
       list.push({
         uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : '') + (guardBrokenOf(rp.st, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: rp.x, y: rp.y, dir: rp.st.d ?? 0, moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
         pose: rp.pose, poseAt: rp.poseAt, emoteId: rp.emoteId, bubble: rp.bubble, isMe: false,
-        ready: !!(rp.st.r && this.rooms[rp.st.r]?.members?.[rp.uid]?.ready), pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
+        pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
         hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null,
         pet: this.pets.view(rp.uid, rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0, !!rp.st.nr),
@@ -389,13 +406,18 @@ export class World implements WorldCtx {
     return null;
   }
   passThrough(uid: string): boolean { return this.mafia.passThrough(uid); }
-  canStep(nx: number, ny: number): boolean {
+  // pushed: 밀치기·끌기로 움직이는 걸음. 밀려서는 방(카지노)에 들어가지 않는다: 들어가면 자리에 고정되고 모바일은 화면이 덮여, 문 앞에서 밀어 넣는 장난이 된다
+  canStep(nx: number, ny: number, pushed = false): boolean {
     if (this.me.locked || this.switching) return false;
+    // 카지노 안: 자리에 고정. 판의 나가기 버튼으로만 나간다 (2026-11-12).
+    // 실제로 그 방 안에 서 있을 때만 막는다: 재접속 때 자리를 뺏겨 방 밖으로 옮겨진 경우(net.ts reclaim)에는 걸어서 빠져나올 수 있어야 한다 (첫 걸음의 afterStep 이 퇴장 처리)
+    if (this.me.roomId && roomAt(this.map, this.me.x, this.me.y)?.id === this.me.roomId) return false;
     if (!isWalkable(this.map, nx, ny) || this.occupied(nx, ny)) return false;
     const cur = roomAt(this.map, this.me.x, this.me.y);
     const target = roomAt(this.map, nx, ny);
     if (target && target !== cur) {
-      if (primaryOnlyRoom(this.mapId, target)) return false; // 다른 맵의 방·카지노에는 걸어서도 밀려서도 못 들어간다
+      if (pushed) return false;
+      if (primaryOnlyRoom(this.mapId, target)) return false; // 다른 맵의 카지노에는 못 들어간다
       const rs = this.rooms[target.id];
       if (rs && rs.state !== 'open') return false;
       if (rs && rs.members && Object.keys(rs.members).length >= (target.cap || 2)) return false;
@@ -464,7 +486,7 @@ export class World implements WorldCtx {
     const me = this.me;
     this.fishing.cancel();
     this.mine.cancel();
-    if (me.roomId) { const left = me.roomId; me.roomId = null; this.net.setRoom(null); this.roomMgr.leave(left); }
+    if (me.roomId) { const left = me.roomId; me.roomId = null; this.seat = null; this.net.setRoom(null); this.roomMgr.leave(left); }
   }
   // 화면 갱신(rAF)이 멈춰 있나: 탭이 뒤에 있거나 창이 가려지거나 PC 가 잠겨 있으면 tick 이 돌지 않는다.
   // 그동안에도 밀치기는 통해야 하므로(자리 비운 자동 낚시꾼을 밀어낼 수 있게) 걸음을 애니메이션 없이 끝낸다 (2026-11-06)
@@ -496,22 +518,69 @@ export class World implements WorldCtx {
     const z = roomAt(this.map, me.x, me.y);
     if (me.roomId && (!z || z.id !== me.roomId)) {
       const left = me.roomId;
-      me.roomId = null;
+      me.roomId = null; this.seat = null;
       this.net.setRoom(null);
       this.roomMgr.leave(left);
     } else if (z && !me.roomId) {
-      // 밀려서 들어온 경우 등: 등록 시도, 실패하면 밖으로
+      // 등록 없이 방 안에 서 있게 된 경우(순간이동 등): 등록 시도, 실패하면 밖으로
       me.roomId = z.id;
       this.net.setRoom(z.id);
       const gen = this.mapGen;
-      this.roomMgr.tryEnter(z).then((ok) => { if (gen !== this.mapGen) { if (ok) this.roomMgr.leave(z.id); return; } if (!ok) { const exit = z.exit || { x: z.x, y: z.y + z.h }; this.teleportTo(exit.x, exit.y); me.roomId = null; this.net.setRoom(null); } });
-    }
+      this.roomMgr.tryEnter(z).then((ok) => { if (gen !== this.mapGen) { if (ok) this.roomMgr.leave(z.id); return; } if (!ok) { const exit = z.exit || { x: z.x, y: z.y + z.h }; this.teleportTo(exit.x, exit.y); me.roomId = null; this.net.setRoom(null); } else void this.seatInRoom(z); });
+    } else if (z && me.roomId === z.id) void this.seatInRoom(z); // 걸어서 들어왔다: 빈 자리에 앉힌다
     // 장풍에 밀렸으면 한 칸 더 (벽·사람·방 정원이면 거기서 멈춤)
     if (me.pushMore && !me.moving) {
       const pm = me.pushMore; me.pushMore = null;
       const nx = me.x + pm.dx, ny = me.y + pm.dy;
-      if (this.canStep(nx, ny)) { me.pushAt = performance.now(); me.pushDir = pm.dir; this.startStep(nx, ny, pm.dir); }
+      if (this.canStep(nx, ny, true)) { me.pushAt = performance.now(); me.pushDir = pm.dir; this.startStep(nx, ny, pm.dir); }
     }
+  }
+  // ---- 카지노: 들어오면 빈 자리에 앉혀 고정한다 (2026-11-12, 사용자 요청) ----
+  // 안에서는 걸어 다닐 수 없고(canStep), 밀치기·끌기·말랑이도 주고받지 않는다: 받는 쪽(net.ts·toss.ts)이 무시하고, 보내는 쪽은 상대의 st.r 을 보고 미리 건너뛴다.
+  // 나갈 때는 경마 판의 나가기 버튼(leaveCasino). 리스폰·관리자 이동은 그대로 통한다(leaveForTeleport)
+  private seat: { x: number; y: number } | null = null;
+  private seating = false;
+  private async seatInRoom(z: Zone): Promise<void> {
+    const me = this.me;
+    if (this.seat || this.seating) return;
+    this.seating = true;
+    try {
+      const tried = new Set<string>();
+      for (let i = 0; i < 6; i++) {
+        if (me.roomId !== z.id || this.switching) return; // 그새 나갔다
+        const t = roomSeat(this.map, z, (x, y) => this.occupied(x, y) || tried.has(`${x},${y}`));
+        if (!t) break;
+        tried.add(`${t.x},${t.y}`);
+        const ox = me.x, oy = me.y;
+        if (await this.net.step(t.x, t.y, 0, ox, oy)) {
+          if (me.roomId !== z.id) return;
+          me.dir = 0; me.x = t.x; me.y = t.y; me.fromX = t.x; me.fromY = t.y; me.dispX = t.x; me.dispY = t.y; me.moving = false;
+          this.seat = t;
+          return;
+        }
+      }
+      // 앉을 자리를 못 잡았다(자리 정보가 어긋난 드문 경우): 문을 막고 서 있지 않게 내보낸다
+      this.toast('카지노에 앉을 자리가 없어 밖으로 나왔습니다.', true);
+      await this.leaveCasino();
+    } finally { this.seating = false; }
+  }
+  private leavingRoom = false;
+  // 경마 판의 나가기 버튼: 문 앞(차 있으면 가장 가까운 빈 칸)으로 나온다
+  async leaveCasino(): Promise<void> {
+    const me = this.me;
+    const id = me.roomId;
+    if (!id || this.leavingRoom || this.switching) return;
+    this.leavingRoom = true;
+    try {
+      const z = this.roomMgr.zoneOf(id);
+      const exit = z ? (z.exit || { x: z.x, y: z.y + z.h }) : this.map.spawn;
+      const ox = me.x, oy = me.y;
+      await this.teleportTo(exit.x, exit.y); // 방 안의 칸은 고르지 않는다 (findFreeTile avoidRooms)
+      if (me.x === ox && me.y === oy) { this.toast('나갈 자리를 잡지 못했습니다. 잠시 후 다시 눌러 주세요.', true); return; }
+      me.roomId = null; this.seat = null;
+      this.net.setRoom(null);
+      void this.roomMgr.leave(id);
+    } finally { this.leavingRoom = false; }
   }
   // 순간이동: 점유 선점에 실패하면(동시 퇴장 등) 다른 빈 타일로 재시도
   async teleportTo(x: number, y: number): Promise<void> {
@@ -671,27 +740,21 @@ export class World implements WorldCtx {
       const rs = this.rooms[me.roomId];
       const z = this.roomMgr.zoneOf(me.roomId);
       const n = rs?.members ? Object.keys(rs.members).length : 1;
-      if (z?.kind === 'casino') hint = `🎰 카지노 ${n}/${z.cap || '?'} · 오른쪽 판에서 배팅 (F 로 판 열기/닫기)`;
-      else if (rs?.state === 'result') hint = `☕ ${rs.result?.loserNick} 당첨! 잠시 후 자동 퇴장`;
-      else {
-        const ready = rs?.members?.[this.uid]?.ready;
-        hint = `${z?.label || '방'} ${n}/${z?.cap || '?'} · F ${ready ? '준비 취소' : '준비'}${n < 2 ? ' (2명 이상 필요)' : ''}`;
-      }
+      hint = this.hud.mobile ? null : `🎰 카지노 ${n}/${z?.cap || '?'} · 오른쪽 판에서 배팅 · 나가려면 판의 나가기 (F 로 판 열기/닫기)`; // 모바일은 경마 판이 화면을 덮는다
     } else { const ch = this.canvasHint(); if (ch) hint = ch.text; }
     if (hint !== this.lastHint) { this.lastHint = hint; this.hud.setHint(hint); }
   }
   // 카지노 방 안에 있는 동안 경마 판을 띄운다 (나가면 닫힘). F 로 잠깐 닫을 수 있다
   private casinoHidden = false;
   private syncCasinoPanel(): void {
-    const inCasino = this.me.roomId === 'casino';
+    const inCasino = !!this.me.roomId; // 방은 카지노뿐이다
     if (inCasino && !this.casinoHidden && !this.casinoPanel.open) this.casinoPanel.show();
     else if ((!inCasino || this.casinoHidden) && this.casinoPanel.open) this.casinoPanel.hide();
     if (!inCasino) this.casinoHidden = false;
   }
   interact(): void {
     if (this.switching) return; // 목적지를 읽는 동안 옛 맵에서 낚시·채집·삽질 등을 시작하지 않는다
-    if (this.me.roomId === 'casino') { this.casinoHidden = !this.casinoHidden; this.syncCasinoPanel(); return; }
-    if (this.me.roomId) { this.roomMgr.toggleReady(this.me.roomId); return; }
+    if (this.me.roomId) { this.casinoHidden = !this.casinoHidden; this.syncCasinoPanel(); return; }
     const ch = this.canvasHint();
     if (!ch) return;
     if (ch.kind === 'mafia') { void this.mafiaInteract(); return; }
@@ -717,6 +780,7 @@ export class World implements WorldCtx {
     if (this.switching) return; // 맵을 옮기는 중에는 밀치기·끌기·이모트를 보내지 않는다
     const me = this.me;
     const now = performance.now();
+    if ((id === 10 || id === 14) && me.roomId) { this.toast('🎰 카지노 안에서는 밀치기·끌기를 쓸 수 없습니다.', true); return; }
     if (id === 10) {
       const cd = PUSH_COOLDOWN_BY_TIER[pushTierOf(this.profile.own)] ?? PUSH_COOLDOWN_MS; // 상점 업그레이드로 단축
       if (now - me.lastPushAt < cd) { this.toast(`밀치기는 ${Math.ceil((cd - (now - me.lastPushAt)) / 1000)}초 후에 가능합니다.`, true); return; }
@@ -724,7 +788,7 @@ export class World implements WorldCtx {
       if (this.profile.own?.wave) {
         // 장풍(상점 장비): 앞 4칸 × 옆 4칸 안의 모두를 두 칸. 철벽 갑옷은 건너뛴다 (🛡 만)
         const all: RemotePlayer[] = [];
-        for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = this.playerAt(x, y); if (rp && !all.includes(rp)) all.push(rp); }
+        for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = this.playerAt(x, y); if (rp && !rp.st.r && !all.includes(rp)) all.push(rp); } // st.r: 카지노 안에 앉아 있는 사람은 건드릴 수 없다
         if (!all.length) { this.toast('앞 4칸 안에 아무도 없습니다. 상대 쪽을 바라보고 쓰세요.', true); return; }
         // 방어 중인 사람에게는 빠따가 있으면 한 개씩 써서 깨고 민다. 빠따가 모자라면 그 사람은 막힌다 (🛡 만)
         const plan = assignBats(all.map((rp) => guardedOf(rp.st, 'push', serverNow())), this.wallet.batsReady());
@@ -737,6 +801,7 @@ export class World implements WorldCtx {
       } else {
         const target = this.playerAt(me.x + dx, me.y + dy);
         if (!target) { this.toast('앞에 밀 사람이 없습니다. 상대를 바라보고 붙어서 사용하세요.', true); return; }
+        if (target.st.r) { this.toast('🎰 카지노 안에 있는 사람은 건드릴 수 없습니다.', true); return; }
         // 철벽 갑옷을 입은 상대는 안 밀린다: 보내지 않고 🛡 만 (쿨타임도 안 씀)
         // 다만 빠따가 있으면 하나 써서 방어를 깨고 민다 (2026-11-11)
         const guarded = guardedOf(target.st, 'push', serverNow());
@@ -767,6 +832,7 @@ export class World implements WorldCtx {
     const myRoom = roomAt(this.map, me.x, me.y);
     const front = this.playerAt(me.x + dx, me.y + dy);
     if (front) {
+      if (front.st.r) { this.toast('🎰 카지노 안에 있는 사람은 건드릴 수 없습니다.', true); return false; }
       const guarded = guardedOf(front.st, 'push', serverNow());
       const bat = guarded && this.wallet.batsReady() > 0; // 빠따가 있으면 하나 써서 방어를 깨고 끈다
       if (guarded && !bat) { front.blockAt = now; this.toast(`🛡 ${front.st.n} 은(는) ${front.st.pa ? '철벽 갑옷을 입고 있어' : '펫이 지켜 줘서'} 끌리지 않습니다. (상점의 빠따로 깰 수 있어요)`, true); return false; }
@@ -784,7 +850,7 @@ export class World implements WorldCtx {
     const fx = me.x + dx, fy = me.y + dy;
     if (!this.canStep(fx, fy) || roomAt(this.map, fx, fy) !== myRoom) { this.toast('앞 칸이 막혀 있어 끌어올 수 없습니다.', true); return false; }
     const all: RemotePlayer[] = [];
-    for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = this.playerAt(x, y); if (rp && !all.includes(rp)) all.push(rp); }
+    for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = this.playerAt(x, y); if (rp && !rp.st.r && !all.includes(rp)) all.push(rp); }
     if (!all.length) { this.toast('앞 4칸 안에 끌어올 사람이 없습니다. 상대 쪽을 바라보고 쓰세요.', true); return false; }
     // 방어 중인 사람은 빠따가 있을 때만 후보에 든다 (걸리면 빠따 하나를 써서 깨고 끌어온다)
     const hasBat = this.wallet.batsReady() > 0;
@@ -862,7 +928,7 @@ export class World implements WorldCtx {
       this.toast(`닉네임이 '${nn}'(으)로 바뀌었습니다.`);
     } catch (e) { this.toast((e as Error).message, true); }
   }
-  // G / 모바일 🧸: 말랑이 던지기 (던지는 동작은 이모트 12 로 남들에게도 보인다)
+  // T / 모바일 🧸: 말랑이 던지기 (던지는 동작은 이모트 12 로 남들에게도 보인다)
   throwToss(): void { if (!this.switching && this.toss.throwAt()) this.doEmote(12); }
   // 선물을 받았으면(users/{uid}/gift 가 새로 바뀜) 한 번 알린다. 본 것은 브라우저에 기억해, 접속해 있지 않을 때 받은 것도 다음에 들어오면 뜬다
   private giftSeen = -1;
@@ -935,12 +1001,11 @@ export class World implements WorldCtx {
     this.events.emit('logout', msg);
   }
   private async showProfile(uid: string): Promise<void> {
-    const losses = (await get(ref(db, `users/${uid}/losses`)).catch(() => null))?.val() ?? '?';
     const rp = this.players.get(uid);
     const fish = await fishSummaryOf(uid);
     const pet = rp?.st.pt ? itemById(rp.st.pt) : null;
     const petTxt = pet ? `펫: ${pet.icon} ${pet.name} Lv.${petLevel(rp?.st.pl || 0)}${petRiding(rp?.st.pl || 0, rp?.st.nr) ? ' (탑승 중)' : petGuard(rp?.st.pl || 0) ? ' (방어)' : ''}<br>` : '';
-    const body = el('div', { html: `<p><b>${this.nickOf(uid)}</b></p><p class="muted">커피 내기 패배: ${losses}회<br>${petTxt}${fish}</p>` });
+    const body = el('div', { html: `<p><b>${this.nickOf(uid)}</b></p><p class="muted">${petTxt}${fish}</p>` });
     modal('프로필', body, [{ label: '닫기', onClick: () => {} }]);
   }
 

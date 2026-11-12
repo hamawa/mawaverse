@@ -37,7 +37,7 @@ export interface PlayerState {
   d: Dir;
   s: string;            // session id
   e?: { t: number; at: number } | null; // emote id + 시각
-  r?: string | null;    // 커피 방 id
+  r?: string | null;    // 들어가 있는 방(카지노) id. 이 값이 있는 사람은 밀치기·끌기·말랑이로 건드릴 수 없다
   push?: PushEvent | null;
   toss?: TossMsg | null;
   pull?: PullEvent | null;
@@ -66,17 +66,15 @@ export interface ChatMsg { u: string; n: string; t: string; c: 'near' | 'all'; x
 export interface WhisperMsg { f: string; fn: string; t: string; ts: number; x: number; y: number }
 export interface GhostMsg { u: string; n: string; t: string; ts: number } // 마피아 유령 채팅 (mafia/chat)
 
-export interface RoomMember { n: string; ready: boolean; readyAt?: number; losses: number; at: number }
-export interface RoomResult { loser: string; loserNick: string; at: number; seed: string; counted?: boolean }
+export interface RoomMember { n: string; ready: boolean; losses: number; at: number } // ready·losses: 옛 커피 내기 칸. 규칙이 요구해서 남겨 둔다 (값은 안 쓴다)
 export interface RoomState {
   cap: number;
   round: number;
   state: 'open' | 'result';
   members?: Record<string, RoomMember>;
-  result?: RoomResult | null;
 }
 
-export type BoardCat = 'promo' | 'meet' | 'junk'; // 홍보 · 벙개 · 똥글
+export type BoardCat = 'patch' | 'promo' | 'meet' | 'junk'; // 패치 노트(관리자만 쓴다. 2026-11-12) · 홍보 · 벙개 · 똥글
 export interface Post { title: string; body: string; u: string; n: string; ts: number; cc?: number; cat?: BoardCat } // cat 없는 글은 분류 도입 전의 옛 글
 export interface Comment { u: string; n: string; t: string; ts: number }
 
@@ -85,7 +83,6 @@ export interface ServerConfig {
   maintenance: { on: boolean; message: string };
   announcement: { text: string; ts: number } | null;
   activeMap: string;
-  lossStrength: number;      // 가중치 지수 (1 = 선형)
   logRetention: { chat: number; conn: number };
   allCooldownSec: number;
   boardRetention: number;
@@ -93,6 +90,7 @@ export interface ServerConfig {
   contest?: ContestCfg;            // 낚시 대회 일정
   casinoMax?: number;              // 경마 한 번 최대 배팅 (규칙이 강제. 없으면 10000)
   minVersion?: number;             // 이 값보다 낮은 CLIENT_VERSION 의 접속자는 스스로 새로고침한다
+  patchNote?: { id: string; t: string } | null; // 가장 최근 패치 노트 글(board/posts 의 id, 제목). 안 본 사람에게 채팅창으로 한 줄 알린다
   hoursBlock?: boolean;            // 평일 09:00~18:00 KST 이용 차단을 켤지 (관리자 설정, 기본 꺼짐). 켜져 있으면 보안 규칙이 서버 시각으로 막는다
 }
 

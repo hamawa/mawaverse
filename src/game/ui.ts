@@ -115,22 +115,23 @@ export function openKeyGuide(): void {
         <b>Shift + 이동</b><span>달리기 (2배 속도)</span>
         <b>Enter · Esc</b><span>채팅 열기 · 닫기 (접속자 모두에게 보임)</span>
         <b>Space</b><span>이 키 가이드 열기 · 닫기</span>
-        <b>F</b><span>게시판 · 커피 내기 준비 · 물가에서 낚시 · 벌레 옆에서 채집 · 광장 오락기 · 보물 자리에서 땅 파기</span>
+        <b>F</b><span>게시판 · 물가에서 낚시 · 벌레 옆에서 채집 · 광장 오락기 · 보물 자리에서 땅 파기</span>
         <b>낚시</b><span>찌가 흔들리면(!) 바로 F. 이동하면 취소</span>
         <b>채집</b><span>풀밭·꽃밭의 벌레가 옆 8칸(대각선 포함)에 있으면 F. 지나가면서도 되고 연타 가능. 달려가면 날아감</span>
-        <b>G</b><span>말랑이 던지기: 앞 3칸 안의 사람에게(말랑이 보따리가 있으면 앞 4×4칸 모두). 맞으면 1초 비틀, 0.4초 안에 옆으로 피하면 빗나감. 푹신 갑옷은 안 맞음</span>
+        <b>T</b><span>말랑이 던지기: 앞 3칸 안의 사람에게(말랑이 보따리가 있으면 앞 4×4칸 모두). 맞으면 1초 비틀, 0.4초 안에 옆으로 피하면 빗나감. 푹신 갑옷은 안 맞음</span>
         <b>우클릭</b><span>메뉴 (모바일은 캐릭터를 톡 치기)</span>
         <b>💤</b><span>이름 옆에 뜨면 창을 다른 데 두고 자리를 비운 사람. 밀치기·말랑이는 그대로 통한다</span>
         <b>Alt+2</b><span>귓속말 열기</span>
         <b>/w 닉네임 메시지</b><span>귓속말</span>
         <b>/r 메시지</b><span>마지막 귓속말에 답장</span>
         <b>🐾</b><span>펫은 레벨마다 걷기가 2.5% 빨라지고, Lv5 부터 달려도 벌레가 안 도망가며, Lv8 부터 밀치기·말랑이·끌기를 막고 80% 로 되받아친다. Lv10 이면 타고 다닌다</span>
-        <b>1 ~ 0</b><span>이모트</span>
+        <b>1 ~ 9</b><span>이모트</span>
+        <b>E · R</b><span>밀치기 · 끌기 (쿨타임 공유)</span>
       </div>
       <h4>이모트</h4>
       <div class="emotes">${EMOTES.map((e) => `<span><b>${e.key}</b> ${e.icon} ${e.name} <small>${e.desc}</small></span>`).join('')}</div>
       <h4>모바일</h4>
-      <p class="mob">왼쪽 아래 조이스틱을 기울이면 그쪽으로 이동(상·하·좌·우). 오른쪽 버튼은 위부터 이모트(짧게: 최근 이모트, 길게: 고르기) · F · 🧸 말랑이 · 달리기(누르는 동안). 채팅창은 ▾ 로 숨기고 좌측 하단 💬 로 다시 연다. 캐릭터를 톡 치면 그 사람 메뉴.</p>`;
+      <p class="mob">왼쪽 아래 조이스틱을 기울이면 그쪽으로 이동(상·하·좌·우). 오른쪽 버튼은 위부터 🧸 말랑이 · 🧲 끌기(갈고리) · 👊 밀치기 · F · 달리기(누르는 동안), 그 왼쪽에 이모트(짧게: 최근 이모트, 길게: 고르기). 채팅창은 ▾ 로 숨기고 좌측 하단 💬 로 다시 연다. 캐릭터를 톡 치면 그 사람 메뉴.</p>`;
   keyGuide = modal('키 가이드', body, [], true, () => { keyGuide = null; });
   withCloseX(keyGuide as { close: () => void; root: HTMLElement });
 }
@@ -308,7 +309,8 @@ export function showMessageScreen(root: HTMLElement, title: string, msg: string,
 
 // ---------- 게임 HUD ----------
 export interface HudHandlers {
-  sendChat: (text: string) => void;
+  sendChat: (text: string) => void | Promise<void>;
+  chatPrefill?: () => string | null; // 채팅창을 열 때 빈 입력창에 미리 넣을 글 (귓속말을 이어 갈 때 "/w 닉 ")
   openMyMenu: (x: number, y: number) => void;
   openPlayerMenu: (uid: string, x: number, y: number) => void;
   onlineList: () => { uid: string; nick: string }[];
@@ -333,7 +335,7 @@ export class Hud {
   coinPill: HTMLElement;
   announce: HTMLElement;
   hintPill: HTMLElement;
-  private mobile = isMobile();
+  readonly mobile = isMobile();
 
   constructor(parent: HTMLElement, private h: HudHandlers) {
     this.root = el('div', { id: 'hud' });
@@ -383,15 +385,22 @@ export class Hud {
     try { hidden = localStorage.getItem('mv-chat-hidden') === '1'; } catch { /* ignore */ }
     if (this.mobile && hidden) this.setChatHidden(true);
     this.root.append(this.chatBox);
-    this.chatInput.addEventListener('focus', () => { h.input.enabled = false; h.input.releaseAll(); });
+    this.chatInput.addEventListener('focus', () => {
+      h.input.enabled = false; h.input.releaseAll();
+      this.applyPrefill();
+    });
     this.chatInput.addEventListener('blur', () => { h.input.enabled = true; });
     this.chatInput.addEventListener('keydown', (e) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
         const v = this.chatInput.value;
         this.chatInput.value = '';
-        if (v.trim()) h.sendChat(v);
+        const auto = this.autoPrefix.trim();
+        this.autoPrefix = '';
+        // 미리 넣어 둔 귓속말 명령만 있으면 빈 입력으로 친다 ("사용법" 안내가 뜨지 않게)
+        const sent = v.trim() && v.trim() !== auto ? h.sendChat(v) : undefined;
         if (!this.mobile) this.chatInput.blur();
+        else void Promise.resolve(sent).then(() => { if (this.isChatFocused()) this.applyPrefill(); }); // 모바일은 입력창이 열린 채라, 보낸 뒤에 바로 다시 넣어 준다
       } else if (e.key === 'Escape') { this.chatInput.blur(); }
     });
 
@@ -433,12 +442,15 @@ export class Hud {
     joy.addEventListener('pointerup', joyEnd);
     joy.addEventListener('pointercancel', joyEnd);
 
-    // 오른쪽 버튼 열: 위부터 이모트 · F · 달리기
+    // 오른쪽 버튼 열: 위부터 말랑이 · 끌기(갈고리) · 밀치기 · F · 달리기. 이모트 버튼은 그 왼쪽(F 옆)에 따로 둔다
+    // (2026-11-12. 그 전엔 밀치기·끌기가 이모트 서랍 안에 있어 쓰기 불편했다. 전용 버튼이 생긴 둘은 서랍에서 뺀다)
+    const ACTION_EMOTES = new Set([10, 14]);
     const m = el('div', { id: 'mobile' });
     m.addEventListener('contextmenu', (e) => e.preventDefault());
     const btns = el('div', { id: 'mbtns' });
     let lastEmote = 0;
     try { lastEmote = Number(localStorage.getItem('mv-last-emote')) || 0; } catch { /* ignore */ }
+    if (ACTION_EMOTES.has(lastEmote)) lastEmote = 0;
     const iconOf = (id: number) => EMOTES.find((e) => e.id === id)?.icon || '😀';
     const eB = el('button', { class: 'emote', text: iconOf(lastEmote), title: '이모트 (짧게: 최근 이모트, 길게: 고르기)' });
     const drawer = el('div', { id: 'emote-drawer' });
@@ -450,7 +462,7 @@ export class Hud {
       try { localStorage.setItem('mv-last-emote', String(id)); } catch { /* ignore */ }
       h.emote(id);
     };
-    for (const e of EMOTES) { const b = el('button', { text: e.icon, title: e.name }); b.onclick = (ev) => { if (!ev.isTrusted) return; useEmote(e.id); closeDrawer(); }; drawer.append(b); } // isTrusted: 스크립트가 만든 가짜 클릭은 무시
+    for (const e of EMOTES) { if (ACTION_EMOTES.has(e.id)) continue; const b = el('button', { text: e.icon, title: e.name }); b.onclick = (ev) => { if (!ev.isTrusted) return; useEmote(e.id); closeDrawer(); }; drawer.append(b); } // isTrusted: 스크립트가 만든 가짜 클릭은 무시
     let eTimer = 0, eDone = false; // 길게 눌러 격자를 연 뒤의 pointerup 은 무시
     eB.addEventListener('pointerdown', (e) => { if (!e.isTrusted) return; e.preventDefault(); eDone = false; eTimer = window.setTimeout(() => { eDone = true; openDrawer(); }, 400); });
     eB.addEventListener('pointerup', (e) => {
@@ -464,15 +476,20 @@ export class Hud {
     });
     const eCancel = () => { clearTimeout(eTimer); eDone = true; };
     eB.addEventListener('pointercancel', eCancel); eB.addEventListener('pointerleave', eCancel);
-    const fB = el('button', { text: 'F', title: '상호작용' }); fB.onclick = (e) => { if (e.isTrusted) h.interact(); };
-    const tB = el('button', { text: '🧸', title: '말랑이 던지기 (앞 3칸)' }); tB.onclick = (e) => { if (e.isTrusted) h.toss(); };
+    const act = (text: string, title: string, fn: () => void) => { const b = el('button', { text, title }); b.onclick = (e) => { if (e.isTrusted) fn(); }; return b; }; // isTrusted: 스크립트가 만든 가짜 클릭은 무시
+    const tB = act('🧸', '말랑이 던지기 (앞 3칸)', () => h.toss());
+    const pullB = act('🧲', '끌기 · 갈고리', () => h.emote(14));
+    const pushB = act('👊', '밀치기', () => h.emote(10));
+    const fB = act('F', '상호작용', () => h.interact());
     const rB = el('button', { class: 'run', text: '🏃', title: '달리기 (누르는 동안)' });
     const runOn = (e: Event) => { e.preventDefault(); h.input.setRun(true); rB.classList.add('on'); };
     const runOff = (e: Event) => { e.preventDefault(); h.input.setRun(false); rB.classList.remove('on'); };
     rB.addEventListener('pointerdown', runOn);
     for (const t of ['pointerup', 'pointercancel', 'pointerleave']) rB.addEventListener(t, runOff);
-    btns.append(eB, fB, tB, rB);
-    m.append(joy, btns, drawer);
+    btns.append(tB, pullB, pushB, fB, rB);
+    const eWrap = el('div', { id: 'mbtn-emote' });
+    eWrap.append(eB);
+    m.append(joy, btns, eWrap, drawer);
     this.root.append(m);
   }
 
@@ -484,8 +501,18 @@ export class Hud {
   }
   blurChat(): void {
     // 단축키로 넣은 프리픽스만 남아 있으면 비운다 (다음 메시지가 엉뚱한 채널로 가지 않도록)
-    if (/^\/(all|w|r)\s*$/.test(this.chatInput.value)) this.chatInput.value = '';
+    if (/^\/(all|w|r)\s*$/.test(this.chatInput.value) || (this.autoPrefix && this.chatInput.value === this.autoPrefix)) this.chatInput.value = '';
+    this.autoPrefix = '';
     this.chatInput.blur();
+  }
+  private autoPrefix = ''; // 이번에 자동으로 넣은 귓속말 명령 ("/w 닉 "). 그것만 남은 채 닫거나 보내면 비운다
+  // 귓속말을 보낸 뒤 채팅창을 다시 열면 그 상대에게 보내는 명령을 미리 넣는다 (2026-11-12). 이미 뭔가 적혀 있으면 건드리지 않는다
+  private applyPrefill(): void {
+    if (this.chatInput.value) return;
+    const pre = this.h.chatPrefill?.();
+    if (!pre) return;
+    this.chatInput.value = pre; this.autoPrefix = pre;
+    window.setTimeout(() => { if (this.chatInput.value === pre) this.chatInput.setSelectionRange(pre.length, pre.length); }, 0); // 톡 쳐서 연 경우 커서가 누른 자리로 가므로 끝으로 옮긴다
   }
   isChatFocused(): boolean { return document.activeElement === this.chatInput; }
 

@@ -10,6 +10,7 @@
 //   node tools/admin-cli.mjs set-nick <아이디> <새닉네임>
 //   node tools/admin-cli.mjs delete-user <아이디>
 //   node tools/admin-cli.mjs list-users
+//   node tools/admin-cli.mjs patch-note <제목> <본문 파일> [작성자 아이디]   (게시판 '패치 노트' 글 + 접속자 알림. 작성자를 안 적으면 관리자가 한 명일 때 그 계정)
 //   node tools/admin-cli.mjs deploy-rules-check   (규칙 파일 JSON 검사)
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -36,7 +37,7 @@ const databaseURL = process.env.DATABASE_URL || env.VITE_FIREBASE_DATABASE_URL;
 const saPath = process.env.SERVICE_ACCOUNT || resolve(rootDir, 'serviceAccount.json');
 
 function usage() {
-  console.log(readFileSync(new URL(import.meta.url)).toString().split('\n').slice(1, 14).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+  console.log(readFileSync(new URL(import.meta.url)).toString().split('\n').slice(1, 15).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
 }
 
 // 클라이언트(src/firebase/auth.ts)와 동일한 파생 규칙
@@ -110,10 +111,32 @@ async function main() {
       console.log(`삭제 완료: ${id}`);
       break;
     }
+    // 게시판에 패치 노트를 올린다 (배포할 때마다. CLAUDE.md "패치 노트"). 클라이언트의 board.ts createPost 와 같은 모양으로 쓰고,
+    // config/patchNote 에 글 id·제목을 적어 접속자에게 "새 패치 노트" 한 줄이 뜨게 한다
+    case 'patch-note': {
+      const [title, file, asId] = args;
+      if (!title || !file) throw new Error('사용법: patch-note <제목> <본문 파일> [작성자 아이디]');
+      const body = readFileSync(resolve(file), 'utf8').split(/\r?\n/).join('\n').trim();
+      if (title.length > 60) throw new Error(`제목이 너무 깁니다 (${title.length}자, 최대 60자)`);
+      if (!body || body.length > 2000) throw new Error(`본문 길이를 확인하세요 (${body.length}자, 1~2000자)`);
+      let uid;
+      if (asId) uid = await uidOf(asId);
+      else {
+        const admins = Object.keys((await db.ref('admins').get()).val() || {});
+        if (admins.length !== 1) throw new Error(`관리자가 ${admins.length}명입니다. 작성자 아이디를 적어 주세요.`);
+        uid = admins[0];
+      }
+      const nick = (await db.ref(`users/${uid}/nick`).get()).val();
+      if (!nick) throw new Error('작성자의 닉네임을 찾지 못했습니다.');
+      const key = db.ref('board/posts').push().key;
+      await db.ref().update({ [`board/posts/${key}`]: { title, body, u: uid, n: nick, ts: { '.sv': 'timestamp' }, cc: 0, cat: 'patch' }, 'config/patchNote': { id: key, t: title } });
+      console.log(`패치 노트를 올렸습니다: ${key} (${body.length}자)`);
+      break;
+    }
     case 'list-users': {
       const users = (await db.ref('users').get()).val() || {};
       const admins = (await db.ref('admins').get()).val() || {};
-      console.table(Object.entries(users).map(([uid, u]) => ({ uid, id: u.id, nick: u.nick, losses: u.losses, admin: admins[uid] ? 'Y' : '', lastLogin: u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '' })));
+      console.table(Object.entries(users).map(([uid, u]) => ({ uid, id: u.id, nick: u.nick, admin: admins[uid] ? 'Y' : '', lastLogin: u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : '' })));
       break;
     }
     default:

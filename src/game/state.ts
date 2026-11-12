@@ -44,7 +44,7 @@ export interface LocalPlayer {
   pushMore: { dx: number; dy: number; dir: Dir } | null; // 장풍에 밀려 도착하면 한 칸 더 밀릴 예정
   stunUntil: number;                // 이 시각까지 이동 불가 (말랑이 스턴)
   lastPushAt: number;               // 밀치기 쿨타임
-  locked: boolean;                  // 커피 내기 결과 중 이동 금지
+  locked: boolean;                  // 이동 금지 (지금은 켜는 곳이 없다. 옛 커피 내기 결과 화면용)
   roomId: string | null;
 }
 
@@ -66,7 +66,6 @@ export type WorldEvents = {
   config: [ServerConfig];
   profile: [];
   logout: [string];
-  roomHint: [string | null];
   toss: [string, TossMsg];          // 누군가(대상 uid)에게 말랑이가 날아갔다
   wave: [number, number, number, number]; // 장풍이 나에게 날아왔다 (fx, fy, tx, ty): 💨 효과용
   hook: [number, number, number, number]; // 갈고리가 나에게 날아왔다 (fx, fy, tx, ty): ⚓ 효과용
@@ -120,7 +119,7 @@ export interface WorldCtx {
   petGuard(): boolean;                   // 펫 Lv8 이상: 밀치기·장풍·말랑이·끌기·갈고리를 갑옷처럼 막는다
   petReflect(): boolean;                 // 막은 보통 밀치기·말랑이를 되받아칠지 (80%)
   leaveForTeleport(): void;             // 순간이동 전 정리: 낚시 취소, 방에 있으면 나감
-  canStep(nx: number, ny: number): boolean;
+  canStep(nx: number, ny: number, pushed?: boolean): boolean; // pushed: 밀치기·끌기로 움직이는 걸음 (밀려서는 카지노에 못 들어간다)
   settleIfStalled(): void;              // 화면 갱신이 멈춘 동안(뒤쪽 탭) 끝나지 않은 걸음을 마무리
   reloadForUpdate(min: number): void;   // config/minVersion 이 올라 새로고침이 필요
 }

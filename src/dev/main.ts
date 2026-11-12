@@ -75,7 +75,7 @@ if (mode === 'gallery') {
 
   const me: Entity = {
     uid: 'me', nick: '테스터', avatar: 'f03', x: map.spawn.x, y: map.spawn.y, dir: 0, moving: false, moveT: 0, pose: 'none', poseAt: 0, emoteId: 0,
-    bubble: null, isMe: true, ready: false, pushAt: -1, pushDir: 0, hitAt: -1e9, blockAt: -1e9, fishing: null, hat: null, nameColor: null, fx: null,
+    bubble: null, isMe: true, pushAt: -1, pushDir: 0, hitAt: -1e9, blockAt: -1e9, fishing: null, hat: null, nameColor: null, fx: null,
     pet: { id: 'petdog', x: map.spawn.x, y: map.spawn.y + 1, moving: false, moveT: 0, hopAt: -1e9, dir: 0, scale: 1.3, ride: false }, // 미리보기: 강아지 Lv5 크기
   };
   const others: Entity[] = [];
@@ -137,7 +137,7 @@ if (mode === 'gallery') {
     }
   });
   (window as unknown as { __dev: unknown }).__dev = { me, others, input, get to() { return to; }, get currentMapId() { return currentMapId; }, get map() { return map; }, switchMap };
-  const rooms: RenderState['rooms'] = { room2: { cap: 2, round: 1, state: 'open', members: { a: { n: '철수', ready: true, losses: 2, at: 1 } } }, room4: { cap: 4, round: 3, state: 'result', result: { loser: 'x', loserNick: '영희', at: Date.now(), seed: '' } } };
+  const rooms: RenderState['rooms'] = { casino: { cap: 10, round: 1, state: 'open', members: { a: { n: '철수', ready: false, losses: 0, at: 1 } } } };
   eng.start((_dt, now) => {
     if (me.moving) {
       me.moveT = Math.min(1, (now - moveStart) / STEP_MS);

@@ -147,7 +147,7 @@ export function openFishBook(user: FishUser): void {
       else pane.append(rankTable(rows));
     }
     pane.append(el('h4', { style: 'margin:6px 0 4px', text: '🧸 말랑이 명중' }));
-    if (!toss.length) pane.append(el('p', { class: 'muted', text: '아직 아무도 던지지 않았어요. G 키(모바일 🧸)로 앞사람에게!' }));
+    if (!toss.length) pane.append(el('p', { class: 'muted', text: '아직 아무도 던지지 않았어요. T 키(모바일 🧸)로 앞사람에게!' }));
     else {
       const t = el('table', { class: 'fish-rank' });
       t.innerHTML = '<thead><tr><th>#</th><th>닉네임</th><th>명중</th><th>던짐</th><th>명중률</th></tr></thead>';

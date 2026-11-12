@@ -2,7 +2,7 @@ import '../styles.css';
 import { ref, get, set, update, remove, onValue, push, query, orderByKey, orderByChild, limitToLast, serverTimestamp, runTransaction } from 'firebase/database';
 import { isConfigured, db, app } from '../firebase/app';
 import { waitForAuth, login, logout } from '../firebase/auth';
-import { isAdmin, mergeConfig, serverNow } from '../firebase/db';
+import { isAdmin, mergeConfig } from '../firebase/db';
 import { showLoginScreen, showMessageScreen, toast, modal, promptModal, confirmModal } from '../game/ui';
 import { el, escapeHtml, fmtDateTime, fmtBytes, dayKey, nickKey, safeKey, idKey, validateNick } from '../shared/util';
 import { APP_NAME, CLIENT_VERSION } from '../shared/config';
@@ -134,7 +134,6 @@ async function cleanupStale(): Promise<string> {
   let r = 0;
   for (const [id, rs] of Object.entries(rooms || {})) {
     for (const uid of Object.keys(rs.members || {})) if (!online.has(uid)) { upd[`rooms/${id}/members/${uid}`] = null; r++; }
-    if (rs.state === 'result' && rs.result && serverNow() - rs.result.at > 30000) { upd[`rooms/${id}`] = { cap: rs.cap, round: (rs.round || 1) + 1, state: 'open' }; }
   }
   if (Object.keys(upd).length) await update(ref(db), upd);
   return `점유 잔여 ${n}개, 방 잔여 멤버 ${r}명 정리`;
@@ -144,7 +143,7 @@ async function cleanupStale(): Promise<string> {
 type Tab = 'dash' | 'conn' | 'chat' | 'users' | 'signup' | 'audit' | 'rooms' | 'board' | 'fish' | 'bugs' | 'config' | 'editor';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'dash', label: '📊 현황' }, { id: 'conn', label: '🚪 입퇴장 로그' }, { id: 'chat', label: '💬 채팅 로그' }, { id: 'users', label: '👤 사용자' }, { id: 'signup', label: '📝 가입 승인' }, { id: 'audit', label: '🚩 의심 지표' },
-  { id: 'rooms', label: '☕ 커피 방' }, { id: 'board', label: '📌 게시판' }, { id: 'fish', label: '🎣 낚시' }, { id: 'bugs', label: '🐛 곤충' }, { id: 'config', label: '⚙ 설정' }, { id: 'editor', label: '🗺 맵 편집기' },
+  { id: 'rooms', label: '🎰 카지노 방' }, { id: 'board', label: '📌 게시판' }, { id: 'fish', label: '🎣 낚시' }, { id: 'bugs', label: '🐛 곤충' }, { id: 'config', label: '⚙ 설정' }, { id: 'editor', label: '🗺 맵 편집기' },
 ];
 
 function renderDashboard(): void {
@@ -378,21 +377,20 @@ function tabUsers(main: HTMLElement): void {
     const f = filter.value.trim().toLowerCase();
     box.innerHTML = '';
     const t = el('table');
-    t.innerHTML = '<thead><tr><th>아이디</th><th>닉네임</th><th>패배</th><th>코인</th><th>가입</th><th>최근 로그인</th><th>상태</th><th>조치</th></tr></thead>';
+    t.innerHTML = '<thead><tr><th>아이디</th><th>닉네임</th><th>코인</th><th>가입</th><th>최근 로그인</th><th>상태</th><th>조치</th></tr></thead>';
     const tb = el('tbody');
     for (const [uid, u] of Object.entries(users).sort((a, b) => (b[1].lastLoginAt || 0) - (a[1].lastLoginAt || 0))) {
       if (f && !u.id.toLowerCase().includes(f) && !u.nick.toLowerCase().includes(f)) continue;
       const tr = el('tr');
       const banned = !!bans[uid];
-      tr.append(el('td', { text: u.id }), el('td', { text: u.nick }), el('td', { text: String(u.losses || 0) }), el('td', { text: (wallets[uid]?.c || 0).toLocaleString('ko-KR') }), el('td', { text: u.createdAt ? fmtDateTime(u.createdAt).slice(0, 10) : '-' }), el('td', { text: u.lastLoginAt ? fmtDateTime(u.lastLoginAt) : '-' }), el('td', { text: banned ? '🚫 차단' : online.has(uid) ? '🟢 접속' : '-' }));
+      tr.append(el('td', { text: u.id }), el('td', { text: u.nick }), el('td', { text: (wallets[uid]?.c || 0).toLocaleString('ko-KR') }), el('td', { text: u.createdAt ? fmtDateTime(u.createdAt).slice(0, 10) : '-' }), el('td', { text: u.lastLoginAt ? fmtDateTime(u.lastLoginAt) : '-' }), el('td', { text: banned ? '🚫 차단' : online.has(uid) ? '🟢 접속' : '-' }));
       const td = el('td');
       const nk = el('button', { class: 'btn small', text: '닉변경' }); nk.onclick = async () => { const n = await promptModal('닉네임 강제 변경', '새 닉네임', u.nick, 12); if (n) { try { await forceNick(uid, u.nick, n); toast('변경했습니다.'); } catch (e) { toast((e as Error).message, true); } } };
-      const ls = el('button', { class: 'btn small', text: '패배 수정' }); ls.onclick = async () => { const n = await promptModal('패배 횟수 수정', '새 값', String(u.losses || 0), 5); if (n !== null && /^\d+$/.test(n)) { await update(ref(db, `users/${uid}`), { losses: Number(n) }); adminLog('set-losses', uid, n); toast('수정했습니다.'); } };
       const gv = el('button', { class: 'btn small primary', text: '코인 지급' }); gv.onclick = () => { void grantCoins(uid, u.nick); };
       const kb = el('button', { class: 'btn small', text: '강퇴' }); kb.onclick = async () => { await kickUser(uid); toast('강퇴 신호를 보냈습니다.'); };
       const bb = el('button', { class: 'btn small ' + (banned ? '' : 'danger'), text: banned ? '차단 해제' : '차단' }); bb.onclick = async () => { if (banned) { await unbanUser(uid); toast('해제했습니다.'); } else if (await confirmModal(`${u.nick} 을(를) 차단할까요?`)) { await banUser(uid); toast('차단했습니다.'); } };
       const del = el('button', { class: 'btn small danger', text: '데이터 삭제' }); del.onclick = async () => { if (await confirmModal(`${u.id} 의 프로필/닉네임/아이디 데이터를 삭제할까요? (로그인 계정은 CLI로 삭제)`)) { await deleteUserData(uid, u); toast('삭제했습니다.'); } };
-      td.append(gv, ' ', nk, ' ', ls, ' ', kb, ' ', bb, ' ', del);
+      td.append(gv, ' ', nk, ' ', kb, ' ', bb, ' ', del);
       tr.append(td);
       tb.append(tr);
     }
@@ -501,7 +499,7 @@ function tabAudit(main: HTMLElement): void {
 }
 
 function tabRooms(main: HTMLElement): void {
-  main.append(el('h3', { text: '커피 내기 방' }));
+  main.append(el('h3', { text: '카지노 방 (입장 등록)' }));
   const box = el('div');
   const resetAll = el('button', { class: 'btn small danger', text: '모든 방 초기화' });
   resetAll.onclick = async () => { if (await confirmModal('모든 방을 초기화할까요? 방 안의 사람들은 밖으로 나가야 다시 입장됩니다.')) { await remove(ref(db, 'rooms')); adminLog('reset-rooms'); toast('초기화했습니다.'); } };
@@ -510,12 +508,12 @@ function tabRooms(main: HTMLElement): void {
     const rooms = (s.val() as Record<string, RoomState>) || {};
     box.innerHTML = '';
     const t = el('table');
-    t.innerHTML = '<thead><tr><th>방</th><th>상태</th><th>라운드</th><th>멤버</th><th>결과</th><th></th></tr></thead>';
+    t.innerHTML = '<thead><tr><th>방</th><th>멤버</th><th></th></tr></thead>';
     const tb = el('tbody');
     for (const [id, rs] of Object.entries(rooms).sort()) {
       const tr = el('tr');
-      const members = Object.values(rs.members || {}).map((m) => `${m.ready ? '✓' : '·'} ${m.n}(${m.losses})`).join(', ');
-      tr.append(el('td', { text: `${id} (${rs.cap}명)` }), el('td', { text: rs.state }), el('td', { text: String(rs.round) }), el('td', { text: members || '-' }), el('td', { text: rs.result ? `${rs.result.loserNick} 당첨 ${fmtDateTime(rs.result.at).slice(11)}` : '-' }));
+      const members = Object.values(rs.members || {}).map((m) => m.n).join(', ');
+      tr.append(el('td', { text: `${id} (${rs.cap}명)` }), el('td', { text: members || '-' }));
       const td = el('td');
       const b = el('button', { class: 'btn small', text: '초기화' }); b.onclick = async () => { await set(ref(db, `rooms/${id}`), { cap: rs.cap, round: (rs.round || 1) + 1, state: 'open' }); adminLog('reset-room', id); };
       td.append(b); tr.append(td); tb.append(tr);
@@ -756,7 +754,6 @@ function tabConfig(main: HTMLElement): void {
   const maintMsg = el('input', { type: 'text' });
   const hoursSel = el('select'); hoursSel.innerHTML = '<option value="0">끔 (언제나 이용 가능)</option><option value="1">켬 (평일 09:00~18:00 차단)</option>';
   const ann = el('input', { type: 'text', placeholder: '공지 내용 (비우면 공지 없음)' });
-  const strength = el('input', { type: 'number', min: '0', max: '5', step: '0.5' });
   const retChat = el('input', { type: 'number', min: '100' });
   const retConn = el('input', { type: 'number', min: '100' });
   const boardRet = el('input', { type: 'number', min: '10' });
@@ -771,7 +768,7 @@ function tabConfig(main: HTMLElement): void {
   const priceBox = el('div', { class: 'price-grid' });
   for (const it of ALL_ITEMS) { const inp = el('input', { type: 'number', min: '0' }); priceInputs.set(it.id, inp); priceBox.append(el('label', { text: `${it.icon} ${it.name}` }), inp); }
   form.append(f('최대 동시 접속자 (무료 플랜 연결 한도 100)', maxPlayers), f('운영 상태', maint), f('점검 안내 문구', maintMsg), f('평일 근무시간 이용 차단 (관리자 제외. 주말·공휴일은 종일 허용)', hoursSel), f('공지 (상단 배너)', ann),
-    f('커피 내기 가중치 강도 (0=균등, 1=선형, 2=강하게)', strength), f('채팅 로그 보존 개수', retChat), f('입퇴장 로그 보존 개수', retConn), f('게시글 보존 개수', boardRet), f(`최소 클라이언트 버전 (지금 배포본은 ${CLIENT_VERSION}. 이보다 낮은 접속자는 자동으로 새로고침)`, minVer), f(`경마 한 번 최대 배팅 (100 단위, 기본 ${BET_MAX_DEFAULT}. 규칙이 서버에서 강제)`, casinoMax), f('활성 맵', activeMap), f('낚시 대회 (점수·코인 2배, 대회 한정 어종)', conOn), el('div', { class: 'row' }, [f('대회 요일', conDay), f('시작 시각 (시)', conHour), f('길이 (분)', conMin)]), f('상점 가격 (코인)', priceBox));
+    f('채팅 로그 보존 개수', retChat), f('입퇴장 로그 보존 개수', retConn), f('게시글 보존 개수', boardRet), f(`최소 클라이언트 버전 (지금 배포본은 ${CLIENT_VERSION}. 이보다 낮은 접속자는 자동으로 새로고침)`, minVer), f(`경마 한 번 최대 배팅 (100 단위, 기본 ${BET_MAX_DEFAULT}. 규칙이 서버에서 강제)`, casinoMax), f('활성 맵', activeMap), f('낚시 대회 (점수·코인 2배, 대회 한정 어종)', conOn), el('div', { class: 'row' }, [f('대회 요일', conDay), f('시작 시각 (시)', conHour), f('길이 (분)', conMin)]), f('상점 가격 (코인)', priceBox));
   const save = el('button', { class: 'btn primary', text: '저장' });
   const reduce = el('button', { class: 'btn', text: '🔻 사용량 절감 모드 적용' });
   const info = el('p', { class: 'muted', text: '사용량 절감 모드: 최대 접속 30명, 로그 보존 500개로 낮추고 로그/오래된 채팅을 즉시 정리합니다.' });
@@ -780,7 +777,7 @@ function tabConfig(main: HTMLElement): void {
   const load = async () => {
     cfg = mergeConfig((await get(ref(db, 'config'))).val());
     maxPlayers.value = String(cfg.maxPlayers); maint.value = cfg.maintenance.on ? '1' : '0'; hoursSel.value = cfg.hoursBlock ? '1' : '0'; maintMsg.value = cfg.maintenance.message; ann.value = cfg.announcement?.text || '';
-    strength.value = String(cfg.lossStrength); retChat.value = String(cfg.logRetention.chat); retConn.value = String(cfg.logRetention.conn); boardRet.value = String(cfg.boardRetention); casinoMax.value = String(cfg.casinoMax ?? BET_MAX_DEFAULT); minVer.value = String(cfg.minVersion ?? 0);
+    retChat.value = String(cfg.logRetention.chat); retConn.value = String(cfg.logRetention.conn); boardRet.value = String(cfg.boardRetention); casinoMax.value = String(cfg.casinoMax ?? BET_MAX_DEFAULT); minVer.value = String(cfg.minVersion ?? 0);
     const maps = (await get(ref(db, 'maps'))).val() as Record<string, { name?: string }> | null;
     activeMap.innerHTML = '<option value="default">기본 맵 (내장)</option>' + Object.entries(maps || {}).map(([id, m]) => `<option value="${id}">${escapeHtml(m.name || id)} (${id})</option>`).join('');
     activeMap.value = cfg.activeMap;
@@ -795,7 +792,6 @@ function tabConfig(main: HTMLElement): void {
       hoursBlock: hoursSel.value === '1',
       announcement: annText ? { text: annText, ts: annText === cfg.announcement?.text ? cfg.announcement!.ts : Date.now() } : null,
       activeMap: activeMap.value,
-      lossStrength: Number(strength.value),
       logRetention: { chat: Number(retChat.value) || 2000, conn: Number(retConn.value) || 2000 },
       allCooldownSec: cfg.allCooldownSec, // 전체 채팅 채널이 없어져 더 쓰지 않음 (값만 유지)
       boardRetention: Number(boardRet.value) || 300,
@@ -804,6 +800,9 @@ function tabConfig(main: HTMLElement): void {
       prices: Object.fromEntries(ALL_ITEMS.map((it) => [it.id, Math.max(0, Math.floor(Number(priceInputs.get(it.id)!.value) || it.price))])),
       contest: { on: conOn.value === '1', weekday: Number(conDay.value) || 0, hour: Math.min(23, Math.max(0, Number(conHour.value) || 0)), minutes: Math.max(5, Number(conMin.value) || 60) },
     };
+    // 이 저장은 config 를 통째로 다시 쓴다. 폼에 없는 칸(패치 노트 알림)이 지워지지 않게 지금 값을 읽어 실어 보낸다
+    const patchNote = (await get(ref(db, 'config/patchNote'))).val() as ServerConfig['patchNote'];
+    if (patchNote) next.patchNote = patchNote;
     await set(ref(db, 'config'), next);
     adminLog('config', undefined, JSON.stringify(next));
     toast('저장했습니다. 활성 맵 변경은 사용자가 다시 접속할 때 적용됩니다.');
@@ -1140,13 +1139,13 @@ function tabEditor(main: HTMLElement): void {
       destBox,
       el('div', { class: 'row', style: 'gap:6px' }, [savePortalBtn, deletePortalBtn]),
     ]),
-    el('div', { class: 'field' }, [el('label', { text: '구역 (방: kind=room, cap, door, exit / 게시판: kind=board / 라벨: kind=label / 포탈: kind=portal)' }), zonesTa, applyZones]),
+    el('div', { class: 'field' }, [el('label', { text: '구역 (카지노: kind=casino, cap, door, exit / 게시판: kind=board / 라벨: kind=label / 포탈: kind=portal)' }), zonesTa, applyZones]),
     el('div', { class: 'field' }, [el('label', { text: '불러오기' }), loadSel, el('div', { class: 'row' }, [loadBtn, newBtn])]),
     el('div', { class: 'field' }, [el('label', { text: '맵 이름' }), nameIn]),
     el('div', { class: 'field' }, [el('label', { text: '저장 id' }), idIn]),
     el('div', { class: 'row' }, [saveBtn, activateBtn]),
     el('div', { class: 'row', style: 'margin-top:6px' }, [exportBtn, importBtn]),
-    el('p', { class: 'muted', text: '주의: 커피 방 구역은 내부 바닥 타일이 벽으로 막히지 않도록 하고, door/exit 타일이 걸을 수 있는지 확인하세요.' }),
+    el('p', { class: 'muted', text: '주의: 카지노 구역은 내부 바닥 타일이 벽으로 막히지 않도록 하고, door/exit 타일이 걸을 수 있는지 확인하세요.' }),
   );
   renderPalette();
   refreshLoad();

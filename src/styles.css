@@ -73,8 +73,9 @@ body.mobile .pill .app { display: none; } /* 좁은 화면: 앱 이름 생략 */
 .pill.coin:hover { border-color: var(--accent); }
 #hint { position: absolute; left: 50%; bottom: 190px; transform: translateX(-50%); background: rgba(6, 12, 8, 0.35); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 999px; padding: 6px 12px; font-size: 13px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 4px rgba(0, 0, 0, 0.85); white-space: nowrap; pointer-events: none; }
 /* 카지노 경마 판 (카지노 방 안에서만) */
-#casino { position: absolute; right: 8px; top: 48px; width: 316px; max-width: calc(100vw - 16px); max-height: calc(100vh - 140px); overflow: auto; background: rgba(20, 14, 30, 0.82); border: 1px solid rgba(255, 138, 216, 0.5); border-radius: 12px; padding: 10px; font-size: 12px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); z-index: 20; }
-#casino .ch { display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
+#casino { position: absolute; right: 8px; top: 48px; width: 316px; max-width: calc(100vw - 16px); max-height: calc(100vh - 140px); overflow: auto; background: rgba(20, 14, 30, 0.82); border: 1px solid rgba(255, 138, 216, 0.5); border-radius: 12px; padding: 10px; font-size: 12px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); z-index: 24; } /* PC: #hud(23) 위 */
+#casino .ch { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+#casino .ch .cnt { flex: 1; text-align: right; }
 #casino .ch .cnt { color: #ffd84d; font-weight: bold; }
 #casino .sub { color: #e6d6f0; margin: 4px 0 6px; word-break: keep-all; }
 #casino .track { display: block; width: 100%; border-radius: 8px; margin-bottom: 6px; image-rendering: auto; }
@@ -89,6 +90,14 @@ body.mobile .pill .app { display: none; } /* 좁은 화면: 앱 이름 생략 */
 #casino .amts .btn.on { border-color: var(--accent); background: #3a2f12; color: #ffe9a8; }
 #casino .amts input { width: 80px; background: #0d1510; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px; font-size: 12px; }
 @media (max-width: 760px) { #casino { top: auto; bottom: 150px; right: 8px; left: auto; width: 260px; max-height: 55vh; } }
+/* 모바일: 경마 판이 화면 전체를 덮는다 (2026-11-12). 조이스틱·버튼은 숨기고, 위쪽 표시와 채팅창(#hud, z-index 23)은 그 위에 남는다(판은 21). 아래 여백은 채팅창 자리 */
+body.mobile #casino { position: fixed; inset: 0; width: auto; max-width: none; max-height: none; border: none; border-radius: 0; padding: 52px 12px 216px; background: rgba(20, 14, 30, 0.96); font-size: 14px; z-index: 21; }
+body.mobile #casino .ch { font-size: 17px; }
+body.mobile #casino .ch .out { font-size: 14px; padding: 8px 14px; }
+body.mobile #casino .horse { padding: 8px; }
+body.mobile #casino .horse .ic { font-size: 20px; }
+body.mobile #casino .amts .btn { padding: 8px 10px; }
+body.mobile.in-casino #mobile { display: none; }
 #catch-note { position: absolute; left: 50%; bottom: 190px; transform: translateX(-50%); max-width: 90vw; padding: 6px 14px; border-radius: 999px; background: rgba(6, 12, 8, 0.4); border: 1px solid rgba(255, 255, 255, 0.22); color: #fff; font-size: 13px; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 4px rgba(0, 0, 0, 0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 25; }
 #catch-note.on { opacity: 1; animation: note-in 0.2s ease; }
 body.note-on #hint { display: none; } /* 알림이 뜨는 동안 같은 자리의 안내는 숨김 */
@@ -206,6 +215,7 @@ body.mobile #chat-hide { display: inline-block; }
 .board-head > * { flex: 0 0 auto; }
 .modal.board .post-body { max-height: none; }
 .cat { display: inline-block; font-size: 11px; font-weight: bold; line-height: 1.4; padding: 1px 6px; border-radius: 6px; margin-right: 6px; vertical-align: 1px; background: rgba(255,255,255,0.1); color: var(--muted); }
+.cat.patch { background: rgba(120,170,255,0.22); color: #a9c8ff; }
 .cat.promo { background: rgba(255,216,77,0.18); color: var(--accent); }
 .cat.meet { background: rgba(95,211,160,0.18); color: var(--accent2); }
 .cat.junk { background: rgba(214,170,120,0.2); color: #e3bb8c; }
@@ -301,13 +311,14 @@ table tr.off td { opacity: 0.5; }
 #joy { position: absolute; left: 16px; bottom: 176px; width: 120px; height: 120px; border-radius: 50%; background: rgba(20, 30, 25, 0.35); border: 1px solid rgba(255, 255, 255, 0.3); touch-action: none; }
 #joy .knob { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px 0 0 -26px; border-radius: 50%; background: rgba(255, 255, 255, 0.35); border: 1px solid rgba(255, 255, 255, 0.55); pointer-events: none; }
 #joy.active .knob { background: rgba(95, 211, 160, 0.65); }
-/* 모바일: 오른쪽 버튼 열 (위부터 이모트 · F · 달리기) */
+/* 모바일: 오른쪽 버튼 열 (위부터 말랑이 · 끌기 · 밀치기 · F · 달리기). 이모트 버튼은 그 왼쪽, F 높이 */
 #mobile { display: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 body.mobile #mobile { display: block; }
 #mbtns { position: absolute; right: 12px; bottom: 176px; display: flex; flex-direction: column; gap: 10px; }
-#mbtns button { width: 52px; height: 52px; border-radius: 50%; background: rgba(20, 30, 25, 0.55); border: 1px solid rgba(255, 255, 255, 0.3); color: #fff; font-size: 18px; font-weight: bold; touch-action: none; text-shadow: 0 1px 2px #000; }
-#mbtns button:active, #mbtns button.run.on { background: rgba(95, 211, 160, 0.7); }
-#emote-drawer { position: absolute; right: 72px; bottom: 236px; display: none; grid-template-columns: repeat(5, 44px); gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 6px; }
+#mbtn-emote { position: absolute; right: 74px; bottom: 238px; }
+#mbtns button, #mbtn-emote button { width: 52px; height: 52px; border-radius: 50%; background: rgba(20, 30, 25, 0.55); border: 1px solid rgba(255, 255, 255, 0.3); color: #fff; font-size: 18px; font-weight: bold; touch-action: none; text-shadow: 0 1px 2px #000; }
+#mbtns button:active, #mbtn-emote button:active, #mbtns button.run.on { background: rgba(95, 211, 160, 0.7); }
+#emote-drawer { position: absolute; right: 74px; bottom: 300px; display: none; grid-template-columns: repeat(5, 44px); gap: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 6px; }
 #emote-drawer.open { display: grid; }
 #emote-drawer button { width: 44px; height: 44px; border-radius: 8px; background: #2a3b31; border: none; color: #fff; font-size: 18px; }
 body.mobile #chat { width: calc(100vw - 16px); bottom: 8px; }

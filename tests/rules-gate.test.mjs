@@ -235,5 +235,14 @@ await root.ref('mafia').remove();
 await expect('맵: 근처 채팅의 맵 위조 거부', 'deny', () => ok.ref('chat/public/fake-map').set({ u: 'OK', n: '닉', t: '다른 공간', c: 'near', m: 'portal-garden', x: 1, y: 1, ts: 1 }));
 await expect('맵: 기존 기본 공간의 맵 식별자 없는 채팅 허용', 'allow', () => ok.ref('chat/public/legacy-main').set({ u: 'OK', n: '닉', t: '기본 공간', c: 'near', x: 1, y: 1, ts: 1 }));
 
+// ---------- 게시판: 패치 노트 분류는 관리자만 (2026-11-12) ----------
+const post = (u, cat) => ({ title: '제목', body: '내용', u, n: '닉', ts: 1, cc: 0, cat });
+await expect('게시판: 일반 사용자가 똥글 쓰기', 'allow', () => ok.ref('board/posts/p-junk').set(post('OK', 'junk')));
+await expect('게시판: 일반 사용자가 패치 노트 쓰기', 'deny', () => ok.ref('board/posts/p-fake').set(post('OK', 'patch')));
+await expect('게시판: 없는 분류', 'deny', () => ok.ref('board/posts/p-bad').set(post('OK', 'notice')));
+await expect('게시판: 관리자가 패치 노트와 알림 칸을 한 번에 쓰기', 'allow', () => admin.ref().update({ 'board/posts/p-patch': post('ADMIN', 'patch'), 'config/patchNote': { id: 'p-patch', t: '제목' } }));
+await expect('게시판: 일반 사용자가 패치 노트 알림 칸 쓰기', 'deny', () => ok.ref('config/patchNote').set({ id: 'x', t: '가짜' }));
+await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', 'allow', () => ok.ref('config/patchNote').get());
+
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
 process.exit(fail ? 1 : 0);

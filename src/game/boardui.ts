@@ -1,11 +1,11 @@
 import { el, escapeHtml, fmtDateTime } from '../shared/util';
 import { modal, withCloseX, toast, confirmModal } from './ui';
-import { loadPosts, createPost, deletePost, loadComments, addComment, deleteComment, BOARD_CATS, catLabel, isBoardCat, POST_PAGE, TITLE_MAX, BODY_MAX, COMMENT_MAX, type PostRow } from './board';
+import { loadPosts, createPost, deletePost, loadComments, addComment, deleteComment, BOARD_CATS, writableCats, catLabel, isBoardCat, POST_PAGE, TITLE_MAX, BODY_MAX, COMMENT_MAX, type PostRow } from './board';
 import type { BoardCat } from '../shared/types';
 
 export interface BoardUser { uid: string; nick: string; isAdmin: boolean }
 
-const FILTER_KEY = 'mv-board-cat'; // 마지막으로 고른 필터 탭 (all | promo | meet | junk)
+const FILTER_KEY = 'mv-board-cat'; // 마지막으로 고른 필터 탭 (all | patch | promo | meet | junk)
 
 function loadFilter(): BoardCat | null {
   try { const v = localStorage.getItem(FILTER_KEY); return isBoardCat(v) ? v : null; } catch { return null; }
@@ -88,10 +88,11 @@ export function openBoard(user: BoardUser, onClose?: () => void): void {
   const showWrite = () => {
     body.innerHTML = '';
     const view = el('div', { class: 'board-view' });
-    let cat: BoardCat = filter ?? 'junk'; // 보고 있던 분류가 기본, 전체면 똥글
+    const cats = writableCats(user.isAdmin); // 패치 노트는 관리자에게만 보인다
+    let cat: BoardCat = filter && cats.some((c) => c.id === filter) ? filter : 'junk'; // 보고 있던 분류가 기본, 전체(또는 못 쓰는 분류)면 똥글
     const pick = el('div', { class: 'board-cats' });
     const paint = () => pick.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b.dataset.cat === cat));
-    for (const c of BOARD_CATS) {
+    for (const c of cats) {
       const b = el('button', { class: 'btn small', 'data-cat': c.id, text: c.label });
       b.onclick = () => { cat = c.id; paint(); };
       pick.append(b);
@@ -105,7 +106,7 @@ export function openBoard(user: BoardUser, onClose?: () => void): void {
     save.onclick = async () => {
       save.disabled = true;
       try {
-        await createPost(user.uid, user.nick, title.value, content.value, cat);
+        await createPost(user.uid, user.nick, title.value, content.value, cat, user.isAdmin);
         toast('글을 등록했습니다.');
         if (filter && filter !== cat) { filter = cat; saveFilter(filter); } // 방금 쓴 글이 보이는 탭으로
         showList();

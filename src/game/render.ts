@@ -1,4 +1,4 @@
-import { TILE, BUBBLE_MS, EMOTE_MS, ROOM_RESULT_MS } from '../shared/config';
+import { TILE, BUBBLE_MS, EMOTE_MS } from '../shared/config';
 import type { Dir, RoomState } from '../shared/types';
 import { wrapText } from '../shared/util';
 import type { Engine } from './engine';
@@ -28,7 +28,6 @@ export interface Entity {
   emoteId: number;
   bubble: Bubble | null;
   isMe: boolean;
-  ready: boolean;
   pushAt: number;     // 밀침 당한 시각
   hitAt: number;      // 말랑이에 맞은 시각 (1초 동안 😵 + 흔들림)
   blockAt: number;    // 갑옷으로 막은 시각 (1초 동안 🛡)
@@ -103,11 +102,6 @@ export function render(eng: Engine, st: RenderState): void {
     ctx.drawImage(groundTile(id, variant, id === G.WATER ? waterFrame : 0), x * TILE, y * TILE);
   }
 
-  // ---- 방 바닥 강조 (대기 중인 방은 살짝 밝게) ----
-  for (const z of map.zones) if (z.kind === 'room') {
-    const rs = st.rooms[z.id];
-    if (rs && rs.state === 'result') { ctx.fillStyle = 'rgba(255, 200, 60, 0.25)'; ctx.fillRect(z.x * TILE, z.y * TILE, z.w * TILE, z.h * TILE); }
-  }
   // ---- 포탈 바닥 효과 (오브젝트·캐릭터 아래) ----
   for (const z of map.zones) if (z.kind === 'portal') {
     if (!eng.isTileVisible(z.x + z.w / 2 - 0.5, z.y + z.h / 2 - 0.5, TILE * 2)) continue;
@@ -273,7 +267,7 @@ export function render(eng: Engine, st: RenderState): void {
   eng.beginScreen();
   const s = eng.scale;
   // 방 간판
-  for (const z of map.zones) if (z.kind === 'room' || z.kind === 'casino') drawRoomSign(eng, z, st.rooms[z.id], st.serverNow);
+  for (const z of map.zones) if (z.kind === 'casino') drawRoomSign(eng, z, st.rooms[z.id]);
   // 포탈 간판/라벨
   for (const z of map.zones) if (z.kind === 'portal') {
     if (!eng.isTileVisible(z.x + z.w / 2 - 0.5, z.y + z.h / 2 - 0.5, TILE * 2)) continue;
@@ -295,7 +289,7 @@ export function render(eng: Engine, st: RenderState): void {
     const [sx, syFeet] = eng.worldToScreen(e.x * TILE + TILE / 2, e.y * TILE + TILE + pos.feet);
     const ns = nameStyle(e.nameColor);
     const nameColor = ns ? ns.color : e.isMe ? '#ffe9a8' : '#ffffff';
-    const name = e.ready ? `✓ ${e.nick}` : e.nick;
+    const name = e.nick;
     const under = syFeet + 2 + 18; // drawLabel 은 라벨의 아래쪽 y 를 받는다 (높이 = 글자 크기 + 6)
     drawLabel(ctx, name, sx, under, nameColor, ns?.bg ?? 'rgba(0,0,0,0.55)', 12, ns?.border);
     // 머리 위: 😵 · 입질 · 이모트 · 말풍선. 물속이면 가라앉은 만큼 내려가고, 모자가 프레임 위로 솟았으면 그만큼 올라간다
@@ -514,7 +508,8 @@ export function drawBubble(ctx: CanvasRenderingContext2D, b: Bubble, cx: number,
   lines.forEach((l, i) => ctx.fillText(l, cx, y + 5 + i * lh));
 }
 
-function drawRoomSign(eng: Engine, z: Zone, rs: RoomState | undefined, serverNow: number): void {
+// 방(카지노) 간판: 이름 · 인원/정원, 안에 있는 사람들
+function drawRoomSign(eng: Engine, z: Zone, rs: RoomState | undefined): void {
   const { ctx } = eng;
   const s = eng.scale;
   const cx = (z.x + z.w / 2) * TILE;
@@ -524,26 +519,18 @@ function drawRoomSign(eng: Engine, z: Zone, rs: RoomState | undefined, serverNow
   const members = rs?.members ? Object.values(rs.members) : [];
   const cap = z.cap || rs?.cap || 0;
   const lines: { text: string; color: string }[] = [];
-  const inResult = rs?.state === 'result' && rs.result;
-  if (inResult && rs?.result) {
-    const left = Math.max(0, Math.ceil((rs.result.at + ROOM_RESULT_MS - serverNow) / 1000));
-    lines.push({ text: `☕ ${rs.result.loserNick} 당첨!`, color: '#ffd84d' });
-    lines.push({ text: `${left}초 후 퇴장`, color: '#ffffff' });
-  } else if (z.kind === 'casino') {
+  {
     lines.push({ text: `${z.label || ''}  ${members.length}/${cap}`, color: members.length >= cap ? '#ff9b9b' : '#ffd84d' });
     if (members.length) lines.push({ text: members.sort((a, b) => a.at - b.at).map((m) => m.n).join(' · '), color: '#dddddd' });
-  } else {
-    lines.push({ text: `${z.label || ''}  ${members.length}/${cap}`, color: members.length >= cap ? '#ff9b9b' : '#ffffff' });
-    for (const m of members.sort((a, b) => a.at - b.at)) lines.push({ text: `${m.ready ? '✓' : '·'} ${m.n} (${m.losses}패)`, color: m.ready ? '#9be7ff' : '#dddddd' });
   }
   const size = 11 + (s >= 2 ? 1 : 0);
   ctx.font = `bold ${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
   const w = Math.max(...lines.map((l) => ctx.measureText(l.text).width)) + 14;
   const lh = size + 4;
   const h = lines.length * lh + 8;
-  ctx.fillStyle = inResult ? 'rgba(90, 50, 0, 0.85)' : 'rgba(20, 30, 40, 0.8)';
+  ctx.fillStyle = 'rgba(20, 30, 40, 0.8)';
   roundRect(ctx, sx - w / 2, sy - h, w, h, 5); ctx.fill();
-  ctx.strokeStyle = inResult ? '#ffd84d' : 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.stroke();
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   lines.forEach((l, i) => { ctx.fillStyle = l.color; ctx.fillText(l.text, sx, sy - h + 4 + i * lh); });
 }

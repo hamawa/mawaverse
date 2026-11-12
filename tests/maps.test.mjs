@@ -20,6 +20,9 @@ const {
   sanitizeMap,
   isWalkable,
   objectAt,
+  roomAt,
+  roomSeat,
+  findFreeTile,
   G,
   O,
 } = await import('../src/game/map.ts');
@@ -55,9 +58,47 @@ test('기본 맵은 default ID와 안전한 외향 포탈을 포함한다', () =
 
   // 기존 중요 구역 보존 확인
   assert.ok(map.zones.some((z) => z.id === 'board'), '게시판 보존');
-  assert.ok(map.zones.some((z) => z.id === 'room10'), '커피 방 보존');
   assert.ok(map.zones.some((z) => z.id === 'casino'), '카지노 보존');
+  assert.ok(!map.zones.some((z) => z.kind === 'room'), '커피 내기 방은 없앴다 (2026-11-12)');
   assert.ok(map.zones.some((z) => z.id === 'lbl-plaza'), '광장 라벨 보존');
+});
+
+// 카지노: 들어오면 빈 자리에 앉혀 고정한다 (2026-11-12)
+test('카지노 자리: 문에서 먼 빈 칸부터, 문 칸은 비워 두고, 정원만큼 앉을 수 있다', () => {
+  const map = buildDefaultMap();
+  const z = map.zones.find((x) => x.id === 'casino');
+  assert.ok(z && z.door && z.exit);
+  assert.equal(roomAt(map, z.door.x, z.door.y), z, '문 칸은 방 안이다 (들어서면 입장)');
+  assert.equal(roomAt(map, z.exit.x, z.exit.y), undefined, '나가는 칸은 방 밖이다');
+  assert.equal(isWalkable(map, z.exit.x, z.exit.y), true);
+  const taken = new Set();
+  const occupied = (x, y) => taken.has(`${x},${y}`);
+  let prev = Infinity;
+  for (let i = 0; i < z.cap; i++) {
+    const s = roomSeat(map, z, occupied);
+    assert.ok(s, `${i + 1}번째 자리`);
+    assert.ok(!(s.x === z.door.x && s.y === z.door.y), '문 칸에는 앉히지 않는다');
+    assert.equal(roomAt(map, s.x, s.y), z);
+    assert.equal(isWalkable(map, s.x, s.y), true);
+    const d = Math.abs(s.x - z.door.x) + Math.abs(s.y - z.door.y);
+    assert.ok(d <= prev, '문에서 먼 자리부터 채운다');
+    prev = d;
+    taken.add(`${s.x},${s.y}`);
+  }
+  assert.equal(taken.size, z.cap);
+  // 방 안이 꽉 차 있으면 자리가 없다
+  assert.equal(roomSeat(map, z, () => true), null);
+  // 나가기: 문 앞이 차 있어도 방 밖의 가까운 빈 칸을 고른다
+  const out = findFreeTile(map, z.exit.x, z.exit.y, (x, y) => x === z.exit.x && y === z.exit.y, true);
+  assert.equal(roomAt(map, out.x, out.y), undefined);
+  assert.ok(Math.abs(out.x - z.exit.x) + Math.abs(out.y - z.exit.y) === 1);
+});
+
+test('옛 커피 내기 방 구역(kind room)이 저장된 맵에 남아 있어도 방으로 치지 않는다', () => {
+  const map = buildDefaultMap();
+  map.zones.push({ id: 'room10', kind: 'room', x: 19, y: 6, w: 4, h: 4, cap: 10 });
+  assert.equal(validateZone(map.zones.at(-1)), true, '저장된 맵을 읽을 때 버리지는 않는다');
+  assert.equal(roomAt(map, 20, 7), undefined);
 });
 
 test('공사 펜스는 스폰에서 포탈 상호작용 거리까지 접근하는 모든 길을 막는다', () => {
