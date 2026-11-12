@@ -419,6 +419,54 @@ await expect('경마: 옛 방식(기록 나중)', 'allow', () => ok.ref('casino/
   await root.ref().update({ 'wallet/OK': null, 'wallet/OTHER': null, duel: null, duelInv: null, 'players/OK/nd': null });
 }
 
+// ---------- 1:1 내기: 낚시 내기 (2026-11-12) ----------
+// 주사위 대결과 같은 틀(신청·수락 때 판돈). 수락 뒤 5분 동안 각자 최고 크기(fa·fb)를 적고, 시간이 끝나야 큰 쪽이 정산한다. 같으면 각자 환불
+{
+  const TS = ServerValue.TIMESTAMP;
+  await setNow('2026-11-14 16:00:00');
+  await root.ref().update({ 'approved/OTHER': true, 'wallet/OK': { c: 50000, e: 50000 }, 'wallet/OTHER': { c: 50000, e: 50000 }, 'players/OK': presence, 'players/OTHER': presence, duel: null, duelInv: null });
+  const fishOf = (s) => ({ a: 'OK', b: 'OTHER', an: '닉', bn: '닉2', k: 'fish', s, o: TS });
+  const invOf = (id, s) => ({ id, f: 'OK', fn: '닉', s, k: 'fish', t: TS });
+  const stake = (uid, bal, s, id) => ({ [`wallet/${uid}/c`]: bal - s, [`wallet/${uid}/sp`]: s, [`wallet/${uid}/b`]: 'duel', [`wallet/${uid}/dl`]: id });
+  const win = (uid, amount, id, flag = 'paid') => ({ [`wallet/${uid}/c`]: 49000 + amount, [`wallet/${uid}/e`]: 50000 + amount, [`wallet/${uid}/dc`]: id, [`duel/${id}/${flag}`]: true });
+
+  await expect('낚시 내기: 한도(5,000)를 넘는 판돈', 'deny', () => ok.ref().update({ 'duel/F1': fishOf(6000), 'duelInv/OTHER': invOf('F1', 6000), ...stake('OK', 50000, 6000, 'F1') }));
+  await expect('낚시 내기: 신청', 'allow', () => ok.ref().update({ 'duel/F1': fishOf(1000), 'duelInv/OTHER': invOf('F1', 1000), ...stake('OK', 50000, 1000, 'F1') }));
+  await expect('낚시 내기: 수락 전에 크기 적기', 'deny', () => ok.ref('duel/F1/fa').set(40));
+  await expect('낚시 내기: 수락', 'allow', () => other.ref().update({ 'duel/F1/acc': TS, 'duelInv/OTHER': null, ...stake('OTHER', 50000, 1000, 'F1') }));
+  await expect('낚시 내기: 상대 칸에 적기', 'deny', () => ok.ref('duel/F1/fb').set(40));
+  await expect('낚시 내기: 0 을 적기', 'deny', () => ok.ref('duel/F1/fa').set(0));
+  await expect('낚시 내기: 터무니없는 크기', 'deny', () => ok.ref('duel/F1/fa').set(1000000));
+  await expect('낚시 내기: 내 최고 크기 적기', 'allow', () => ok.ref('duel/F1/fa').set(42.5));
+  await expect('낚시 내기: 더 작은 값으로 바꾸기', 'deny', () => ok.ref('duel/F1/fa').set(30));
+  await expect('낚시 내기: 더 큰 값으로 갱신', 'allow', () => ok.ref('duel/F1/fa').set(55));
+  await expect('낚시 내기: 상대도 적기', 'allow', () => other.ref('duel/F1/fb').set(61));
+  await expect('낚시 내기: 시간이 끝나기 전에 정산', 'deny', () => other.ref().update(win('OTHER', 1900, 'F1')));
+  await root.ref('duel/F1/acc').set(Date.now() - 306000);
+  await expect('낚시 내기: 시간이 끝난 뒤 크기 적기', 'deny', () => ok.ref('duel/F1/fa').set(99));
+  await expect('낚시 내기: 진 쪽이 정산', 'deny', () => ok.ref().update(win('OK', 1900, 'F1')));
+  await expect('낚시 내기: 진 쪽이 비김 환불', 'deny', () => ok.ref().update(win('OK', 1000, 'F1', 'ra')));
+  await expect('낚시 내기: 이긴 쪽이 수수료 없이', 'deny', () => other.ref().update(win('OTHER', 2000, 'F1')));
+  await expect('낚시 내기: 이긴 쪽 1,900', 'allow', () => other.ref().update(win('OTHER', 1900, 'F1')));
+  await expect('낚시 내기: 두 번 받기', 'deny', () => other.ref().update({ 'wallet/OTHER/c': 52800, 'wallet/OTHER/e': 53800, 'wallet/OTHER/dc': 'F1x', 'duel/F1/paid': true }));
+
+  // 비김 (둘 다 못 잡았거나 같은 크기): 각자 낸 돈을 돌려받는다
+  await root.ref().update({ 'wallet/OK': { c: 49000, e: 50000, sp: 1000, b: 'duel', dl: 'F2' }, 'wallet/OTHER': { c: 49000, e: 50000, sp: 1000, b: 'duel', dl: 'F2' }, 'duel/F2': { a: 'OK', b: 'OTHER', an: '닉', bn: '닉2', k: 'fish', s: 1000, o: Date.now() - 320000, acc: Date.now() - 306000 } });
+  await expect('낚시 내기: 비겼는데 이긴 것으로 받기', 'deny', () => ok.ref().update(win('OK', 1900, 'F2')));
+  await expect('낚시 내기: 비김 환불을 승자 표시로', 'deny', () => ok.ref().update(win('OK', 1000, 'F2')));
+  await expect('낚시 내기: 비김 환불을 상대 표시로', 'deny', () => ok.ref().update(win('OK', 1000, 'F2', 'rb')));
+  await expect('낚시 내기: 비김 환불 (a)', 'allow', () => ok.ref().update(win('OK', 1000, 'F2', 'ra')));
+  await expect('낚시 내기: 비김 환불 (b)', 'allow', () => other.ref().update(win('OTHER', 1000, 'F2', 'rb')));
+  await expect('낚시 내기: 비김 환불 두 번', 'deny', () => ok.ref().update({ 'wallet/OK/c': 51000, 'wallet/OK/e': 52000, 'wallet/OK/dc': 'F2x', 'duel/F2/ra': true }));
+
+  // 주사위 대결은 낚시 내기 식으로, 낚시 내기는 주사위 식으로 받을 수 없다
+  const accD = Date.now() - 306000;
+  await root.ref().update({ 'wallet/OK': { c: 49000, e: 50000, sp: 1000, b: 'duel', dl: 'F3' }, 'wallet/OTHER': { c: 49000, e: 50000, sp: 1000, b: 'duel', dl: 'F3' }, 'duel/F3': { a: 'OK', b: 'OTHER', an: '닉', bn: '닉2', k: 'fish', s: 1000, o: accD - 5000, acc: accD, fa: 10, fb: 80 } });
+  await expect('낚시 내기: 크기는 졌는데 주사위 식으로 받기', 'deny', () => ok.ref().update(win('OK', 1900, 'F3')));
+  await expect('낚시 내기: 크기로 이긴 쪽', 'allow', () => other.ref().update(win('OTHER', 1900, 'F3')));
+  await root.ref().update({ 'wallet/OK': null, 'wallet/OTHER': null, duel: null, duelInv: null });
+}
+
 // ---------- 인디언 포커 (2026-11-12) ----------
 // 판 열기 → 참가 → 서로 상대 카드를 적음(주인은 못 읽는다) → 베팅(다이·체크/콜·레이즈, 올인) → 공개 → 결과 → 각자 정산
 {

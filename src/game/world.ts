@@ -151,6 +151,7 @@ export class World implements WorldCtx {
   catchLog: CatchLog;
   get nick(): string { return this.profile.nick; }
   catchNote(kind: 'fish' | 'bug' | 'etc', text: string): void { catchNote(text); this.catchLog.add(kind, text); }
+  fishCaught(size: number): void { this.duel.onCatch(size); }
   note(text: string): void { catchNote(text); } // 한 줄 알림만 (기록 없음): 말랑이 결과 등
   banner(title: string, sub = ''): void { banner(title, sub); }
 
@@ -894,7 +895,8 @@ export class World implements WorldCtx {
   openPlayerMenu(uid: string, x: number, y: number): void {
     const nick = this.nickOf(uid);
     const items: MenuItem[] = [{ label: '💬 귓속말', onClick: () => this.hud.focusChat(`/w ${nick} `) }];
-    items.push({ label: '🎲 주사위 대결 신청', onClick: () => this.duel.openChallenge(uid) });
+    items.push({ label: '🎲 주사위 대결 신청', onClick: () => this.duel.openChallenge(uid, 'dice') });
+    items.push({ label: '🎣 낚시 내기 신청', onClick: () => this.duel.openChallenge(uid, 'fish') });
     items.push({ label: 'ℹ 프로필 보기', onClick: () => this.showProfile(uid) });
     // 관리자: 구석에 숨어 자리 비운 사람을 광장(시작 지점)으로 보낸다. 상대 클라이언트가 players/{uid}/tp 를 보고 순간이동한다
     // 지금은 같은 맵에 있는 사람만 (좌표가 내 맵 기준이고, 규칙도 같은 맵만 허용)

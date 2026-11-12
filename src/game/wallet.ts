@@ -182,10 +182,11 @@ export class WalletMgr {
     } catch (e) { console.warn('내기 판돈 쓰기가 거부됨', e); return false; }
   }
   // 정산: 이겨서 받는 돈 또는 수락되지 않아 돌려받는 돈. 같은 쓰기에서 duel/{id}/paid 를 적는다 (규칙이 누가 얼마를 받을 수 있는지 대조)
-  async duelClaim(id: string, amount: number): Promise<boolean> {
+  // flag: 내기 노드에 남기는 표시. 승리·미수락 환불은 paid, 낚시 내기가 비겨서 각자 돌려받을 때는 ra(신청한 쪽)·rb(수락한 쪽)
+  async duelClaim(id: string, amount: number, flag: 'paid' | 'ra' | 'rb' = 'paid'): Promise<boolean> {
     const W = `wallet/${this.w.uid}`;
     try {
-      await update(ref(db), { [`${W}/c`]: increment(amount), [`${W}/e`]: increment(amount), [`${W}/dc`]: id, [`duel/${id}/paid`]: true });
+      await update(ref(db), { [`${W}/c`]: increment(amount), [`${W}/e`]: increment(amount), [`${W}/dc`]: id, [`duel/${id}/${flag}`]: true });
       return true;
     } catch (e) { console.warn('내기 정산이 거부됨', e); return false; }
   }

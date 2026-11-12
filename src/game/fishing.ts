@@ -190,6 +190,7 @@ export class Fishing {
     const sizeTxt = size ? ` ${fmtSize(size)}` : '';
     // 채팅·말풍선 대신 화면 아래 한 줄 알림 + 내 기록 (2026-11-09)
     w.catchNote('fish', f.junk ? `🎣 ${f.icon} ${f.name}… 꽝!` : `🎣 ${king ? '👑 킹 사이즈! ' : ''}${f.icon} ${RARITY_NAME[f.rarity]} 등급 ${f.name}${sizeTxt}를 낚았다! (+${pts}점 · 💰+${pts}${mult > 1 ? ' · 대회 ' + mult + '배' : ''})`);
+    if (size > 0) w.fishCaught(size); // 낚시 내기 중이면 내 최고 크기로 적힌다
     this.saving = true;
     try {
       const wk = weekKey();

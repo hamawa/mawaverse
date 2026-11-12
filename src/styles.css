@@ -118,6 +118,10 @@ body.mobile.in-casino #mobile { display: none; }
 #casino.poker .pay { font-size: 11px; }
 body.mobile #casino.poker .pcard { width: 60px; height: 80px; font-size: 34px; }
 body.mobile #casino.poker .pacts .btn { padding: 10px 12px; font-size: 14px; }
+/* 낚시 내기 진행 띠: 위쪽 가운데. 뒤가 비치고 글자에 그림자 */
+#duel-bar { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); max-width: 94vw; padding: 5px 14px; border-radius: 999px; background: rgba(6, 12, 8, 0.4); border: 1px solid rgba(255, 255, 255, 0.25); color: #fff; font-size: 13px; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); pointer-events: none; }
+#duel-bar.lead { border-color: #ffd84d; color: #ffe9a8; }
+body.mobile #duel-bar { top: 44px; font-size: 12px; padding: 4px 10px; }
 /* 1:1 내기 주사위 창 */
 .duel-roll .side { text-align: center; min-width: 96px; padding: 8px; border-radius: 12px; }
 .duel-roll .side.win { background: rgba(255, 216, 77, 0.16); outline: 1px solid var(--accent); }

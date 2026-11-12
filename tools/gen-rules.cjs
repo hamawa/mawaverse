@@ -42,6 +42,7 @@ const ODD_EVEN_NUM = 19, ODD_EVEN_DEN = 10;
 // 베팅 칸 넷은 즉석 게임 베팅 쓰기에서만, 정산 표시 ic 는 정산 쓰기에서만 바뀐다 (다른 구매·획득에 끼워 넣지 못하게)
 // 1:1 내기 (2026-11-12, shared/duel.ts): dl = 내가 판돈을 낸 마지막 내기 id (b='duel' 결제 쓰기에서만 바뀐다), dc = 마지막으로 정산(승리·환불)한 내기 id
 const DUEL_ACCEPT_LIMIT_MS = 25000, DUEL_FEE_DEFAULT = 5; // 수락 제한(화면 20초 + 여유 5초), 수수료 % 기본값. shared/duel.ts 와 같아야 한다
+const DUEL_FISH_CLOSE_MS = 305000; // 낚시 내기: 수락 뒤 5분 + 여유 5초가 지나야 정산 (shared/duel.ts 의 DUEL_FISH_MS + DUEL_FISH_GRACE_MS)
 const dlSame = `${n('dl', "''")} == ${d('dl', "''")}`, dcSame = `${n('dc', "''")} == ${d('dc', "''")}`;
 const i4Only = `${n('ik', "''")} == ${d('ik', "''")} && ${n('ib')} == ${d('ib')} && ${n('ip', '-1')} == ${d('ip', '-1')} && ${n('it')} == ${d('it')}`;
 const icOnly = `${n('ic')} == ${d('ic')}`;
@@ -82,9 +83,16 @@ function walletValidate(pre = '') {
   const DC = `root.child('duel/' + newData.child('dc').val())`, DCN = `${rootNew}.child('duel/' + newData.child('dc').val())`;
   const DFEE = `(root.child('config/duelFee').isNumber() ? root.child('config/duelFee').val() : ${DUEL_FEE_DEFAULT})`;
   const DWIN = `(((${DC}.child('acc').val() % ${SLOT_MOD}) * ${SLOT_MUL} + ${SLOT_ADD}) % ${SLOT_MOD} % 2 == 0 ? ${DC}.child('a').val() : ${DC}.child('b').val())`;
-  const duelWon = `(${DC}.child('acc').exists() && ${DWIN} == auth.uid && ${dE} == 2 * ${DC}.child('s').val() - 2 * ${DC}.child('s').val() * ${DFEE} / 100)`;
+  // 주사위 대결: 승자는 수락 시각 acc 를 섞은 값의 홀짝
+  const DPAY = `2 * ${DC}.child('s').val() - 2 * ${DC}.child('s').val() * ${DFEE} / 100`;
+  const duelWon = `(${DC}.child('k').val() == 'dice' && ${DC}.child('acc').exists() && ${DWIN} == auth.uid && ${dE} == ${DPAY})`;
+  // 낚시 내기: 수락 뒤 DUEL_FISH_CLOSE_MS 가 지나야 정산한다. 각자 적어 둔 최고 크기(fa·fb, 없으면 0)가 큰 쪽이 이기고, 같으면 각자 낸 돈을 돌려받는다(ra·rb 표시)
+  const FA = `(${DC}.child('fa').isNumber() ? ${DC}.child('fa').val() : 0)`, FB = `(${DC}.child('fb').isNumber() ? ${DC}.child('fb').val() : 0)`;
+  const FCLOSED = `(${DC}.child('k').val() == 'fish' && ${DC}.child('acc').exists() && now > ${DC}.child('acc').val() + ${DUEL_FISH_CLOSE_MS})`;
+  const fishWon = `(${FCLOSED} && ((${DC}.child('a').val() == auth.uid && ${FA} > ${FB}) || (${DC}.child('b').val() == auth.uid && ${FB} > ${FA})) && ${dE} == ${DPAY})`;
+  const fishTie = `(${FCLOSED} && ${FA} == ${FB} && ${dE} == ${DC}.child('s').val() && ((${DC}.child('a').val() == auth.uid && ${DC}.child('ra').val() !== true && ${DCN}.child('ra').val() === true) || (${DC}.child('b').val() == auth.uid && ${DC}.child('rb').val() !== true && ${DCN}.child('rb').val() === true)))`;
   const duelBack = `(!${DC}.child('acc').exists() && ${DC}.child('a').val() == auth.uid && (${DC}.child('no').val() === true || now > ${DC}.child('o').val() + ${DUEL_ACCEPT_LIMIT_MS}) && ${dE} == ${DC}.child('s').val())`;
-  const duelWin = `(newData.child('dc').isString() && !(${dcSame}) && ${DC}.child('s').isNumber() && ${DC}.child('paid').val() !== true && ${DCN}.child('paid').val() === true && (${duelWon} || ${duelBack}) && ${n('rd')} == ${d('rd')} && ${crSame} && ${icOnly} && ${pcSame})`;
+  const duelWin = `(newData.child('dc').isString() && !(${dcSame}) && ${DC}.child('s').isNumber() && (((${duelWon} || ${fishWon} || ${duelBack}) && ${DC}.child('paid').val() !== true && ${DCN}.child('paid').val() === true) || ${fishTie}) && ${n('rd')} == ${d('rd')} && ${crSame} && ${icOnly} && ${pcSame})`;
   // 인디언 포커 정산 (2026-11-12): pc 가 내가 들어가 있던 판(pk)으로 바뀌는 쓰기 한 번. 같은 쓰기에서 그 판의 내 정산 표시(xa|xb)를 적어야 한다.
   //  겨룬 돈 m = 둘 중 적게 건 쪽. 이겼으면 건 돈 + m − 수수료, 졌으면 건 돈 − m(상대가 못 따라온 초과분), 비김·취소면 건 돈 그대로
   const PH = `root.child('pkh/' + data.child('pk').val())`, PSD = `data.child('ps').val()`;

@@ -16,8 +16,16 @@ export const DUEL_ACCEPT_GRACE_MS = 5000;  // 규칙은 이만큼 더 받아 준
 export const DUEL_FEE_DEFAULT = 5;         // 수수료 % (config/duelFee 로 관리자가 조정. 판돈 합계에서 떼고 없앤다)
 export const DUEL_KEEP_MS = 86400000;      // 끝난 내기는 하루 뒤 아무나 지울 수 있다
 
-export type DuelKind = 'dice';
-export interface Duel { a: string; b: string; an: string; bn: string; k: DuelKind; s: number; o: number; acc?: number; no?: boolean; paid?: boolean }
+// 낚시 내기 (2026-11-12): 수락한 뒤 5분 동안 각자 잡은 물고기 중 가장 큰 것의 크기(fa·fb)를 겨룬다. 크기는 각자 화면이 적는다(낚시와 같은 신뢰 수준이라 판돈 한도를 낮게 뒀다).
+//  시간이 끝나면(수락 + 5분 + 여유) 큰 쪽이 정산하고, 같으면(둘 다 못 잡은 경우 포함) 각자 낸 돈을 돌려받는다
+export const DUEL_FISH_MS = 300000;
+export const DUEL_FISH_GRACE_MS = 5000;    // 마지막 순간에 잡은 것을 적을 여유. 규칙은 이 시간이 지난 뒤에야 정산을 받는다
+export const DUEL_FISH_MAX = 5000;         // 낚시 내기 판돈 한도
+export type DuelKind = 'dice' | 'fish';
+export interface Duel { a: string; b: string; an: string; bn: string; k: DuelKind; s: number; o: number; acc?: number; no?: boolean; paid?: boolean; fa?: number; fb?: number; ra?: boolean; rb?: boolean }
+export const fishDuelClosed = (d: { acc?: number }, now: number): boolean => typeof d.acc === 'number' && now > d.acc + DUEL_FISH_MS + DUEL_FISH_GRACE_MS;
+export const fishDuelWinner = (d: { fa?: number; fb?: number }): 'a' | 'b' | 'tie' => { const fa = d.fa || 0, fb = d.fb || 0; return fa > fb ? 'a' : fb > fa ? 'b' : 'tie'; };
+export const duelMaxStake = (kind: DuelKind, betMax: number): number => (kind === 'fish' ? Math.min(DUEL_FISH_MAX, betMax) : betMax);
 export interface DuelInvite { id: string; f: string; fn: string; s: number; k: DuelKind; t: number }
 
 // 규칙은 config/duelFee 를 숫자면 그대로 쓴다: 여기서도 고치지 않고 그대로 써야 금액이 맞는다 (관리자 화면이 0~50 의 정수로만 저장한다)
