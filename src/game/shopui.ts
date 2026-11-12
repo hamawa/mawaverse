@@ -4,11 +4,11 @@ import { getSprite, FRAME_W, FRAME_H } from './sprites';
 import { spriteTop, drawLabel } from './render';
 import { drawHat, nameStyle, petCanvas, mountCanvas } from './cosmetics';
 import {
-  HATS, NAME_COLORS, FX, PET_GOODS, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, ARMOR_KEY, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
+  HATS, NAME_COLORS, FX, PET_GOODS, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
-  BAT, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
+  BAT, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
 } from '../shared/shop';
-import { fmtGold } from '../shared/mine';
+import { fmtGold, PICK_MAX, PICK_TOTAL_COST, pickAttempts, pickBonus } from '../shared/mine';
 import type { WalletMgr } from './wallet';
 import type { UserProfile, ServerConfig } from '../shared/types';
 
@@ -289,12 +289,15 @@ export function openShop(h: ShopHost): void {
     const gearRow = (it: ShopItem, afterBuy: string, needs?: string) => {
       const price = priceOf(it, prices);
       const owned = h.wallet.owns(it.id);
-      const armor = ARMOR_KEY[it.id];
+      const armor = TOGGLE_KEY[it.id];
+      const gloves = armor === SKI_GLOVES_EQ; // 스키 장갑: 입고 벗는 장비지만 사도 저절로 끼지 않는다 (직접 끼기)
       const on = armor ? h.wallet.armorOn(armor) : false;
-      const state = !owned ? '' : armor ? (on ? ' · 입는 중' : ' · 벗음') : ' · 보유 중';
+      const [onWord, offWord, onBtn, offBtn] = gloves ? ['끼는 중', '뺌', '빼기', '끼기'] : ['입는 중', '벗음', '벗기', '입기'];
+      const state = !owned ? '' : armor ? (on ? ` · ${onWord}` : ` · ${offWord}`) : ' · 보유 중';
       const row = el('div', { class: 'shop-good' });
       row.append(el('div', { class: 'ic', text: it.icon }), el('div', { class: 'txt' }, [el('div', { class: 'nm', text: it.name + state }), el('div', { class: 'ds', text: it.desc })]));
-      const b = el('button', { class: 'btn small' + (owned ? '' : ' primary'), text: owned ? (armor ? (on ? '벗기' : '입기') : '보유 중') : `구매 ${fmtCoins(price)}` });
+      const b = el('button', { class: 'btn small' + (owned ? '' : ' primary'), text: owned ? (armor ? (on ? onBtn : offBtn) : '보유 중') : `구매 ${fmtCoins(price)}` });
+      b.dataset.gear = it.id;
       if (owned ? !armor : (!!needs || h.wallet.balance < price)) b.disabled = true;
       if (needs && !owned) b.title = needs;
       b.onclick = async () => {
@@ -304,16 +307,45 @@ export function openShop(h: ShopHost): void {
           else if (!owned) {
             if (!(await confirmModal(`${it.name}을(를) ${fmtCoins(price)}에 살까요? 영구 적용됩니다.`))) { b.disabled = false; return; }
             if (!(await h.wallet.buyCosmetic(it.id, price))) { h.toast('코인이 모자랍니다.', true); b.disabled = false; return; }
-            if (armor) await h.wallet.setArmor(armor, true);
+            if (armor && !gloves) await h.wallet.setArmor(armor, true);
             h.toast(`${it.icon} ${it.name}! ${afterBuy}`);
           }
         } catch { h.toast('처리하지 못했습니다.', true); }
-        render();
+        render(`[data-gear="${it.id}"]`); // 다시 그려도 방금 누른 버튼에 포커스를 둔다
       };
       row.append(el('div', { class: 'row', style: 'gap:4px' }, [b, giftBtn(it, price)]));
       return row;
     };
-    box.append(el('h4', { style: 'margin:0', text: '🎣 낚싯대 · 🥅 잠자리채' }));
+    // ⛏ 곡괭이 (코인 전용·확정 업그레이드, 최고 Lv.10): 단계마다 F 한 번에 치는 횟수(단계+1)와 곡괭이질 보너스(단계/2 개)가 는다. 금덩이·주문서·선물 없음
+    const goldRange = (lv: number) => `${1 + pickBonus(lv)}~${3 + pickBonus(lv)}개`;
+    const pickRow = () => {
+      const lv = h.wallet.pickLevel, next = h.wallet.pickNextCost;
+      const row = el('div', { class: 'shop-good enh' });
+      const now = `지금: F 한 번에 ${pickAttempts(lv)}번 연속 · 곡괭이질마다 금덩이 ${goldRange(lv)}`;
+      const after = next === null ? '최고 단계입니다.' : `다음 Lv.${lv + 1}: ${pickAttempts(lv + 1)}번 연속 · 금덩이 ${goldRange(lv + 1)} (${fmtCoins(next)}, 100% 성공)`;
+      row.append(el('div', { class: 'ic', text: '⛏' }), el('div', { class: 'txt' }, [
+        el('div', { class: 'nm', text: `곡괭이 Lv.${lv}${next === null ? ' (최고)' : ` / ${PICK_MAX}`}` }),
+        el('div', { class: 'ds', text: `${now}. ${after} 코인만 들고 실패·하락 없이 한 단계씩 오릅니다(0→${PICK_MAX} 합계 ${fmtCoins(PICK_TOTAL_COST)}). 금광에서 F 한 번에 정해진 횟수만 치고 멈춥니다. 채광 중 업그레이드하면 남은 곡괭이질은 취소됩니다.` }),
+      ]));
+      const go = el('button', { class: 'btn small primary', text: next === null ? '최고 단계' : `업그레이드 ${fmtCoins(next)}` });
+      go.dataset.pick = 'go';
+      if (next === null) go.disabled = true;
+      else if (h.wallet.balance < next) { go.disabled = true; go.title = '코인이 모자랍니다'; }
+      go.onclick = async () => {
+        if (next === null) return;
+        go.disabled = true;
+        if (!(await confirmModal(`곡괭이를 Lv.${lv} → Lv.${lv + 1} 로 올릴까요? ${fmtCoins(next)}이 듭니다(코인만, 100% 성공). 채광 중이면 남은 곡괭이질이 취소됩니다.`))) { go.disabled = false; return; }
+        const r = await h.wallet.upgradePickaxe();
+        if (r === 'ok') h.toast(`⛏ 곡괭이 Lv.${lv + 1}! F 한 번에 ${pickAttempts(lv + 1)}번, 금덩이 ${goldRange(lv + 1)}`);
+        else h.toast(r === 'coins' ? '코인이 모자랍니다.' : r === 'max' ? '이미 최고 단계입니다.' : '업그레이드하지 못했습니다. 잠시 후 다시 시도하세요.', true);
+        render('[data-pick="go"]');
+      };
+      row.append(el('div', { class: 'row', style: 'gap:6px;justify-content:flex-end' }, [go]));
+      return row;
+    };
+    box.append(el('h4', { style: 'margin:0', text: '⛏ 곡괭이' }));
+    box.append(pickRow());
+    box.append(el('h4', { style: 'margin:10px 0 0', text: '🎣 낚싯대 · 🥅 잠자리채' }));
     box.append(gearRow(ROD_GOODS[0], '희귀 이상이 더 잘 뭅니다.'));
     box.append(gearRow(ROD_GOODS[1], '최고의 낚싯대! 희귀 이상 2.5배.', !h.wallet.owns('rod1') ? '좋은 낚싯대를 먼저 사야 합니다' : undefined));
     // 낚싯대 강화 (2026-11-10): 명품 낚싯대가 있을 때만. 주문서 구매 + 강화 버튼
@@ -404,6 +436,9 @@ export function openShop(h: ShopHost): void {
       row.append(btns);
       box.append(row);
     }
+    // 🧊 얼음 낚싯대: 겨울 맵 전용 단일 영구 품목 (명품 20성급 고정, 강화 불가)
+    box.append(gearRow(ICE_ROD, '겨울 맵에서 명품 낚싯대 20성급으로 낚습니다. (강화 불가)'));
+    box.append(gearRow(SKI_GLOVES, '끼기 버튼으로 직접 끼세요. 겨울 맵 눈 위에서 F 로 눈을 뭉치고 다시 F 로 던집니다.'));
     box.append(gearRow(NET_GOODS[0], '채집 실패가 절반으로 줄었습니다.'));
     box.append(gearRow(NET_GOODS[1], '이제 휘두르면 무조건 잡습니다.', !h.wallet.owns('net1') ? '튼튼한 잠자리채를 먼저 사야 합니다' : undefined));
     box.append(el('h4', { style: 'margin:10px 0 0', text: '👊 밀치기' }));

@@ -9,6 +9,8 @@ import { getSprite, FRAME_W, FRAME_H, type Pose } from './sprites';
 import type { FishingView } from './fishing';
 import type { BugView } from './bugs';
 import type { TossView } from './toss';
+import type { SnowView } from './winterplay';
+import { snowActive, SNOW_PENALTY_TITLE } from '../shared/snowpenalty';
 import { drawHat, hatAbove, nameStyle, rainbowGradient, spawnFx, drawFx, drawPet, drawMount, mountInfo, drawAfterimages, AFTERIMAGE_FX } from './cosmetics';
 
 export type BubbleKind = 'near' | 'all' | 'w';
@@ -39,6 +41,8 @@ export interface Entity {
   pet: PetView | null;         // 데리고 다니는 펫 (한 칸 뒤)
   ghost?: boolean;             // 마피아 유령: 반투명 (유령에게만 보임. 산 사람 화면에는 아예 안 들어온다)
   mining?: boolean;            // 금광에서 곡괭이질 중 (곡괭이를 휘두르는 모습)
+  snowReady?: boolean;         // 스키 장갑으로 눈을 뭉쳐 손에 들고 있다 (내 캐릭터에만. 이 브라우저에만 있는 상태라 남에게는 안 보인다)
+  snowBrokenAt?: number;       // 눈사람을 부순 서버 시각. SNOW_PENALTY_MS 동안 머리 위에 빨간 칭호 (판단은 st.serverNow 로: 기기 시계·프레임 시계가 아니다)
 }
 // 마피아 시체: 죽은 자리에 누운 아바타
 export interface BodyView { uid: string; avatar: string; nick: string; x: number; y: number }
@@ -58,6 +62,7 @@ export interface RenderState {
   tosses: TossView[]; // 날아가는 말랑이
   bodies?: BodyView[]; // 마피아 시체
   marks?: { spots: TaskMark[]; mine: boolean } | null; // 마피아 미션 자리
+  snow?: SnowView[];  // 겨울 맵의 눈덩이·눈사람 (내 화면에만 있는 장난감, 클라이언트 로컬)
 }
 
 const EMOTE_ICON: Record<number, string> = { 1: '👋', 2: '', 3: '😆', 4: '💧', 5: '💤', 6: '🥱', 7: '💢', 8: '❤', 9: '♪', 10: '💥', 11: '🥅', 12: '🧸', 13: '⛏', 14: '🧲', 15: '🐤' }; // 15: 삐약 (예전 병아리 스킬. 이모트 자리는 남겨 둔다)
@@ -222,9 +227,15 @@ export function render(eng: Engine, st: RenderState): void {
         if (e.hat) drawHat(ctx, e.hat, dx, dy, spriteTop(spr), ddir);
         if (e.fishing) drawRod(ctx, e, e.fishing, st.now);
         if (e.mining) drawPickaxe(ctx, e, st.now);
+        if (e.snowReady) { const [hx, hy] = handPos(e); snowOrb(ctx, hx, hy + 4, 3); }
         ctx.globalAlpha = 1;
       },
     });
+  }
+  // 눈덩이·눈사람: 칸 아랫줄 기준으로 정렬해 사람과 앞뒤가 맞는다
+  for (const sv of st.snow || []) {
+    if (!eng.isTileVisible(sv.x, sv.y, TILE)) continue;
+    items.push({ sortY: sv.y + 0.85, order: 0, draw: () => (sv.kind === 'man' ? drawSnowman(ctx, sv.x * TILE + TILE / 2, sv.y * TILE + TILE - 3) : drawSnowball(ctx, sv.x * TILE + TILE / 2, sv.y * TILE + TILE - 3, sv.large ? 11 : 5 + sv.rolls)) });
   }
   // 마피아 시체: 옆으로 누운 아바타 + 🩸 (모두에게 보임)
   for (const b of st.bodies || []) {
@@ -259,6 +270,7 @@ export function render(eng: Engine, st: RenderState): void {
     if (t.icon === '⚓') { // 갈고리: 던진 사람에게서 줄이 이어진다
       ctx.strokeStyle = '#d9c7a0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(t.fx * TILE + TILE / 2, t.fy * TILE + TILE / 2 - 10); ctx.lineTo(x, y); ctx.stroke();
     }
+    if (t.snow) { snowOrb(ctx, x, y + 4, 4); continue; } // 스키 장갑 눈덩이
     ctx.font = `${t.icon ? 16 : 13}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(t.icon || '🧸', x, y);
   }
@@ -295,6 +307,8 @@ export function render(eng: Engine, st: RenderState): void {
     // 머리 위: 😵 · 입질 · 이모트 · 말풍선. 물속이면 가라앉은 만큼 내려가고, 모자가 프레임 위로 솟았으면 그만큼 올라간다
     const [, syTop] = eng.worldToScreen(e.x * TILE + TILE / 2, e.y * TILE + TILE - FRAME_H + pos.sink - pos.above);
     let top = syTop - 4;
+    // 눈사람을 부순 벌칙 칭호: 가장 아래, 머리 바로 위. 이모트·말풍선은 그 위로 올라간다
+    if (snowActive(e.snowBrokenAt, st.serverNow)) { drawLabel(ctx, SNOW_PENALTY_TITLE, sx, top, '#ffffff', 'rgba(185, 28, 28, 0.92)', 11, '#fecaca'); top -= 18; }
     if (e.pose === 'jump' && st.now - e.poseAt < EMOTE_MS) top -= Math.sin(Math.min(1, (st.now - e.poseAt) / EMOTE_MS) * Math.PI) * 10 * s;
     // 말랑이에 맞음
     if (st.now - e.hitAt >= 0 && st.now - e.hitAt < 1000) { drawLabel(ctx, '😵', sx, top, '#fff', 'rgba(0,0,0,0.5)', 14); top -= 20; }
@@ -321,6 +335,43 @@ export function render(eng: Engine, st: RenderState): void {
     // 말풍선
     if (e.bubble && st.now - e.bubble.at < BUBBLE_MS) drawBubble(ctx, e.bubble, sx, top - 2, s);
   }
+}
+
+// ---- 눈덩이·눈사람 (픽셀 원: 가로줄 하나씩 채운다) ----
+function pixelDisc(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string): void {
+  ctx.fillStyle = color;
+  for (let dy = -r; dy <= r; dy++) {
+    const hw = Math.floor(Math.sqrt(r * r + r * 0.6 - dy * dy));
+    ctx.fillRect(Math.round(cx) - hw, Math.round(cy) + dy, hw * 2 + 1, 1);
+  }
+}
+// 둥근 눈덩이 하나: 바닥 그림자 → 테두리 → 아래쪽 그늘 → 본체 → 왼쪽 위 하이라이트. (cx, bottom) = 바닥 가운데
+function snowOrb(ctx: CanvasRenderingContext2D, cx: number, bottom: number, r: number): number {
+  const cy = bottom - r;
+  pixelDisc(ctx, cx, cy, r + 1, '#8fa6c8');
+  pixelDisc(ctx, cx, cy, r, '#c4d3ea');
+  pixelDisc(ctx, cx - 1, cy - 1, Math.max(1, r - 2), '#eef4fc');
+  pixelDisc(ctx, cx - Math.ceil(r / 3), cy - Math.ceil(r / 3), Math.max(1, Math.floor(r / 3)), '#ffffff');
+  return cy;
+}
+function drawSnowball(ctx: CanvasRenderingContext2D, cx: number, bottom: number, r: number): void { // r: 굴린 만큼 커진다 (5..10, 큰 눈덩이 11)
+  ctx.fillStyle = 'rgba(40,60,100,0.22)';
+  ctx.beginPath(); ctx.ellipse(cx, bottom + 1, r + 2, 3.5, 0, 0, Math.PI * 2); ctx.fill();
+  snowOrb(ctx, cx, bottom, r);
+}
+function drawSnowman(ctx: CanvasRenderingContext2D, cx: number, bottom: number): void {
+  ctx.fillStyle = 'rgba(40,60,100,0.22)';
+  ctx.beginPath(); ctx.ellipse(cx, bottom + 1, 13, 4, 0, 0, Math.PI * 2); ctx.fill();
+  snowOrb(ctx, cx, bottom, 10);
+  const midY = snowOrb(ctx, cx, bottom - 15, 7);
+  const headY = snowOrb(ctx, cx, bottom - 27, 5);
+  ctx.fillStyle = '#6b4a2b'; // 나뭇가지 팔
+  ctx.fillRect(cx - 14, midY - 2, 7, 1); ctx.fillRect(cx + 8, midY - 2, 7, 1); ctx.fillRect(cx - 14, midY - 4, 1, 3); ctx.fillRect(cx + 14, midY - 4, 1, 3);
+  ctx.fillStyle = '#1f2937'; // 눈·단추
+  ctx.fillRect(cx - 3, headY - 2, 1, 2); ctx.fillRect(cx + 2, headY - 2, 1, 2);
+  ctx.fillRect(cx, midY - 3, 1, 1); ctx.fillRect(cx, midY + 1, 1, 1);
+  ctx.fillStyle = '#f97316'; ctx.fillRect(cx, headY, 4, 1); // 당근 코
+  ctx.fillStyle = '#b91c1c'; ctx.fillRect(cx - 5, headY + 4, 11, 2); // 목도리
 }
 
 // ---- 낚시 ----

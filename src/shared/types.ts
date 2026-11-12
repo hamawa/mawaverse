@@ -18,11 +18,13 @@ export interface UserProfile {
   eq?: Equip | null;                // 착용 중인 꾸미기
   gifts?: Record<string, true>;    // 선물로 받은 품목 (보낸 사람이 own 과 함께 적는다)
   gift?: GiftMark | null;          // 마지막으로 받은 선물 (알림용)
+  snowBrokenAt?: number;           // 눈사람을 마지막으로 부순 서버 시각 (벌칙 SNOW_PENALTY_MS. 쓰기는 규칙이 now 와 같을 때만 받는다)
 }
 
 export interface PushEvent { f: string; dx: number; dy: number; t: number; n?: number; r?: boolean; b?: number } // n=2: 장풍 (앞 4×4칸 범위, 두 칸 밀림. 규칙이 보유를 확인). r: 거북이 등껍질이 되받아친 것 (다시 되받지 않는다)
 // 말랑이: 던진 사람(f)과 그 위치(fx,fy), 겨냥한 칸(tx,ty). players/{target}/toss 에 잠깐 실린다. r: 등껍질에 튕겨 되돌아온 것
-export interface TossMsg { f: string; fx: number; fy: number; tx: number; ty: number; t: number; r?: boolean; b?: number }
+export interface TossMsg { f: string; fx: number; fy: number; tx: number; ty: number; t: number; r?: boolean; b?: number; s?: 1 }
+// s=1: 스키 장갑 눈덩이 (겨울 눈싸움, shared/shop.ts SKI_GLOVES). 방어 무시 스턴이라 b(빠따)·r(되받아침)과 같이 쓰지 않는다. 규칙이 보낸 사람의 장갑 보유·착용과 겨울 맵을 본다
 // 끌기: 끄는 사람(f)이 나를 (x,y) 칸으로 당긴다. 보통 끌기는 f 가 한 칸 물러난 뒤 비운 자기 자리, 갈고리(k='hook', 규칙이 보유 확인)는 f 의 바로 앞 칸
 export interface PullEvent { f: string; x: number; y: number; t: number; k?: 'hook'; b?: number }
 // 위 세 메시지의 b=1: 빠따로 방어를 깨는 타격 (2026-11-11). 받는 쪽은 갑옷·펫 방어를 건너뛰고, 그때부터 GUARD_BREAK_MS 동안 방어가 깨진다. 규칙이 보낸 사람의 지갑 bt 가 같은 쓰기에서 줄었는지 본다
@@ -58,6 +60,7 @@ export interface PlayerState {
   nr?: boolean | null;  // 만렙 펫을 타지 않고 데리고 다닌다 (없으면 탄다)
   mn?: boolean | null;  // 금광에서 채광 중 (곡괭이질이 남에게 보이게. 곡괭이질마다 쓰지 않고 켜고 끌 때만)
   nd?: boolean | null;  // 내기 신청을 받지 않는다 (2026-11-12. 신청하는 쪽이 보고 미리 막는다)
+  sn?: number | null;   // 눈사람을 부순 서버 시각 (users/{uid}/snowBrokenAt 과 같은 값. SNOW_PENALTY_MS 동안은 갑옷·펫 방어가 없고, 벌칙 중에는 규칙이 이 칸을 빼지 못하게 한다)
   gb?: number | null;   // 빠따에 맞아 방어(갑옷·펫)가 깨진 상태: 풀리는 서버 시각. 이 시각까지는 누구의 밀치기·말랑이·끌기도 통한다
 }
 

@@ -13,6 +13,8 @@ import { inFront, dirVec } from './area';
 import type { WorldCtx, RemotePlayer } from './state';
 import { MAIN_MAP_ID, occupancyKey, playerMapId } from '../shared/maps';
 import { lastPosOf, mapSwitchUpdate } from './portal';
+import { snowActive } from '../shared/snowpenalty';
+import { batGuardField } from '../shared/shop';
 
 // 착용 중인 꾸미기를 presence 에 싣는다 (짧은 키). 규칙이 "가진 것만" 허용하므로 보유 목록에 없는 건 뺀다 (어긋난 데이터로 입장이 막히지 않게)
 // pl: 데리고 있는 펫의 누적 먹이 (지갑 px 값. 규칙이 지갑과 대조). 펫이 없으면 싣지 않는다
@@ -51,7 +53,29 @@ export class Net {
   private noDuel = false;
   setNoDuel(on: boolean): void { this.noDuel = on; set(ref(db, `players/${this.w.uid}/nd`), on ? true : null).catch(() => {}); }
   private duelField(): Pick<PlayerState, 'nd'> { return this.noDuel ? { nd: true } : {}; }
-  private guardField(): Pick<PlayerState, 'gb'> { return this.w.guardBroken() ? { gb: this.w.guardUntil } : {}; } // 빠따에 맞아 방어가 깨져 있는 동안
+  private guardField(): Pick<PlayerState, 'gb'> { return batGuardField(this.w.guardUntil, serverNow()); } // 빠따에 맞아 방어가 깨져 있는 동안 (눈사람 벌칙만으로는 싣지 않는다: sn 이 따로 간다)
+  // 눈사람 부순 벌칙(users/{uid}/snowBrokenAt)을 presence sn 에 싣는다. 규칙이 벌칙 중에는 sn 을 저장된 시각과 같게 요구하고 빼는 것을 막는다.
+  // snowAt: 알려진 저장 시각(입장 전에 알게 되면 여기 두었다가 join/reclaim 이 통째로 싣는다 — 노드가 없을 때 sn 만 따로 쓰면 유령 노드가 생긴다), snowSent: presence 에 실려 있는 값(0 = 없음)
+  private snowAt = 0;
+  private snowSent = 0;
+  private joined = false;
+  private snowField(): Pick<PlayerState, 'sn'> { return snowActive(this.snowAt, serverNow()) ? { sn: this.snowAt } : {}; }
+  // 저장된 시각이 바뀌었다 (SnowPenaltyMgr 의 onChange). 입장 전이면 기억만 한다. 걸음마다 부르지 않는다
+  setSnowPenalty(brokenAt: number): void {
+    if (brokenAt === this.snowAt) return;
+    this.snowAt = brokenAt;
+    if (this.joined && !this.leaving) this.writeSnow();
+  }
+  // presence 의 sn 을 지금 상태에 맞춘다 (벌칙 중이면 저장 시각, 끝났으면 지움). 이미 맞으면 extra 만 쓴다. 하트비트가 extra 로 실리고, 끝난 sn 을 거두는 일도 여기서 한다 (별도 타이머 없음)
+  private writeSnow(extra: Record<string, unknown> = {}): void {
+    const want = snowActive(this.snowAt, serverNow()) ? this.snowAt : 0;
+    const patch = want === this.snowSent ? extra : { ...extra, sn: want || null };
+    if (!Object.keys(patch).length) return;
+    update(this.playerRef(), patch).then(() => { if ('sn' in patch) this.snowSent = want; }).catch(() => {});
+  }
+  // 눈사람 벌칙 중이면 갑옷·펫 방어가 없다 (World.guardBroken 과 같은 뜻. 월드가 못 알려도 받는 쪽에서 한 번 더 막는다)
+  private snowOpen(): boolean { return snowActive(this.w.snowBrokenAt, serverNow()); }
+  private guardOpen(): boolean { return this.snowOpen() || this.w.guardBroken(); }
   private pendingSteps = 0;  // 서버 답을 기다리는 걸음 수
   private changing = false;  // 맵 이동 쓰기 중 (재등록이 옛 맵 상태로 덮어쓰지 않게)
   // 지금 칸의 occ 가 내 것인가. 입장·재등록 때 자리를 못 잡았으면(남이 먼저) false: 그 칸을 지우려 하면 규칙이 쓰기를 통째로 거부한다
@@ -60,20 +84,24 @@ export class Net {
 
   private currentState(): PlayerState {
     const w = this.w;
-    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.duelField() };
+    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.snowField(), ...this.duelField() };
   }
 
   // 월드 입장: 현재 접속자 스냅샷을 읽고 빈 타일을 잡은 뒤 presence 등록
   async join(spawnX: number, spawnY: number, dir: Dir = 0): Promise<void> {
     const w = this.w;
+    if (!this.snowAt) this.snowAt = w.profile.snowBrokenAt || 0; // 입장 직전에 읽은 프로필의 저장 시각 (구독이 아직 안 왔어도 규칙이 요구하는 sn 을 싣는다)
     const st: PlayerState = {
-      n: w.profile.nick, a: w.profile.avatar, x: spawnX, y: spawnY, d: dir, s: w.sessionId, e: null, r: null, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.duelField(),
+      n: w.profile.nick, a: w.profile.avatar, x: spawnX, y: spawnY, d: dir, s: w.sessionId, e: null, r: null, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.snowField(), ...this.duelField(),
     };
     await onDisconnect(this.playerRef()).remove();
     // 자리(occ)와 presence 를 한 번에 올린다. 자리는 규칙이 지킨다(비었거나, 내 것이거나, 적힌 사람이 거기 없을 때만). 방금 누가 그 자리를 잡아 거부되면 자리 없이 들어가고 다음 걸음에서 잡는다
     const node = { ...st, hb: serverTimestamp() };
     try { await update(ref(db), { [`occ/${this.occKey(spawnX, spawnY)}`]: w.uid, [`players/${w.uid}`]: node }); this.ownsOcc = true; }
     catch { await set(this.playerRef(), node); this.ownsOcc = false; }
+    this.snowSent = st.sn || 0;
+    this.joined = true;
+    this.writeSnow(); // 노드를 쓰는 동안 저장 시각이 바뀌었으면 맞춘다
     await set(ref(db, `sessions/${w.uid}`), w.sessionId);
     // 입퇴장 로그 (퇴장 로그는 onDisconnect 로 예약)
     const joinLog = push(ref(db, 'logs/conn'));
@@ -115,7 +143,7 @@ export class Net {
 
   private heartbeat(): void {
     if (this.leaving) return;
-    update(this.playerRef(), { hb: serverTimestamp() }).catch(() => {});
+    this.writeSnow({ hb: serverTimestamp() });
   }
 
   // 복귀 직후: players 를 서버에서 한 번 읽어 재동기화가 끝난 뒤 1.5초까지(최대 15초) 조용히 한다
@@ -169,9 +197,10 @@ export class Net {
       try {
         await onDisconnect(this.playerRef()).remove();
         if (this.changing) { this.reclaim(); return; }
-        const node = { ...this.currentState(), hb: serverTimestamp() };
-        try { await update(ref(db), { [`occ/${this.occKey(w.me.x, w.me.y)}`]: w.uid, [`players/${w.uid}`]: node }); this.ownsOcc = true; }
-        catch { await set(this.playerRef(), node); this.ownsOcc = false; await w.teleportTo(w.me.x, w.me.y); } // 내 자리를 그새 다른 사람이 잡았다: 옆 빈 칸으로
+        const cur = this.currentState();
+        const node = { ...cur, hb: serverTimestamp() };
+        try { await update(ref(db), { [`occ/${this.occKey(w.me.x, w.me.y)}`]: w.uid, [`players/${w.uid}`]: node }); this.ownsOcc = true; this.snowSent = cur.sn || 0; }
+        catch { await set(this.playerRef(), node); this.ownsOcc = false; this.snowSent = cur.sn || 0; await w.teleportTo(w.me.x, w.me.y); } // 내 자리를 그새 다른 사람이 잡았다: 옆 빈 칸으로
       } catch { /* 다음 정리 주기에 다시 시도됨 */ }
     }, 1500);
   }
@@ -275,8 +304,8 @@ export class Net {
         w.events.emit('wave', pusher.toX, pusher.toY, w.me.x, w.me.y);
       } else if (Math.abs(rx) + Math.abs(ry) !== 1 || rx !== p.dx || ry !== p.dy) return; // 보통 밀치기: 바로 옆에서 나를 보고 있어야 함
       // 빠따(b=1): 방어를 깨고 그대로 민다. 이미 깨져 있는 동안에도 방어가 없다 (2026-11-11)
-      if (p.b === 1 && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(pusher.st.n);
-      const open = w.guardBroken();
+      if (p.b === 1 && !this.snowOpen() && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(pusher.st.n); // 눈사람 벌칙 중이면 빠따가 와도 60초 방어 깨짐을 새로 걸지 않는다
+      const open = this.guardOpen();
       // 철벽 갑옷: 안 밀린다 (🛡 표시만)
       if (!open && w.profile.eq?.pa) { w.me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${pusher.st.n} 의 밀치기를 막았다.`); return; }
       if (!open && w.petGuard()) {
@@ -317,8 +346,8 @@ export class Net {
         if (Math.abs(me.x - p.x) + Math.abs(me.y - p.y) !== 1) return;
         if (Math.abs(puller.toX - p.x) + Math.abs(puller.toY - p.y) !== 1) return;
       }
-      if (p.b === 1 && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(puller.st.n); // 빠따: 방어를 깨고 그대로 끈다
-      const open = w.guardBroken();
+      if (p.b === 1 && !this.snowOpen() && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(puller.st.n); // 빠따: 방어를 깨고 그대로 끈다
+      const open = this.guardOpen();
       if (!open && w.profile.eq?.pa) { me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${puller.st.n} 의 끌기를 막았다.`); return; }
       if (!open && w.petGuard()) { me.blockAt = performance.now(); w.toast(`🛡 펫이 ${puller.st.n} 의 끌기를 막았다.`); return; }
       w.settleIfStalled();
@@ -494,6 +523,7 @@ export class Net {
     const w = this.w;
     this.flushStats();
     this.leaving = true;
+    this.joined = false;
     clearInterval(this.hbTimer); clearInterval(this.sweepTimer); clearTimeout(this.reclaimTimer); clearTimeout(this.afkTimer); clearTimeout(this.peakTimer);
     document.removeEventListener('visibilitychange', this.onVisibility);
     for (const u of this.unsubs) u();

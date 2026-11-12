@@ -105,7 +105,7 @@ async function main() {
       const uid = await uidOf(id);
       const u = (await db.ref(`users/${uid}`).get()).val();
       await auth.deleteUser(uid).catch((e) => console.warn('auth 삭제 실패(이미 없음?):', e.message));
-      const upd = { [`signups/${uid}`]: null, [`approved/${uid}`]: null, [`users/${uid}`]: null, [`ids/${safeKey(normKey(id))}`]: null, [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`duelInv/${uid}`]: null, [`admins/${uid}`]: null, [`invites/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`bans/${uid}`]: null, [`kicks/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null };
+      const upd = { [`signups/${uid}`]: null, [`approved/${uid}`]: null, [`users/${uid}`]: null, [`ids/${safeKey(normKey(id))}`]: null, [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`duelInv/${uid}`]: null, [`admins/${uid}`]: null, [`invites/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`bans/${uid}`]: null, [`kicks/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null, [`winter/events/${uid}`]: null };
       if (u?.nick) upd[`nicknames/${nickKey(u.nick)}`] = null;
       await db.ref().update(upd);
       console.log(`삭제 완료: ${id}`);

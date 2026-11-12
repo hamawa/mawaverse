@@ -1,6 +1,6 @@
 // 바닥/오브젝트 타일을 코드로 그려 캐시한다.
 import { PixelBuf, shade } from './pixel';
-import { G, G_GOLD, O } from './map';
+import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O } from './map';
 import { TILE } from '../shared/config';
 import { seededRandom } from '../shared/hash';
 
@@ -46,6 +46,25 @@ function drawGround(id: number, variant: number, frame: number): PixelBuf {
   const b = new PixelBuf(TILE, TILE);
   const rnd = seededRandom(`g${id}-${variant}`);
   switch (id) {
+    case G_SNOW:
+      b.rect(0, 0, TILE, TILE, '#f4f8fa');
+      speckle(b, rnd, 9, ['#e0ebf2', '#ffffff'], 2, 1);
+      b.rect(4, 24, 6, 1, '#d8e6ee');
+      break;
+    case G_ICE:
+      b.rect(0, 0, TILE, TILE, '#c9eaf3');
+      speckle(b, rnd, 8, ['#eafaff', '#a9d7e8'], 3, 1);
+      b.rect(5, 7, 9, 1, '#f3fcff');
+      b.rect(14, 8, 1, 6, '#a9d7e8');
+      break;
+    case G_ICE_HOLE:
+      b.rect(0, 0, TILE, TILE, '#c9eaf3');
+      b.rect(5, 3, 22, 26, '#f2fcff');
+      b.rect(3, 7, 26, 18, '#f2fcff');
+      b.rect(7, 6, 18, 20, '#173b55');
+      b.rect(5, 10, 22, 12, '#173b55');
+      b.rect(10, 12, 10, 1, '#39718a');
+      break;
     case G.GRASS:
       b.rect(0, 0, TILE, TILE, P.grass);
       speckle(b, rnd, 14, [P.grass2, P.grassDark], 2, 1);

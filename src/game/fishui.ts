@@ -4,7 +4,8 @@ import { el, fmtDateTime } from '../shared/util';
 import { modal } from './ui';
 import { serverNow } from '../firebase/db';
 import { RARITY_NAME, RARITY_COLOR, RARITY_POINTS, MYTHIC, TIME_LABEL, type Collection, type BookEntry, type WeekEntry, type BestEntry } from '../shared/collection';
-import { fishColl, fmtSize, weekKey, fishById } from '../shared/fish';
+import { fishColl, fmtSize, weekKey, fishById as normalFishById } from '../shared/fish';
+import { winterColl, winterFishById, isWinterFish, kingEligibleFish } from '../shared/winter';
 import { bugColl, fmtBugSize } from '../shared/bugs';
 import { prevContestWindow, type ContestEntry, type ContestResult } from '../shared/contest';
 import type { ContestMgr } from './contest';
@@ -12,6 +13,7 @@ import type { TossWeekEntry } from './toss';
 import { CATCH_LOG_MAX, type CatchLog } from './catchlog';
 
 export interface FishUser { uid: string; nick: string; contest?: ContestMgr; catchLog?: CatchLog }
+const fishById = (id: string) => normalFishById(id) ?? winterFishById(id);
 
 // 도감 종류 (물고기 / 곤충). DB 경로와 표시만 다르고 구조는 같다
 interface BookKind { base: 'fish' | 'bug'; coll: Collection; label: string; unit: (n: number) => string; icon: string; catchWord: string }
@@ -76,7 +78,7 @@ export function openFishBook(user: FishUser): void {
       book = b.val() || {}; best = bs.val() || {}; week = wk.val();
     } catch { pane.innerHTML = '<p class="error">기록을 불러오지 못했습니다.</p>'; return; }
     pane.innerHTML = '';
-    const all = k.coll.list();
+    const all = k.base === 'fish' ? [...k.coll.list(), ...winterColl.list()] : k.coll.list();
     // 비활성 종은 이미 잡은 사람에게만 보인다. 관리자가 삭제한 종은 '사라진 …'
     const visible = all.filter((f) => f.on !== false || book[f.id]);
     const mainList = visible.filter((f) => !f.junk), junkList = visible.filter((f) => f.junk);
@@ -86,19 +88,20 @@ export function openFishBook(user: FishUser): void {
     const total = Object.values(book).reduce((s, e) => s + (e.c || 0), 0);
     // 킹 도감 (물고기만, 2026-11-11): 킹 낚싯대로 잡은 킹 사이즈를 어종마다 센다
     const isFish = k.base === 'fish';
-    const kingFound = mainList.filter((f) => (book[f.id]?.k || 0) > 0).length;
-    pane.append(el('div', { class: 'muted', style: 'margin-bottom:8px', text: `${k.label} ${found}/${mainList.length}종 · 꽝 ${junkFound}/${junkList.length}종 · 총 ${total}마리 · 이번 주 ${week?.p || 0}점${isFish ? ` · 👑 킹 도감 ${kingFound}/${mainList.length}종` : ''}${k.base === 'bug' ? ' · 풀밭·꽃밭에서 걸어가 옆에서 F (달리면 도망감)' : ''}` }));
+    const kingEligible = kingEligibleFish(mainList);
+    const kingFound = kingEligible.filter((f) => (book[f.id]?.k || 0) > 0).length;
+    pane.append(el('div', { class: 'muted', style: 'margin-bottom:8px', text: `${k.label} ${found}/${mainList.length}종 · 꽝 ${junkFound}/${junkList.length}종 · 총 ${total}마리 · 이번 주 ${week?.p || 0}점${isFish ? ` · 👑 킹 도감 ${kingFound}/${kingEligible.length}종` : ''}${k.base === 'bug' ? ' · 풀밭·꽃밭에서 걸어가 옆에서 F (달리면 도망감)' : ''}` }));
     const grid = el('div', { class: 'fish-grid' });
     for (const f of [...mainList, ...junkList]) {
       const mine = book[f.id];
       const off = f.on === false;
       const card = el('div', { class: 'fish-card' + (mine ? '' : ' locked') + (off ? ' off' : '') });
       const nm = el('div', { class: 'nm' + (!f.junk && f.rarity >= MYTHIC ? ' myth-text' : ''), text: f.name, style: `color:${f.junk ? 'var(--muted)' : RARITY_COLOR[f.rarity]}` }); // 신화는 무지개 반짝임
-      const sub = f.junk ? '꽝' : `${RARITY_NAME[f.rarity]} · ${RARITY_POINTS[f.rarity]}점${f.time ? ' · ' + TIME_LABEL[f.time] : ''}`;
+      const sub = (isWinterFish(f.id) ? '겨울 전용 · ' : '') + (f.junk ? '꽝' : `${RARITY_NAME[f.rarity]} · ${RARITY_POINTS[f.rarity]}점${f.time ? ' · ' + TIME_LABEL[f.time] : ''}`);
       card.append(el('div', { class: 'ic', text: f.icon }), nm, el('div', { class: 'meta', text: sub }));
       if (mine) card.append(el('div', { class: 'meta', text: f.junk ? `${mine.c}개` : `${mine.c}마리 · 내 최대 ${k.unit(mine.m)}` }));
       else card.append(el('div', { class: 'meta', text: '아직 못 잡음' }));
-      if (isFish && !f.junk) card.append(el('div', { class: 'meta king' + (mine?.k ? ' on' : ''), text: mine?.k ? `👑 킹 사이즈 ${mine.k}마리` : '👑 킹 사이즈 없음' }));
+      if (isFish && kingEligible.includes(f)) card.append(el('div', { class: 'meta king' + (mine?.k ? ' on' : ''), text: mine?.k ? `👑 킹 사이즈 ${mine.k}마리` : '👑 킹 사이즈 없음' }));
       if (off) card.append(el('div', { class: 'meta', text: '지금은 안 나옴' }));
       if (!f.junk) { const b = best[f.id]; card.append(el('div', { class: 'meta best', text: b ? `🏆 ${b.k ? '👑 ' : ''}${b.n} ${k.unit(b.s)}` : '🏆 기록 없음' })); }
       card.title = f.desc;

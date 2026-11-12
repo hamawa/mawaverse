@@ -1,7 +1,8 @@
 import { ref, get, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ArmorKey, type GiftMark } from '../shared/shop';
+import { AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
+import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
 import type { WorldCtx } from './state';
@@ -233,10 +234,36 @@ export class WalletMgr {
 
   // ---- 금광 채광 (2026-11-11) ----
   get gold(): number { return this.wallet.gn || 0; }
-  // 곡괭이질 한 번의 보상: 금덩이 n 개(1~3)와 채광 시각. 규칙이 지난 채광(ga)에서 MINE_GAP_MS 이상 지났는지 본다. 코인·구매 기록은 건드리지 않는다
+  // 곡괭이질 한 번의 보상: 금덩이 n 개와 채광 시각. 규칙이 지난 채광(ga)에서 MINE_GAP_MS 이상 지났는지, n 이 내 지갑의 곡괭이 단계로 나올 수 있는 최대(goldMax) 이하인지 본다.
+  // 코인·구매 기록·곡괭이 단계는 건드리지 않는다
   mine(n: number): Promise<boolean> {
     if (n <= 0) return Promise.resolve(false);
-    return this.tx((c) => ({ ...c, gn: (c.gn || 0) + n, ga: serverTimestamp() as unknown as number }));
+    return this.tx((c) => (n > goldMax(pickLevelOf(c.pk)) ? null : { ...c, gn: (c.gn || 0) + n, ga: serverTimestamp() as unknown as number }));
+  }
+
+  // ---- 곡괭이 업그레이드 (코인 전용·확정, shared/mine.ts) ----
+  get pickLevel(): number { return pickLevelOf(this.wallet.pk); }
+  get pickMaxed(): boolean { return this.pickLevel >= PICK_MAX; }
+  // 다음 단계로 올리는 값. 최고 단계면 null
+  get pickNextCost(): number | null { return this.pickLevel >= PICK_MAX ? null : pickCost(this.pickLevel + 1); }
+  private upgrading = false; // 업그레이드 쓰기가 진행 중 (그 사이에 또 누른 것은 무시)
+  // 지금 단계 +1 만 올린다 (트랜잭션 안의 최신 단계가 눌렀을 때와 다르면 중단). 'coins': 모자람, 'max': 최고 단계, 'fail': 그새 바뀌었거나 규칙이 거부
+  async upgradePickaxe(): Promise<'ok' | 'coins' | 'max' | 'fail'> {
+    if (this.upgrading) return 'fail';
+    const level = this.pickLevel;
+    if (level >= PICK_MAX) return 'max';
+    const target = level + 1, cost = pickCost(target);
+    if (this.balance < cost) return 'coins';
+    this.upgrading = true;
+    try {
+      const ok = await this.tx((c) => {
+        if (pickLevelOf(c.pk) !== level || (c.c || 0) < cost) return null;
+        const n: Wallet = { ...c, c: (c.c || 0) - cost, sp: (c.sp || 0) + cost, b: PICK_ITEM, pk: target };
+        delete n.gt; // 선물이 아닌 구매 (규칙도 gt 가 없을 때만 받는다)
+        return n;
+      });
+      return ok ? 'ok' : 'fail';
+    } finally { this.upgrading = false; }
   }
 
   // ---- 낚싯대 강화 (2026-11-10) ----
@@ -248,6 +275,7 @@ export class WalletMgr {
   // 강화 1회: 주문서 1장을 쓰며 성공이면 rs+1, 실패면 명품 낚싯대가 부서진다. 결과는 여기서 굴린다 (낚시처럼 클라이언트 신뢰)
   // 'none': 주문서 없음/최대, 'ok': 성공, 'broke': 실패(부서짐. 보관함에서도 이미 지웠다. 좋은 낚싯대 rod1 은 남는다)
   private enhancing = false; // 강화 쓰기가 진행 중 (그 사이에 또 누른 것은 무시)
+  // 일반 명품 낚싯대(rod2)만 강화한다. 얼음 낚싯대(iceRod)는 성능이 고정이라 강화 경로가 없다
   async enhanceRod(): Promise<'none' | 'ok' | 'broke'> {
     const stars = this.stars;
     if (this.enhancing || this.scrolls <= 0 || stars >= ROD_MAX_STARS || !this.w.profile.own?.rod2) return 'none';
@@ -295,6 +323,10 @@ export class WalletMgr {
   get fishStars(): number { return this.w.profile.own?.rod3 ? KING_BASE_STARS : this.stars; }
   // 남에게 보이는 성 (찌 옆 ★n): 킹 낚싯대면 킹 성
   get shownStars(): number { return this.w.profile.own?.rod3 ? this.kingStars : this.stars; }
+  // 낚싯대 계열별 성 (낚시가 맵에 맞는 계열을 고른다). 얼음 낚싯대는 가졌을 때만 명품 20성으로 고정, 남에게 보이는 성·킹 성은 없다 (강화·킹 사이즈 불가)
+  fishStarsFor(family: RodFamily = 'normal'): number { return family === 'ice' ? (this.owns(ICE_ROD_ID) ? ICE_ROD_STARS : 0) : this.fishStars; }
+  shownStarsFor(family: RodFamily = 'normal'): number { return family === 'ice' ? 0 : this.shownStars; }
+  kingStarsFor(family: RodFamily = 'normal'): number { return family === 'ice' ? 0 : this.kingStars; }
   // 제작: 명품 낚싯대 30성이 있어야 하고, 코인(가격표)과 금덩이 KING_CRAFT_GOLD 개가 한 쓰기에서 같이 준다 (b='rod3'). 명품 낚싯대와 그 30성은 그대로.
   // 'need': 자격 미달, 'gold'/'coins': 모자람, 'fail': 그새 바뀌었거나 규칙이 거부
   async craftKing(price: number): Promise<'ok' | 'need' | 'gold' | 'coins' | 'fail'> {
@@ -389,11 +421,12 @@ export class WalletMgr {
     await update(ref(db), { [`users/${this.w.uid}/eq/nr`]: on ? null : true, [`players/${this.w.uid}/nr`]: on ? null : true }).catch(() => {});
     this.listeners.forEach((f) => f());
   }
-  armorOn(key: ArmorKey): boolean { return !!this.w.profile.eq?.[key]; }
-  async setArmor(key: ArmorKey, on: boolean): Promise<void> {
+  armorOn(key: ToggleKey): boolean { return !!this.w.profile.eq?.[key]; }
+  // 스키 장갑(sg)은 프로필에만 쓴다: 눈 뭉치기·던지기 상태를 남에게 보이려고 presence 를 쓰지 않는다 (규칙이 던질 때 프로필의 sg 를 본다)
+  async setArmor(key: ToggleKey, on: boolean): Promise<void> {
     const p = this.w.profile;
     p.eq = { ...(p.eq || {}), [key]: on ? true : null };
-    await update(ref(db), { [`users/${this.w.uid}/eq/${key}`]: on ? true : null, [`players/${this.w.uid}/${key}`]: on ? true : null }).catch(() => {});
+    await update(ref(db), { [`users/${this.w.uid}/eq/${key}`]: on ? true : null, ...(key === SKI_GLOVES_EQ ? {} : { [`players/${this.w.uid}/${key}`]: on ? true : null }) }).catch(() => {});
     this.listeners.forEach((f) => f());
   }
 }

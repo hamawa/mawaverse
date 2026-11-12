@@ -1,8 +1,11 @@
 import { ref, update, push, set, runTransaction, serverTimestamp, increment, onValue } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow, onNewChild, readOwn, rememberOwn, forgetOwn } from '../firebase/db';
-import { isWater } from './map';
+import { isWater, isFishable } from './map';
 import { AUTO_REST_MS, ROD_BOOST, ROD_JUNK, rodTierOf, starFactor, kingChance } from '../shared/shop';
+import { WINTER_MAP_ID } from '../shared/maps';
+import { pickWinterFish, winterFishById } from '../shared/winter';
+import type { RodFamily } from '../shared/shop';
 import type { Net } from './net';
 import type { WorldCtx } from './state';
 import {
@@ -59,7 +62,7 @@ export class Fishing {
     // 영웅 이상 낚은 공지. 들어온 뒤의 것만
     this.feedUnsub = onNewChild('fish/feed', serverNow(), 5, (s) => {
       const e = s.val() as FishFeed;
-      const f = fishById(e.f);
+      const f = fishById(e.f) ?? winterFishById(e.f);
       if (!f) return;
       // 남의 대어 소식은 채팅에 안 남기고 전설만 모두에게 토스트 한 줄 (2026-11-09). 신화는 모두에게 큰 배너
       const crown = e.k ? '👑 킹 사이즈 ' : '';
@@ -76,8 +79,12 @@ export class Fishing {
 
   get active(): boolean { return this.state !== 'idle'; }
   view(): FishingView | null {
-    return this.state === 'idle' ? null : { x: this.target.x, y: this.target.y, bite: this.state === 'bite', since: this.castAt, auto: this.w.wallet.autoReelActive(), rod: rodTierOf(this.w.profile.own), stars: this.w.wallet.shownStars };
+    const fam = this.family();
+    return this.state === 'idle' ? null : { x: this.target.x, y: this.target.y, bite: this.state === 'bite', since: this.castAt, auto: this.w.wallet.autoReelActive(), rod: rodTierOf(this.w.profile.own, fam), stars: this.w.wallet.shownStarsFor(fam) };
   }
+  // 겨울 맵에서는 얼음 낚싯대(단일 품목, 명품 20성급 고정)와 겨울 전용 물고기 풀만, 그 밖의 맵은 일반 낚싯대와 일반 풀
+  private family(): RodFamily { return this.w.mapId === WINTER_MAP_ID ? 'ice' : 'normal'; }
+  private castFamily: RodFamily = 'normal'; // 던질 때의 계열 (잡을 때까지 유지)
 
   // 지금 던질 수 있는 물 타일: 땅(물이 아닌 타일)에 서서 바라보는 칸이 물일 때
   targetTile(): { x: number; y: number } | null {
@@ -86,26 +93,30 @@ export class Fishing {
     if (isWater(this.w.map, me.x, me.y)) return null;
     const dx = me.dir === 2 ? 1 : me.dir === 1 ? -1 : 0, dy = me.dir === 0 ? 1 : me.dir === 3 ? -1 : 0;
     const fx = me.x + dx, fy = me.y + dy;
-    return isWater(this.w.map, fx, fy) ? { x: fx, y: fy } : null;
+    return isFishable(this.w.map, fx, fy) ? { x: fx, y: fy } : null;
   }
 
-  cast(): boolean {
+  cast(auto = false): boolean {
     if (this.active || this.saving || this.w.switching) return false; // 맵을 옮기는 중: 옛 맵 물에 던지지 않는다
     const t = this.targetTile();
     if (!t) return false;
+    const fam = this.family();
+    if (fam === 'ice' && !rodTierOf(this.w.profile.own, 'ice')) { if (!auto) this.w.toast('겨울 낚시터에서는 얼음 낚싯대가 있어야 낚을 수 있어요. 상점 장비 탭에서 살 수 있습니다.', true); return false; }
+    this.castFamily = fam;
     this.target = t;
     const wallet = this.w.wallet;
     // 미끼: 가지고 있고 자동 사용이 켜져 있으면 하나 쓴다
     const baited = wallet.bait > 0 && wallet.baitOn;
     // 낚싯대 등급(상점): 희귀 이상 가중치 ×ROD_BOOST, 꽝 ×ROD_JUNK. 명품 낚싯대 강화 성(2026-11-10): 등급 r 가중치에 starFactor^r 을 더 곱한다 (높은 등급일수록 크게)
-    const rod = rodTierOf(this.w.profile.own);
-    // 확률에 쓰는 성: 킹 낚싯대(2026-11-11)는 킹 성과 상관없이 명품 35성으로 고정. 남에게 보이는 성(찌 옆 ★)은 킹 성
-    const stars = wallet.fishStars;
+    const rod = rodTierOf(this.w.profile.own, fam);
+    // 확률에 쓰는 성: 킹 낚싯대(2026-11-11)는 킹 성과 상관없이 명품 35성으로 고정. 남에게 보이는 성(찌 옆 ★)은 킹 성. 얼음 낚싯대는 20성 고정·표시 성 없음
+    const stars = wallet.fishStarsFor(fam);
     // 미끼: 꽝·일반 제외(희귀 이상 확정)만. 영웅·전설 배수는 없다 (2026-11-09 두 번째 조정). 신화는 장비·미끼·강화와 무관 (collection.ts)
-    this.fish = pickFish(undefined, undefined, { contest: !!this.w.contest.active(), boost: ROD_BOOST[rod], junkMul: ROD_JUNK[rod], tierMul: starFactor(stars), ...(baited ? { noJunk: true, minRarity: 1 } : {}) });
+    const opt = { boost: ROD_BOOST[rod], junkMul: ROD_JUNK[rod], tierMul: starFactor(stars), ...(baited ? { noJunk: true, minRarity: 1 } : {}) };
+    this.fish = fam === 'ice' ? pickWinterFish(undefined, opt) : pickFish(undefined, undefined, { contest: !!this.w.contest.active(), ...opt });
     this.state = 'cast';
     this.castAt = performance.now();
-    this.show(t, wallet.autoReelActive(), rod, wallet.shownStars);
+    this.show(t, wallet.autoReelActive(), rod, wallet.shownStarsFor(fam));
     if (baited) {
       const left = wallet.bait - 1;
       void wallet.takeBait();
@@ -127,7 +138,7 @@ export class Fishing {
     const now = performance.now();
     if (this.state === 'cast' && this.biteAt && now >= this.biteAt) this.bite();
     else if (this.state === 'bite' && this.catchAt && now >= this.catchAt) void this.catchFish();
-    else if (this.state === 'idle' && !this.saving && now >= this.autoNextCast && this.targetTile()) this.cast();
+    else if (this.state === 'idle' && !this.saving && now >= this.autoNextCast && this.targetTile()) this.cast(true);
   }
 
   private bite(): void {
@@ -182,7 +193,7 @@ export class Fishing {
     if (!this.w.wallet.autoReelActive()) this.show(null); // 자동 낚시 중에는 곧 같은 자리에 다시 던지므로 찌를 그대로 둔다 (자리를 뜨면 cancel·autoTick 이 거둔다)
     const w = this.w;
     // 킹 사이즈 (킹 낚싯대, 2026-11-11): 1% + 킹 성마다 조금씩(30성 5%) 확률로 최대 크기 × 1.5~2.0. 꽝은 해당 없음. 등급·코인·점수는 그대로 (크기와 무관)
-    const king = !f.junk && rodTierOf(w.profile.own) >= 3 && Math.random() < kingChance(w.wallet.kingStars);
+    const king = !f.junk && this.castFamily === 'normal' && rodTierOf(w.profile.own) >= 3 && Math.random() < kingChance(w.wallet.kingStars); // 얼음 낚싯대는 킹 사이즈 없음
     const size = king ? rollKingSize(f) : rollSize(f);
     const contest = this.w.contest.active();
     const mult = this.w.contest.multiplier();

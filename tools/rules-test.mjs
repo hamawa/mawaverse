@@ -418,6 +418,64 @@ if (!ONLY_WALLET) {
   await expect('allow', 'R262 다시 타기 (eq.nr 삭제)', () => userDb.ref(`${UP}/eq/nr`).remove());
   await expect('deny', 'R263 프로필 eq 에 모르는 칸', () => userDb.ref(`${UP}/eq/zz`).set(true));
 }
+// S. 곡괭이 업그레이드 (코인 전용·확정): b='pick', pk 가 정확히 +1(최대 10), 사용액이 정확히 1000·pk². 채광 보너스는 내 지갑의 pk 로 본다: 한 번에 최대 3 + floor(pk/2)
+const PICKC = (l) => 1000 * l * l;
+await seed({ c: 2000000, e: 2000000, es: 3, gn: 500, bait: 2 });
+w = await cur();
+const up = (from, o = {}) => ({ ...w, pk: from + 1, c: w.c - PICKC(from + 1), sp: (w.sp || 0) + PICKC(from + 1), b: 'pick', ...o });
+await expect('allow', 'S270 곡괭이 0→1 (옛 지갑: pk 칸 없음, 1000 코인)', () => W(up(0)));
+w = await cur();
+await expect('deny', 'S271 곡괭이 1→2 를 1000 에 (값이 모자람)', () => W(up(1, { c: w.c - 1000, sp: w.sp + 1000 })));
+await expect('deny', 'S272 곡괭이 1→3 (한 번에 두 단계)', () => W(up(1, { pk: 3, c: w.c - PICKC(3), sp: w.sp + PICKC(3) })));
+await expect('deny', 'S273 돈 안 내고 곡괭이 올리기', () => W({ ...w, pk: 2 }));
+await expect('deny', 'S274 곡괭이 내리기', () => W({ ...w, pk: 0 }));
+await expect('deny', 'S275 곡괭이 업그레이드를 선물로 (gt)', () => W(up(1, { gt: 'zz-rules-gift' })));
+await expect('deny', 'S276 업그레이드에 금덩이를 같이 냄', () => W(up(1, { gn: w.gn - 10 })));
+await expect('deny', 'S277 업그레이드에 주문서를 같이 냄', () => W(up(1, { es: w.es - 1 })));
+await expect('deny', 'S278 업그레이드에 명품 성을 끼워 넣기', () => W(up(1, { rs: 1 })));
+await expect('deny', 'S279 곡괭이 0.5 단계', () => W({ ...w, pk: 1.5, c: w.c - 1500, sp: w.sp + 1500, b: 'pick' }));
+await expect('deny', 'S280 미끼 사면서 곡괭이 끼워 넣기', () => W({ ...w, c: w.c - prices.bait, sp: w.sp + prices.bait, b: 'bait', bait: w.bait + 1, pk: 2 }));
+await expect('deny', 'S281 주문서 사면서 곡괭이 끼워 넣기', () => W({ ...w, c: w.c - SC, sp: w.sp + SC, b: 'scroll', es: w.es + 1, pk: 2 }));
+await expect('deny', 'S282 획득하면서 곡괭이 끼워 넣기', () => W({ ...w, c: w.c + 10, e: w.e + 10, pk: 2 }));
+await expect('deny', 'S283 단품(밀짚모자) 사면서 곡괭이 끼워 넣기', () => W({ ...w, c: w.c - prices.straw, sp: w.sp + prices.straw, b: 'straw', pk: 2 }));
+await expect('allow', 'S284 곡괭이가 있는 채 획득 (그대로)', () => W({ ...w, c: w.c + 10, e: w.e + 10 }));
+await seed({ c: 2000000, e: 2000000, pk: 10 });
+w = await cur();
+await expect('deny', 'S285 곡괭이 10→11', () => W({ ...w, pk: 11, c: w.c - PICKC(11), sp: PICKC(11), b: 'pick' }));
+await seed({ c: 100, e: 100, pk: 10, gn: 5, ga: Date.now() - 60000 });
+w = await cur();
+await expect('deny', 'S290 10단계 채광 9개 (최대 3 + 5 = 8)', () => W({ ...w, gn: w.gn + 9, ga: TS }));
+await expect('allow', 'S291 10단계 채광 8개', () => W({ ...w, gn: w.gn + 8, ga: TS }));
+await seed({ c: 100, e: 100, pk: 3, gn: 5, ga: Date.now() - 60000 });
+w = await cur();
+await expect('deny', 'S292 3단계 채광 5개 (최대 3 + 1 = 4)', () => W({ ...w, gn: w.gn + 5, ga: TS }));
+await expect('deny', 'S293 채광하면서 곡괭이 올리기', () => W({ ...w, gn: w.gn + 1, ga: TS, pk: 4 }));
+await expect('allow', 'S294 3단계 채광 4개', () => W({ ...w, gn: w.gn + 4, ga: TS }));
+await seed({ c: 100, e: 100, gn: 5, ga: Date.now() - 60000 });
+w = await cur();
+await expect('deny', 'S295 0단계 채광 4개 (최대 3)', () => W({ ...w, gn: w.gn + 4, ga: TS }));
+// T. 얼음 낚싯대: 단일 영구 품목(b='iceRod', 가격표 기본 1000). 일반 구매 분기로만 사고, 강화·킹·성 칸(irs/iks)은 없다. 가격표에 iceRod 가 없으면 이 구간은 건너뜀
+if (!prices.iceRod) console.log('  (건너뜀) config/prices 에 iceRod 가 없어 T 구간은 시험하지 않는다');
+else {
+  const IP = prices.iceRod;
+  await rootDb.ref(`${UP}/own`).update({ iceRod: null });
+  await seed({ c: 500000, e: 500000, es: 5, gn: 150, rs: 7 });
+  w = await cur();
+  const buy = (o = {}) => ({ ...w, c: w.c - IP, sp: (w.sp || 0) + IP, b: 'iceRod', ...o });
+  await expect('deny', 'T300 얼음 낚싯대를 가격보다 싸게', () => W(buy({ c: w.c - IP + 1, sp: IP - 1 })));
+  await expect('deny', 'T301 얼음 낚싯대를 사면서 일반 성 올리기', () => W(buy({ rs: 8 })));
+  await expect('deny', 'T302 얼음 낚싯대를 사면서 곡괭이 올리기', () => W(buy({ pk: 1 })));
+  await expect('deny', 'T303 얼음 성 칸(irs) 만들기: 얼음 낚싯대는 강화할 수 없다', () => W(buy({ irs: 1 })));
+  await expect('deny', 'T304 얼음 킹 성 칸(iks) 만들기', () => W(buy({ iks: 1 })));
+  await expect('deny', 'T305 주문서를 쓰고 irs 올리기', () => W({ ...w, es: w.es - 1, irs: 1 }));
+  await expect('allow', 'T306 얼음 낚싯대 구매 (선행 조건 없음)', () => W(buy()));
+  if (!ONLY_WALLET) {
+    await expect('allow', 'T307 결제 뒤 얼음 낚싯대 보유 등록', () => userDb.ref(`${UP}/own/iceRod`).set(true));
+    await rootDb.ref(`${UP}/own/iceRod`).remove();
+    await seed({ c: 500000, e: 500000 });
+    await expect('deny', 'T308 결제 없이 얼음 낚싯대 보유 등록', () => userDb.ref(`${UP}/own/iceRod`).set(true));
+  }
+}
 await rootDb.ref().update({ [WP]: null, [UP]: null, [PP]: null });
 await rootDb.ref('approved').update({ [T]: null, 'zz-rules-gift': null });
 console.log(`\n결과: 통과 ${pass}, 실패 ${fail}`);
