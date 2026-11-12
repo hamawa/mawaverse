@@ -107,13 +107,15 @@ export class WalletMgr {
     }).then((ok) => (ok ? 'ok' : 'coins'));
   }
   // 경마 배팅 결제 (2026-11-09): 지갑에서 금액을 빼며 b='race', cb=라운드, ch=말, ca=금액을 적는다. 이어서 casino/r/{rid}/bets/{uid} 를 써야 배팅 성립 (규칙이 지갑의 cb/ch/ca 와 대조)
-  betRace(rid: string, horse: number, amount: number): Promise<boolean> {
-    return this.tx((c) => {
-      if ((c.c || 0) < amount) return null;
-      const n: Wallet = { ...c, c: (c.c || 0) - amount, sp: (c.sp || 0) + amount, b: 'race', cb: rid, ch: horse, ca: amount };
-      delete n.gt;
-      return n;
-    });
+  // 결제(지갑)와 배팅 기록(casino/r/{rid}/bets/{uid})을 쓰기 한 번에 한다 (2026-11-12): 따로 쓰던 때에는 결제한 뒤 기록하기 전에 라운드가 마감되면 코인만 나가고 배팅은 남지 않았다.
+  // 지금은 그새 마감됐으면 통째로 거부되어 아무 일도 없다 (잔액이 모자라도 규칙이 c >= 0 으로 거부)
+  async betRace(rid: string, horse: number, amount: number, nick: string): Promise<boolean> {
+    if (this.balance < amount) return false;
+    const uid = this.w.uid, W = `wallet/${uid}`;
+    try {
+      await update(ref(db), { [`${W}/c`]: increment(-amount), [`${W}/sp`]: increment(amount), [`${W}/b`]: 'race', [`${W}/cb`]: rid, [`${W}/ch`]: horse, [`${W}/ca`]: amount, [`${W}/gt`]: null, [`casino/r/${rid}/bets/${uid}`]: { h: horse, a: amount, n: nick } });
+      return true;
+    } catch (e) { console.warn('경마 배팅이 거부됨 (마감됐거나 잔액 부족)', e); return false; }
   }
   // 경마 배당 수령: 맞힌 라운드(rid)의 배당(win)을 받으며 cr=rid 를 적는다 (규칙: cr 은 커지기만, 배당은 bets.a × 4.5 와 정확히 같아야)
   claimRace(rid: string, win: number): Promise<boolean> {

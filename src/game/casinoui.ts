@@ -79,11 +79,13 @@ export class CasinoPanel {
       b.disabled = !canBet || this.h.wallet.balance < this.amount;
       b.onclick = async () => {
         b.disabled = true;
+        const seenOpen = st.phase === 'open' ? st.rid : null; // 누를 때 열려 있던 라운드: 확인하는 사이 마감되면 배팅하지 않는다
         if (!(await confirmModal(`${hs.icon} ${hs.name}에 ${fmtCoins(this.amount)}을 걸까요? 맞히면 ${fmtCoins(payoutOf(this.amount))}`))) { this.render(true); return; }
-        const r = await this.h.casino.bet(i, this.amount);
+        const r = await this.h.casino.bet(i, this.amount, seenOpen);
         if (r === 'ok') this.h.toast(`🏇 ${hs.name}에 ${this.amount.toLocaleString('ko-KR')}코인!`);
         else if (r === 'coins') this.h.toast('코인이 모자랍니다.', true);
-        else if (r === 'late') this.h.toast('마감 직전이라 다음 경주에 걸어 주세요.', true);
+        else if (r === 'late') this.h.toast('마감돼서 배팅하지 않았어요. 다음 경주에 걸어 주세요.', true);
+        else if (r === 'racing') this.h.toast('경주가 끝난 뒤에 걸어 주세요.', true);
         else if (r === 'dup') this.h.toast('이번 경주에는 이미 걸었어요.', true);
         else this.h.toast('배팅하지 못했어요.', true);
         this.render(true);

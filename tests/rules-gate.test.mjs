@@ -235,6 +235,21 @@ await root.ref('mafia').remove();
 await expect('맵: 근처 채팅의 맵 위조 거부', 'deny', () => ok.ref('chat/public/fake-map').set({ u: 'OK', n: '닉', t: '다른 공간', c: 'near', m: 'portal-garden', x: 1, y: 1, ts: 1 }));
 await expect('맵: 기존 기본 공간의 맵 식별자 없는 채팅 허용', 'allow', () => ok.ref('chat/public/legacy-main').set({ u: 'OK', n: '닉', t: '기본 공간', c: 'near', x: 1, y: 1, ts: 1 }));
 
+// ---------- 경마: 결제와 배팅 기록을 쓰기 한 번에 (2026-11-12) ----------
+// 따로 쓰면 그 사이 라운드가 마감될 때 코인만 나간다. 배팅 기록 규칙이 '그 쓰기 안의 지갑 값'을 보므로 한 번에 써도, 옛 클라이언트처럼 따로 써도 된다
+await setNow('2026-11-14 12:00:00');
+await root.ref().update({ 'wallet/OK': { c: 1000, e: 1000 }, 'casino/r/R1': { o: 1, by: 'OK' }, 'casino/r/R2': { o: 1, by: 'OK' }, 'casino/r/R3': { o: 1, by: 'OK' } });
+const raceBet = (rid, pay, rec) => ({ 'wallet/OK/c': 1000 - pay, 'wallet/OK/sp': pay, 'wallet/OK/b': 'race', 'wallet/OK/cb': rid, 'wallet/OK/ch': 2, 'wallet/OK/ca': pay, [`casino/r/${rid}/bets/OK`]: { h: 2, a: rec, n: '닉' } });
+await expect('경마: 낸 돈과 다른 금액을 한 번에 기록', 'deny', () => ok.ref().update(raceBet('R1', 300, 1000)));
+await expect('경마: 결제 없이 배팅 기록만', 'deny', () => ok.ref('casino/r/R1/bets/OK').set({ h: 2, a: 300, n: '닉' }));
+await expect('경마: 결제와 배팅 기록을 한 번에', 'allow', () => ok.ref().update(raceBet('R1', 300, 300)));
+await root.ref('casino/r/R2/at').set(5);
+await root.ref('wallet/OK').set({ c: 1000, e: 1000 });
+await expect('경마: 마감된 라운드에 한 번에 쓰면 통째로 거부', 'deny', () => ok.ref().update(raceBet('R2', 300, 300)));
+await expect('경마: 거부된 배팅은 코인을 빼지 않는다', 'allow', async () => { const c = (await root.ref('wallet/OK/c').get()).val(); if (c !== 1000) throw new Error('permission: 잔액이 ' + c); });
+await expect('경마: 옛 방식(결제 먼저)', 'allow', () => ok.ref('wallet/OK').set({ c: 700, e: 1000, sp: 300, b: 'race', cb: 'R3', ch: 2, ca: 300 }));
+await expect('경마: 옛 방식(기록 나중)', 'allow', () => ok.ref('casino/r/R3/bets/OK').set({ h: 2, a: 300, n: '닉' }));
+
 // ---------- 게시판: 패치 노트 분류는 관리자만 (2026-11-12) ----------
 const post = (u, cat) => ({ title: '제목', body: '내용', u, n: '닉', ts: 1, cc: 0, cat });
 await expect('게시판: 일반 사용자가 똥글 쓰기', 'allow', () => ok.ref('board/posts/p-junk').set(post('OK', 'junk')));

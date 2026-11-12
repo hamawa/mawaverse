@@ -256,7 +256,7 @@
           "bets": {
             "$uid": {
               ".write": "auth != null && auth.uid == $uid && !data.exists()",
-              ".validate": "newData.hasChildren(['h', 'a', 'n']) && newData.child('h').isNumber() && newData.child('a').isNumber() && newData.child('n').isString() && root.child('wallet/' + $uid + '/cb').val() == $rid && root.child('wallet/' + $uid + '/ch').val() == newData.child('h').val() && root.child('wallet/' + $uid + '/ca').val() == newData.child('a').val() && !root.child('casino/r/' + $rid + '/at').exists()"
+              ".validate": "newData.hasChildren(['h', 'a', 'n']) && newData.child('h').isNumber() && newData.child('a').isNumber() && newData.child('n').isString() && newData.parent().parent().parent().parent().parent().child('wallet/' + $uid + '/cb').val() == $rid && newData.parent().parent().parent().parent().parent().child('wallet/' + $uid + '/ch').val() == newData.child('h').val() && newData.parent().parent().parent().parent().parent().child('wallet/' + $uid + '/ca').val() == newData.child('a').val() && !root.child('casino/r/' + $rid + '/at').exists()"
             }
           },
           "$other": { ".validate": false }

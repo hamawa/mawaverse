@@ -2,6 +2,7 @@
 // 마감을 쓰는 클라이언트도 서버 시각을 ms 단위로 맞힐 수 없어 조작이 안 되고, 보안 규칙이 같은 식으로 배당을 검증한다.
 // 흐름: 첫 배팅이 라운드를 연다(casino/r/{rid}, o=서버 시각) → BET_MS 동안 배팅(지갑에 b='race', cb/ch/ca 로 결제 → casino/r/{rid}/bets/{uid}) →
 // 누군가 at(서버 시각)를 쓰면 마감 → 모두 같은 경주 애니메이션(시드 = at) → 맞힌 사람은 지갑에 cr=rid 로 배당(ca × PAYOUT)을 받는다 (한 라운드 한 번, cr 은 커지기만)
+// 결제와 bets 기록은 쓰기 한 번에 한다(2026-11-12. 규칙이 그 쓰기 안의 지갑 값을 본다): 따로 쓰면 그 사이 마감될 때 코인만 나간다
 import { unitRandomFromSeed } from './hash';
 
 export const HORSES = [
@@ -25,6 +26,9 @@ export interface RaceRound { o: number; by: string; at?: number; bets?: Record<s
 
 export const winnerOf = (at: number): number => Math.abs(Math.floor(at)) % HORSE_COUNT;
 export const payoutOf = (a: number): number => Math.floor(a * PAYOUT);
+// 경주가 달리는 중인가 (서버 시각 기준). 이 동안에는 새 라운드를 열지 않는다: 화면은 최신 라운드 하나만 보므로, 열면 달리던 경주와 그 배팅이 모두의 화면에서 사라진다 (2026-11-12)
+export const RACE_GRACE_MS = 500;
+export const raceRunning = (r: { at?: number } | null | undefined, now: number): boolean => typeof r?.at === 'number' && now < r.at + RACE_MS + RACE_GRACE_MS;
 export const betMax = (cfgMax?: number | null): number => (typeof cfgMax === 'number' && cfgMax >= BET_MIN ? Math.floor(cfgMax / BET_STEP) * BET_STEP : BET_MAX_DEFAULT);
 
 // 경주 진행도 (0..1): 시드(at)로 말마다 다른 속도 굴곡을 만들고, 우승마가 t=1 에 결승선(1.0)에 닿게, 나머지는 0.72~0.96 사이에서 끝나게 맞춘다.
