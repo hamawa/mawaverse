@@ -99,6 +99,7 @@ export interface WorldCtx {
   catchNote(kind: 'fish' | 'bug' | 'etc', text: string): void;
   catchLog: CatchLog;
   note(text: string): void;              // 한 줄 알림만 (기록 없음)
+  fishCaught(size: number): void;        // 물고기를 잡았다 (꽝 제외): 진행 중인 낚시 내기에 내 최고 크기를 적는다
   batNote(used: number): void;           // 빠따를 썼으면 한 줄 알림
   banner(title: string, sub?: string): void; // 화면 가운데 큰 배너 (신화 등급 소식)
   forceLogout(reason: string, replaced?: boolean): void;

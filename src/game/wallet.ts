@@ -183,12 +183,29 @@ export class WalletMgr {
     } catch (e) { console.warn('내기 판돈 쓰기가 거부됨', e); return false; }
   }
   // 정산: 이겨서 받는 돈 또는 수락되지 않아 돌려받는 돈. 같은 쓰기에서 duel/{id}/paid 를 적는다 (규칙이 누가 얼마를 받을 수 있는지 대조)
-  async duelClaim(id: string, amount: number): Promise<boolean> {
+  // flag: 내기 노드에 남기는 표시. 승리·미수락 환불은 paid, 낚시 내기가 비겨서 각자 돌려받을 때는 ra(신청한 쪽)·rb(수락한 쪽)
+  async duelClaim(id: string, amount: number, flag: 'paid' | 'ra' | 'rb' = 'paid'): Promise<boolean> {
     const W = `wallet/${this.w.uid}`;
     try {
-      await update(ref(db), { [`${W}/c`]: increment(amount), [`${W}/e`]: increment(amount), [`${W}/dc`]: id, [`duel/${id}/paid`]: true });
+      await update(ref(db), { [`${W}/c`]: increment(amount), [`${W}/e`]: increment(amount), [`${W}/dc`]: id, [`duel/${id}/${flag}`]: true });
       return true;
     } catch (e) { console.warn('내기 정산이 거부됨', e); return false; }
+  }
+  // ---- 인디언 포커 (2026-11-12. 설계는 shared/poker.ts 머리말) ----
+  // 판에 돈 걸기: 지갑(값 빼기, b='poker', pk=판 id, ps=자리)과 판 쪽 쓰기(extra)를 쓰기 한 번에. amount 가 0 이면(체크, 가진 게 없는 올인) 판 쪽만 쓴다
+  async pokerPut(hid: string, side: 'a' | 'b', amount: number, extra: Record<string, unknown>): Promise<boolean> {
+    if (amount > this.balance) return false;
+    const W = `wallet/${this.w.uid}`;
+    const upd: Record<string, unknown> = { ...extra };
+    if (amount > 0) Object.assign(upd, { [`${W}/c`]: increment(-amount), [`${W}/sp`]: increment(amount), [`${W}/b`]: 'poker', [`${W}/gt`]: null, [`${W}/pk`]: hid, [`${W}/ps`]: side });
+    try { await update(ref(db), upd); return true; } catch (e) { console.warn('포커 쓰기가 거부됨', e); return false; }
+  }
+  // 정산: 내 몫(0 일 수도 있다)을 받으며 판에 내 정산 표시를 남긴다. 이걸 해야 다음 판에 들어갈 수 있다
+  async pokerClaim(hid: string, side: 'a' | 'b', amount: number): Promise<boolean> {
+    const W = `wallet/${this.w.uid}`;
+    const upd: Record<string, unknown> = { [`${W}/pc`]: hid, [`pkh/${hid}/x${side}`]: true };
+    if (amount > 0) { upd[`${W}/c`] = increment(amount); upd[`${W}/e`] = increment(amount); }
+    try { await update(ref(db), upd); return true; } catch (e) { console.warn('포커 정산이 거부됨', e); return false; }
   }
   // 자동 버프를 더 살 수 있는 최대 시간(ms): 남은 시간을 뺀 것
   autoRoom(kind: 'fish' | 'bug'): number { return Math.max(0, AUTO_MAX_MS - Math.max(0, (this.wallet[kind === 'fish' ? 'ar' : 'ab'] || 0) - serverNow())); }
@@ -238,11 +255,11 @@ export class WalletMgr {
   // 코인·구매 기록·곡괭이 단계는 건드리지 않는다
   mine(n: number): Promise<boolean> {
     if (n <= 0) return Promise.resolve(false);
-    return this.tx((c) => (n > goldMax(pickLevelOf(c.pk)) ? null : { ...c, gn: (c.gn || 0) + n, ga: serverTimestamp() as unknown as number }));
+    return this.tx((c) => (n > goldMax(pickLevelOf(c.pi)) ? null : { ...c, gn: (c.gn || 0) + n, ga: serverTimestamp() as unknown as number }));
   }
 
   // ---- 곡괭이 업그레이드 (코인 전용·확정, shared/mine.ts) ----
-  get pickLevel(): number { return pickLevelOf(this.wallet.pk); }
+  get pickLevel(): number { return pickLevelOf(this.wallet.pi); }
   get pickMaxed(): boolean { return this.pickLevel >= PICK_MAX; }
   // 다음 단계로 올리는 값. 최고 단계면 null
   get pickNextCost(): number | null { return this.pickLevel >= PICK_MAX ? null : pickCost(this.pickLevel + 1); }
@@ -257,8 +274,8 @@ export class WalletMgr {
     this.upgrading = true;
     try {
       const ok = await this.tx((c) => {
-        if (pickLevelOf(c.pk) !== level || (c.c || 0) < cost) return null;
-        const n: Wallet = { ...c, c: (c.c || 0) - cost, sp: (c.sp || 0) + cost, b: PICK_ITEM, pk: target };
+        if (pickLevelOf(c.pi) !== level || (c.c || 0) < cost) return null;
+        const n: Wallet = { ...c, c: (c.c || 0) - cost, sp: (c.sp || 0) + cost, b: PICK_ITEM, pi: target };
         delete n.gt; // 선물이 아닌 구매 (규칙도 gt 가 없을 때만 받는다)
         return n;
       });

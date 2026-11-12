@@ -57,3 +57,27 @@ test('규칙 생성기와 규칙 원본의 숫자가 클라이언트와 같다',
   const wv = rules.wallet.$uid['.validate'];
   for (const s of ["== 'duel'", "child('dl')", "child('dc')", 'config/duelFee', "child('paid')"]) assert.ok(wv.includes(s), s);
 });
+
+// ---- 낚시 내기 (2026-11-12) ----
+test('낚시 내기: 큰 쪽이 이기고, 같거나 둘 다 못 잡으면 비김. 5분 + 여유가 지나야 끝난다', async () => {
+  const { DUEL_FISH_MS, DUEL_FISH_GRACE_MS, DUEL_FISH_MAX, fishDuelWinner, fishDuelClosed, duelMaxStake } = await import('../src/shared/duel.ts');
+  assert.equal(fishDuelWinner({ fa: 55, fb: 42.5 }), 'a');
+  assert.equal(fishDuelWinner({ fa: 10, fb: 80 }), 'b');
+  assert.equal(fishDuelWinner({ fb: 3 }), 'b', '한쪽만 잡았으면 그쪽');
+  assert.equal(fishDuelWinner({}), 'tie');
+  assert.equal(fishDuelWinner({ fa: 30, fb: 30 }), 'tie');
+  assert.equal(fishDuelClosed({ acc: T0 }, T0 + DUEL_FISH_MS + DUEL_FISH_GRACE_MS), false);
+  assert.equal(fishDuelClosed({ acc: T0 }, T0 + DUEL_FISH_MS + DUEL_FISH_GRACE_MS + 1), true);
+  assert.equal(fishDuelClosed({}, T0 + 99999999), false, '수락되지 않은 내기');
+  assert.equal(duelMaxStake('fish', 10000), DUEL_FISH_MAX);
+  assert.equal(duelMaxStake('fish', 3000), 3000);
+  assert.equal(duelMaxStake('dice', 10000), 10000);
+  // 규칙의 숫자와 같다
+  const gen = readFileSync(new URL('../tools/gen-rules.cjs', import.meta.url), 'utf8');
+  const m = /const DUEL_FISH_CLOSE_MS = (\d+);/.exec(gen);
+  assert.equal(Number(m[1]), DUEL_FISH_MS + DUEL_FISH_GRACE_MS);
+  const duel = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules.duel.$id;
+  assert.ok(duel.fa['.write'].includes(`+ ${DUEL_FISH_MS + DUEL_FISH_GRACE_MS}`) && duel.fb['.write'].includes(`+ ${DUEL_FISH_MS + DUEL_FISH_GRACE_MS}`));
+  assert.ok(duel.s['.validate'].includes(`<= ${DUEL_FISH_MAX}`));
+  assert.ok(duel.k['.validate'].includes("'fish'"));
+});

@@ -241,12 +241,14 @@ export function priceOf(item: ShopItem, prices?: Record<string, number> | null):
 // ab: 자동 채집 만료 시각, rd: 마지막으로 룰렛을 돌린 날짜(dayKey), ad/an/bn: 예전 하루 한도 카운트(2026-11-05 한도 해제로 안 씀. 기존 지갑에 남은 값은 다음 자동 구매 때 지워지고, 규칙은 숫자만 허용)
 // b: 마지막으로 산 품목 id (사용액이 그 품목 가격과 같아야 바뀔 수 있고, 보유 등록은 b 가 그 품목일 때만 허용). rd 는 KST 0시(ms), 예전 값은 'YYYYMMDD' 문자열
 // wt/we/md: 예전 코인 획득 속도 상한(10분 창)·신화 보상 날짜. 2026-11-10 상한을 없애며 더 쓰지 않는다 (옛 지갑에 남은 값은 규칙이 숫자로만 허용)
-export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?: number; bu?: boolean; rd?: number | string; ab?: number; b?: string; wt?: number; we?: number; gf?: { n: number; at: number }; gt?: string; cb?: string; ch?: number; ca?: number; cr?: string; md?: number; ad?: number; an?: number; bn?: number; px?: Record<string, number>; pp?: string; es?: number; rs?: number; gn?: number; ga?: number; ks?: number; pk?: number; bt?: number; bo?: boolean; ik?: 's' | 'o'; ib?: number; ip?: number; it?: number; ic?: number; dl?: string; dc?: string }
+export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?: number; bu?: boolean; rd?: number | string; ab?: number; b?: string; wt?: number; we?: number; gf?: { n: number; at: number }; gt?: string; cb?: string; ch?: number; ca?: number; cr?: string; md?: number; ad?: number; an?: number; bn?: number; px?: Record<string, number>; pp?: string; es?: number; rs?: number; gn?: number; ga?: number; ks?: number; pi?: number; bt?: number; bo?: boolean; ik?: 's' | 'o'; ib?: number; ip?: number; it?: number; ic?: number; dl?: string; dc?: string; pk?: string; ps?: 'a' | 'b'; pc?: string }
+// pk/ps/pc: 인디언 포커(2026-11-12, shared/poker.ts). pk = 내가 들어간 마지막 판 id, ps = 그 판의 내 자리 (b='poker' 결제에서만 바뀜), pc = 마지막으로 정산한 판 id. pk != pc 이면 아직 정산 안 한 판
 // dl/dc: 1:1 내기(2026-11-12, shared/duel.ts). dl = 내가 판돈을 낸 마지막 내기 id (b='duel' 결제에서만 바뀜), dc = 마지막으로 정산(승리·환불)한 내기 id
 // ik/ib/ip/it/ic: 슬롯 방의 즉석 게임(슬롯·홀짝. 2026-11-12, shared/slots.ts). 베팅하면 ik(게임)·ib(건 돈)·ip(홀짝에서 고른 쪽)·it(서버 시각)가 적히고, 정산하면 ic 가 그 it 가 된다. it != ic 이면 아직 정산 안 한 판
 // bt: 빠따 개수 (2026-11-11. b='bat' 결제에서만 늘고, 방어를 깨는 밀치기·말랑이·끌기 쓰기에서 준다), bo: 빠따 자동 사용 (기본 true)
 // gn: 가진 금덩이 (2026-11-11. 금광 채광으로 늘고 킹 낚싯대 제작·강화로 준다), ga: 마지막 채광 시각(서버 시각. 규칙이 간격을 본다), ks: 킹 낚싯대 강화 성(0~30. 주문서 1장 + 금덩이 1개가 같이 줄 때만 +1 또는 0)
-// pk: 곡괭이 단계 (0~10, 없으면 0. b='pick' 결제에서만 +1, 값은 정확히 1000·단계² 코인. shared/mine.ts).// cb/ch/ca: 마지막 경마 배팅(라운드 id, 말 번호, 금액. b='race' 결제 쓰기에서만 바뀜) → casino/r/{cb}/bets/{uid} 에 그대로 적어야 배팅이 성립. cr: 배당을 받은 마지막 라운드 id (커지기만 함, 한 라운드 한 번)
+// pi: 곡괭이 단계 (0~10, 없으면 0. b='pick' 결제에서만 +1, 값은 정확히 1000·단계² 코인. shared/mine.ts. 포커의 pk 와 이름이 겹쳐 pi).
+// cb/ch/ca: 마지막 경마 배팅(라운드 id, 말 번호, 금액. b='race' 결제 쓰기에서만 바뀜) → casino/r/{cb}/bets/{uid} 에 그대로 적어야 배팅이 성립. cr: 배당을 받은 마지막 라운드 id (커지기만 함, 한 라운드 한 번)
 // px/{펫 id}: 그 펫에게 먹인 누적 먹이 (2026-11-10. b='petfood' 결제 쓰기에서 pp 에 적은 펫만 사용액/가격 만큼 오른다), pp: 마지막으로 먹인 펫
 // es: 강화 주문서 개수 (b='scroll' 결제에서만 는다), rs: 명품 낚싯대 강화 성(0~30. es 가 1 줄어드는 쓰기에서만 +1 또는 0 으로 바뀐다. 0 보다 크면 rod2 를 가지고 있어야 함)
 // gf: 관리자가 마지막으로 지급(양수)·회수(음수)한 코인과 시각. 관리자만 쓸 수 있고, 받는 사람 화면은 이걸 보고 알림을 띄운다

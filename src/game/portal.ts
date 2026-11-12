@@ -63,7 +63,7 @@ export function mapSwitchUpdate(uid: string, from: { mapId: string; x: number; y
 }
 
 // 카지노는 기본 맵에서만: 방 상태(rooms/{zone id})가 맵 구분 없이 하나라, 맵을 복제하면 같은 방을 나눠 쓰게 된다
-export const PRIMARY_ONLY_ROOM_MSG = '🏇 경마장·🎰 슬롯 방은 기본 맵에서만 들어갈 수 있어요';
+export const PRIMARY_ONLY_ROOM_MSG = '🏇 경마장·🎰 슬롯 방·🃏 포커 방은 기본 맵에서만 들어갈 수 있어요';
 export function primaryOnlyRoom(mapId: string, z: { kind: string } | null | undefined): boolean {
   return !!z && z.kind === 'casino' && mapId !== MAIN_MAP_ID;
 }

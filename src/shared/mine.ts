@@ -7,17 +7,17 @@ export const MINE_MAX = 3;              // 한 번에 나오는 최대 개수 (g
 export const MINE_IDLE_OFF_MS = 10000;  // 이만큼 안 치면 남에게 보이는 "채광 중" 표시를 끈다 (곡괭이질마다 쓰지 않으려고 켜 두는 것)
 
 // ---- 곡괭이 업그레이드 (코인 전용, 확정) ----
-// 지갑 pk 에 단계(0~PICK_MAX, 없으면 0)를 적는다. 0단계는 무료 기본. 목표 단계 L 로 올리는 값은 정확히 1000·L² 코인이고 한 번에 한 단계씩 확정으로 오른다(실패·하락 없음).
-// 금덩이·주문서·보유 품목·선물은 쓰지 않는다. 규칙은 b='pick' 쓰기에서 pk 가 +1 이고 사용액이 정확히 PICK_COST_UNIT·pk² 일 때만 pk 변경을 받는다 (tools/gen-rules.cjs 와 같은 값)
+// 지갑 pi 에 단계(0~PICK_MAX, 없으면 0)를 적는다. 0단계는 무료 기본. 목표 단계 L 로 올리는 값은 정확히 1000·L² 코인이고 한 번에 한 단계씩 확정으로 오른다(실패·하락 없음).
+// 금덩이·주문서·보유 품목·선물은 쓰지 않는다. 규칙은 b='pick' 쓰기에서 pi 가 +1 이고 사용액이 정확히 PICK_COST_UNIT·pi² 일 때만 pi 변경을 받는다 (tools/gen-rules.cjs 와 같은 값)
 export const PICK_MAX = 10;
 export const PICK_COST_UNIT = 1000;
 export const PICK_ITEM = 'pick';        // 지갑 b 에 적는 결제 표시 (보관함 품목이 아니다)
-export function pickLevelOf(pk: unknown): number { return typeof pk === 'number' && pk > 0 ? Math.min(PICK_MAX, Math.floor(pk)) : 0; }
+export function pickLevelOf(pi: unknown): number { return typeof pi === 'number' && pi > 0 ? Math.min(PICK_MAX, Math.floor(pi)) : 0; }
 export function pickCost(target: number): number { return PICK_COST_UNIT * target * target; } // target 단계로 올리는 값
 export const PICK_TOTAL_COST = Array.from({ length: PICK_MAX }, (_, i) => pickCost(i + 1)).reduce((a, b) => a + b, 0); // 0→10: 385,000
 export function pickBonus(level: number): number { return Math.floor(level / 2); }   // 곡괭이질 한 번마다 더해지는 금덩이
 export function pickAttempts(level: number): number { return level + 1; }            // F 한 번에 이어서 치는 횟수 (0단계 1번 … 10단계 11번)
-export function goldMax(level: number): number { return MINE_MAX + pickBonus(level); } // 한 번에 나올 수 있는 최대 개수 (규칙이 내 지갑의 pk 로 본다)
+export function goldMax(level: number): number { return MINE_MAX + pickBonus(level); } // 한 번에 나올 수 있는 최대 개수 (규칙이 내 지갑의 pi 로 본다)
 
 // 한 번에 나오는 금덩이: 기본 1개 75%, 2개 20%, 3개 5% (평균 1.3개) + 곡괭이 단계의 보너스 floor(단계/2). 10단계는 6~8개
 export function rollGold(rand: () => number = Math.random, level = 0): number {

@@ -59,7 +59,7 @@ test('곡괭이: 목표 단계 L 의 값은 정확히 1000·L², 0→10 합계 3
   assert.equal(PICK_MAX, 10); assert.equal(PICK_COST_UNIT, 1000); assert.equal(PICK_ITEM, 'pick');
   for (let l = 1; l <= PICK_MAX; l++) assert.equal(pickCost(l), 1000 * l * l);
   assert.equal(PICK_TOTAL_COST, 385000);
-  assert.equal(pickLevelOf(undefined), 0); assert.equal(pickLevelOf(null), 0); assert.equal(pickLevelOf(0), 0); // pk 칸이 없으면 0 (옛 지갑 호환)
+  assert.equal(pickLevelOf(undefined), 0); assert.equal(pickLevelOf(null), 0); assert.equal(pickLevelOf(0), 0); // pi 칸이 없으면 0 (옛 지갑 호환)
   assert.equal(pickLevelOf(4), 4); assert.equal(pickLevelOf(99), PICK_MAX); assert.equal(pickLevelOf(-3), 0);
   assert.equal(isOwnItem(PICK_ITEM), false);   // 보관함 품목이 아니다: 결제 표시 b 만 남는다
   assert.equal(itemById(PICK_ITEM), undefined);
