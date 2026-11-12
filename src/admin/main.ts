@@ -7,8 +7,8 @@ import { showLoginScreen, showMessageScreen, toast, modal, promptModal, confirmM
 import { el, escapeHtml, fmtDateTime, fmtBytes, dayKey, nickKey, safeKey, idKey, validateNick } from '../shared/util';
 import { APP_NAME, CLIENT_VERSION } from '../shared/config';
 import type { PlayerState, UserProfile, ServerConfig, RoomState, ConnLog, ChatLog, Post } from '../shared/types';
-import { buildDefaultMap, buildPortalGarden, buildGoldMine, sanitizeMap, labelAt, G, G_GOLD, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, type PortalDest, emptyMap, validateZone, isReservedMapId, portalDests, PORTAL_MAX_DESTS } from '../game/map';
-import { isMapId, playerMapId, MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID } from '../shared/maps';
+import { buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, sanitizeMap, labelAt, G, G_GOLD, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, type PortalDest, emptyMap, validateZone, isReservedMapId, portalDests, PORTAL_MAX_DESTS } from '../game/map';
+import { isMapId, playerMapId, MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID } from '../shared/maps';
 import { MAP_INFO } from '../game/portal';
 import { groundTile, objectSprite } from '../game/tiles';
 import { catLabel } from '../game/board';
@@ -119,7 +119,7 @@ async function deleteUserData(uid: string, u: UserProfile, action = 'delete-user
   const upd: Record<string, null> = {
     [`signups/${uid}`]: null, [`approved/${uid}`]: null,
     [`users/${uid}`]: null, [`ids/${safeKey(idKey(u.id))}`]: null, [`nicknames/${nickKey(u.nick)}`]: null,
-    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`duelInv/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null,
+    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`duelInv/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null, [`winter/events/${uid}`]: null,
   };
   await update(ref(db), upd);
   adminLog(action, uid, action === 'reject' ? undefined : u.id);
@@ -206,6 +206,7 @@ function tabDash(main: HTMLElement): void {
   addView(MAIN_MAP_ID, buildDefaultMap());
   addView(GARDEN_MAP_ID, buildPortalGarden());
   addView(GOLD_MINE_MAP_ID, buildGoldMine());
+  addView(WINTER_MAP_ID, buildWinterMap());
   get(ref(db, 'config/activeMap')).then(async (s) => {
     const id = s.val() || 'default';
     const m = await get(ref(db, `maps/${id}`));
@@ -1081,7 +1082,7 @@ function tabEditor(main: HTMLElement): void {
 
   const doSave = async (): Promise<boolean> => {
     const id = idIn.value.trim();
-    if (!isMapId(id) || isReservedMapId(id)) { toast('저장 id 는 영문/숫자 1~20자이며 예약어(main, default, portal-garden, gold-mine)는 사용할 수 없습니다.', true); return false; }
+    if (!isMapId(id) || isReservedMapId(id)) { toast('저장 id 는 영문/숫자 1~20자이며 예약어(main, default, portal-garden, gold-mine, winter)는 사용할 수 없습니다.', true); return false; }
     const data: MapData = { ...map, id, name: nameIn.value.trim() || id, version: (map.version || 0) + 1, updatedAt: Date.now() };
     await set(ref(db, `maps/${id}`), data);
     adminLog('save-map', id);

@@ -2,7 +2,7 @@
 import type { Dir } from '../shared/types';
 import type { MapData, PortalDest } from './map';
 import { isWalkable, isWater, roomAt, findFreeTile, sanitizeMap } from './map';
-import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, BUILTIN_MAP_IDS, isMapId, occupancyKey } from '../shared/maps';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, BUILTIN_MAP_IDS, isMapId, occupancyKey } from '../shared/maps';
 
 // 맵 id 를 어디서 읽나: main 은 기존 config/activeMap, 포탈 정원·금광은 코드에 든 맵, 그 밖의 올바른 id 는 저장된 maps/{id}
 export function mapSource(id: unknown): 'active' | 'builtin' | 'saved' | null {
@@ -16,6 +16,7 @@ export const MAP_INFO: Record<string, { name: string; desc: string }> = {
   [MAIN_MAP_ID]: { name: '광장', desc: '모두가 모이는 기본 맵' },
   [GARDEN_MAP_ID]: { name: '포탈 정원', desc: '연못과 꽃밭이 있는 작은 정원' },
   [GOLD_MINE_MAP_ID]: { name: '금광', desc: '거대한 금덩어리에서 금덩이를 캔다. 낚시는 못 해요' },
+  [WINTER_MAP_ID]: { name: '겨울 얼음 낚시터', desc: '얼어붙은 연못에서 겨울 전용 물고기를 낚는다. 얼음 낚싯대가 필요해요' },
 };
 export interface DestView { map: string; name: string; desc: string; count: number; ok: boolean } // ok: 지금 갈 수 있는 곳 (올바른 id 이고 내가 있는 맵이 아님)
 // 선택 창 한 줄. count: 지금 그 맵에 있는 사람 수 (접속자 목록에 모든 맵의 사람이 있어 따로 묻지 않는다)

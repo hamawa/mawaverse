@@ -11,8 +11,8 @@ import { Engine } from './engine';
 import { Input } from './input';
 import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
-import { buildDefaultMap, buildPortalGarden, buildGoldMine, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
-import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, playerMapId } from '../shared/maps';
+import { buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
+import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, playerMapId } from '../shared/maps';
 import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { openPortalPicker } from './portalui';
 import { Net } from './net';
@@ -43,10 +43,14 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { fmtCoins, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS } from '../shared/shop';
+import { fmtCoins, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
+import { SnowfightState, snowGateAt, snowfightAction, SNOW_PACK_HINT, SNOW_THROW_HINT, type SnowGate } from './snowfight';
 import { TASK_FOOTPRINT } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
 import { openRoulette, watchRouletteFeed } from './rouletteui';
+import { WinterPlay } from './winterplay';
+import { SnowPenaltyMgr } from './snowpenalty';
+import { snowActive, SNOW_BREAK_NOTICE } from '../shared/snowpenalty';
 import { Fishing } from './fishing';
 import type { WorldCtx, WorldEvents, RemotePlayer, LocalPlayer } from './state';
 
@@ -92,6 +96,7 @@ async function loadSavedMap(id: string): Promise<MapData> {
   return m;
 }
 
+const SMASH_CONFIRM_MS = 6000; // 눈사람 부수기: 첫 F 뒤 이 시간 안에 두 번째 F 를 눌러야 한다
 export class World implements WorldCtx {
   sessionId = randomId(16);
   map: MapData = buildDefaultMap();
@@ -128,6 +133,7 @@ export class World implements WorldCtx {
   toss = new TossMgr(this, this.net, { cancelFishing: () => this.fishing.cancel() });
   dig = new DigMgr(this, this.net);
   mine = new MineMgr(this, this.net);
+  winter = new WinterPlay(this.map); // 겨울 맵의 빙판 관성·눈덩이 (눈덩이는 이 브라우저에만 있는 장난감. 맵에 들어올 때마다 새로: resetWinter)
   private lastCoinTick = 0;
   private lastMafiaHud = 0;
   private rouletteUnsub: (() => void) | null = null;
@@ -145,7 +151,11 @@ export class World implements WorldCtx {
   constructor(private root: HTMLElement, public uid: string, public profile: UserProfile, public isAdmin: boolean) {
     this.me = { x: 0, y: 0, fromX: 0, fromY: 0, dispX: 0, dispY: 0, moveStart: 0, moveDur: STEP_MS, moving: false, dir: 0, pose: 'none', poseAt: 0, emoteId: 0, bubble: null, pushAt: -1, pushDir: 0, hitAt: -1e9, blockAt: -1e9, pushMore: null, stunUntil: 0, lastPushAt: -1e9, locked: false, roomId: null };
     this.catchLog = new CatchLog(uid);
+    // 눈사람 부순 벌칙: 서버에 적힌 시각이 바뀔 때마다 (내 쓰기·다른 기기·복원) 값을 받아 presence 에 싣는다. 시작은 net.join 뒤 (start)
+    this.snowPenalty = new SnowPenaltyMgr(uid, (brokenAt) => { this.snowBrokenAt = brokenAt; this.net.setSnowPenalty(brokenAt); }, () => this.toast(SNOW_BREAK_NOTICE)); // 알림은 모든 맵에 한 번씩 (부순 사람 자신 포함): breakSnowman 이 쓰는 이벤트에서만 나온다
   }
+  snowPenalty: SnowPenaltyMgr;
+  snowBrokenAt = 0; // 눈사람을 부순 서버 시각 (벌칙 SNOW_PENALTY_MS). 맵을 옮겨도 이어진다
 
   toast(msg: string, err = false): void { toast(msg, err); }
   catchLog: CatchLog;
@@ -183,6 +193,7 @@ export class World implements WorldCtx {
     const lp = lastHere;
     const dir: Dir = lp && lp.x === spawn.x && lp.y === spawn.y && (lp.d === 1 || lp.d === 2 || lp.d === 3) ? lp.d : 0;
     Object.assign(this.me, { x: spawn.x, y: spawn.y, fromX: spawn.x, fromY: spawn.y, dispX: spawn.x, dispY: spawn.y, dir });
+    this.resetWinter();
 
     await this.net.join(spawn.x, spawn.y, dir);
     this.joinedAt = serverNow();
@@ -198,7 +209,7 @@ export class World implements WorldCtx {
       openPlayerMenu: (uid, x, y) => this.openPlayerMenu(uid, x, y),
       onlineList: () => [{ uid: this.uid, nick: this.profile.nick }, ...[...this.players.values()].map((p) => ({ uid: p.uid, nick: p.st.n }))],
       emote: (id) => this.doEmote(id),
-      interact: () => this.interact(),
+      interact: () => this.input.trigger('interact'),
       openShop: () => this.openShop(),
       toss: () => this.throwToss(),
       input: this.input,
@@ -212,6 +223,7 @@ export class World implements WorldCtx {
     const offW = this.wallet.listen(() => { if (!this.wallet.loaded) return; offW(); if (!this.wallet.rouletteDoneToday()) window.setTimeout(() => { if (!this.stopped) this.openRoulette(); }, 2000); });
     this.rouletteUnsub = watchRouletteFeed(this);
     this.contest.start();
+    this.snowPenalty.start();
     this.bugs.start();
     this.dig.start();
     this.casino.start();
@@ -313,6 +325,9 @@ export class World implements WorldCtx {
   // ---------- 매 프레임 ----------
   private tick(_dt: number, now: number): void {
     if (this.stopped) return;
+    // 뒤쪽 탭이었다가 돌아온 첫 프레임: 그동안 밀린 미끄러짐을 따라잡지 않는다
+    if (this.framesStalled()) this.winter.resetSlide();
+    this.checkSmash(now);
     this.lastTickAt = performance.now();
     // 행선지 창이 떠 있는데 밀려나거나 끌려갔으면 닫는다
     if (this.portalPick && (this.me.moving || this.me.x !== this.portalPick.x || this.me.y !== this.portalPick.y)) this.portalPick.close();
@@ -337,10 +352,18 @@ export class World implements WorldCtx {
         }
         // 방향은 걸음에 같이 실려 간다. 걸음이 나가지 않을 때(돌아서기만 했거나 막혔을 때)만 방향을 따로 알린다.
         // 예전엔 방향을 먼저 쓰고 바로 걸음을 또 써서, 방향 쓰기의 98% 가 겹쳤다 (2026-11-10)
-        if (!turnOnly && !(toWater && now < this.waterHoldUntil) && this.canStep(nx, ny)) void this.tryMove(nx, ny, turned);
-        else if (turned) this.net.setDir(d);
+        if (!turnOnly && !(toWater && now < this.waterHoldUntil) && this.canStep(nx, ny)) {
+          // 눈덩이 쪽으로 걸어 들어가는 걸음이면 눈덩이도 한 칸 밀린다. 걸음이 나간 뒤에 밀고, 서버가 그 걸음을 거부하면 되돌린다
+          const push = this.winter.pushPlan(me.x, me.y, d, this.winterBlockedFn);
+          let undo: (() => void) | null = null;
+          void this.tryMove(nx, ny, turned, push ? (ok) => { if (!ok) undo?.(); } : undefined);
+          // 방향키로 직접 시작한 걸음만 관성을 건다 (떼면 빙판에서 몇 칸 더). 걸음이 안 나갔으면 건 관성이 없다
+          if (me.moving && me.x === nx && me.y === ny) { this.winter.armSlide(d); if (push) undo = this.winter.applyPush(push, now, this.winterBlockedFn); } else this.winter.resetSlide();
+        } else { this.winter.resetSlide(); if (turned) this.net.setDir(d); }
+      } else if (this.winter.sliding) {
+        if (this.input.enabled) this.slideOn(); else this.winter.resetSlide(); // 채팅창 등으로 입력이 막히면 멈춘다
       }
-    }
+    } else if (!me.moving) this.winter.resetSlide(); // 스턴·잠금·마피아 정지·맵 이동 중에는 관성이 이어지지 않는다
     if (me.moving || (this.fishing.active && !this.input.enabled && !this.wallet.autoReelActive())) this.fishing.cancel(); // 밀려났거나 채팅창을 열면 취소 (자동 회수 중엔 채팅해도 유지)
     this.contest.tick(now);
     this.bugs.tick(now);
@@ -359,8 +382,9 @@ export class World implements WorldCtx {
       }
     }
     this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
+    this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.canvasHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks() });
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.canvasHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now) });
   }
 
   // 마피아 미션 자리 표시 (2026-11-10): 시민·유령은 내 미완료 미션(금색 테두리 + 화면 밖 화살표), 마피아는 모든 자리(흐린 테두리)
@@ -384,7 +408,7 @@ export class World implements WorldCtx {
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null,
       pet: this.pets.view(this.uid, this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
-      ghost: iGhost, mining: this.mine.active,
+      ghost: iGhost, mining: this.mine.active, snowBrokenAt: this.snowBrokenAt, snowReady: this.snowfight.packed,
     }];
     const sNow = serverNow(); // 방어가 깨진 사람은 이름 옆에 💥
     for (const rp of this.players.values()) {
@@ -399,7 +423,7 @@ export class World implements WorldCtx {
         fishing: rp.st.f ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
         hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null,
         pet: this.pets.view(rp.uid, rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0, !!rp.st.nr),
-        ghost, mining: !!rp.st.mn,
+        ghost, mining: !!rp.st.mn, snowBrokenAt: rp.st.sn || 0,
       });
     }
     return list;
@@ -423,7 +447,8 @@ export class World implements WorldCtx {
     // 카지노 안: 자리에 고정. 판의 나가기 버튼으로만 나간다 (2026-11-12).
     // 실제로 그 방 안에 서 있을 때만 막는다: 재접속 때 자리를 뺏겨 방 밖으로 옮겨진 경우(net.ts reclaim)에는 걸어서 빠져나올 수 있어야 한다 (첫 걸음의 afterStep 이 퇴장 처리)
     if (this.me.roomId && roomAt(this.map, this.me.x, this.me.y)?.id === this.me.roomId) return false;
-    if (!isWalkable(this.map, nx, ny) || this.occupied(nx, ny)) return false;
+    // 눈덩이·눈사람은 이 화면에서만 길을 막는다 (서버 점유와 무관). 밀 수 있는 눈덩이는 걸어 들어가 미는 것이라 막지 않는다 (밀려 나간 걸음은 눈덩이를 못 민다)
+    if (!isWalkable(this.map, nx, ny) || this.occupied(nx, ny) || (pushed ? this.winter.toyAt(nx, ny) : this.winter.stepBlocked(this.me.x, this.me.y, nx, ny, this.winterBlockedFn))) return false;
     const cur = roomAt(this.map, this.me.x, this.me.y);
     const target = roomAt(this.map, nx, ny);
     if (target && target !== cur) {
@@ -438,7 +463,7 @@ export class World implements WorldCtx {
   private entering = false;
   private mapGen = 0; // 맵을 옮길 때마다 +1. 비동기 응답이 옮기기 전 맵 좌표로 이어 가지 않게 대조한다
   // turned: 이번에 방향도 바뀌었다. 걸음이 나가면 방향이 같이 가고, 못 나가면 방향만 따로 알린다
-  private async tryMove(nx: number, ny: number, turned = false): Promise<void> {
+  private async tryMove(nx: number, ny: number, turned = false, onDone?: (ok: boolean) => void): Promise<void> {
     const faceOnly = () => { if (turned) this.net.setDir(this.me.dir); };
     if (this.entering) { faceOnly(); return; }
     const cur = roomAt(this.map, this.me.x, this.me.y);
@@ -453,11 +478,12 @@ export class World implements WorldCtx {
       this.me.roomId = target.id;
       this.net.setRoom(target.id);
     }
-    this.startStep(nx, ny);
+    this.startStep(nx, ny, undefined, onDone ? { onDone } : undefined);
   }
   startStep(nx: number, ny: number, pushedDir?: Dir, opts?: { dur?: number; onDone?: (ok: boolean) => void }): void {
     const me = this.me;
     const ox = me.x, oy = me.y;
+    if (pushedDir !== undefined || opts) this.winter.resetSlide(); // 밀림·끌림·갈고리 같은 바깥 걸음은 관성을 끊는다 (방향키 걸음만 tick 이 다시 건다)
     me.fromX = me.x; me.fromY = me.y; me.x = nx; me.y = ny; me.moveStart = performance.now(); me.moving = true;
     // Shift 를 누른 채 이동하면 2배 속도. 펫 탑승 중 걷기는 25% 빠름 (2026-11-10). 밀려난 경우는 보통 속도. 갈고리처럼 여러 칸이면 dur 로 받는다
     me.moveDur = opts?.dur ?? (pushedDir === undefined ? (this.input.running ? STEP_MS / 2 : this.petRide.walkMs()) : STEP_MS); // 펫 레벨마다 걷기 2.5% 빠름 (Lv10 128ms)
@@ -465,6 +491,7 @@ export class World implements WorldCtx {
       if (!ok && me.x === nx && me.y === ny) {
         // 점유 실패: 되돌리기
         me.x = ox; me.y = oy; me.fromX = ox; me.fromY = oy; me.dispX = ox; me.dispY = oy; me.moving = false;
+        this.winter.resetSlide();
         const z = roomAt(this.map, ox, oy);
         if (me.roomId && (!z || z.id !== me.roomId)) { this.roomMgr.leave(me.roomId); me.roomId = null; this.net.setRoom(null); }
         this.net.setDir(me.dir); // 걸음에 실어 보낸 방향도 같이 거부됐으니 따로 알린다
@@ -475,15 +502,18 @@ export class World implements WorldCtx {
   // 밀치기·끌기를 당했다: 도착(moveMs 뒤)하고 PUSH_STUN_MS 동안 못 움직인다. 😵 는 도착 시점부터 1초 (render 가 hitAt 이 미래여도 그때부터 그린다)
   stunAfter(moveMs: number): void {
     const now = performance.now();
+    this.winter.resetSlide();
     this.me.stunUntil = Math.max(this.me.stunUntil, now + moveMs + PUSH_STUN_MS);
     this.me.hitAt = now + moveMs;
   }
   // 펫 방어 (Lv8 이상): 밀치기·장풍·말랑이·끌기·갈고리를 갑옷처럼 막는다. 막은 보통 밀치기·말랑이는 80% 로 되받아친다 (net.ts, toss.ts)
-  petGuard(): boolean { return this.petRide.guard(); }
+  petGuard(): boolean { return !this.snowPenaltyActive() && this.petRide.guard(); }
   // ---- 빠따에 맞아 방어가 깨진 상태 (2026-11-11) ----
   // 풀리는 서버 시각. 새로고침으로 풀리지 않게 브라우저에도 적어 둔다 (start 에서 되살린다)
+  // 눈사람 벌칙(snowBrokenAt)은 같은 효과(갑옷·펫 방어·되받아치기 없음)를 SNOW_PENALTY_MS 동안 주지만 guardUntil 은 건드리지 않는다: 60초 빠따가 30분 벌칙을 줄이거나 늘리지 못한다
   guardUntil = 0;
-  guardBroken(): boolean { return serverNow() < this.guardUntil; }
+  snowPenaltyActive(): boolean { return snowActive(this.snowBrokenAt, serverNow()); }
+  guardBroken(): boolean { return serverNow() < this.guardUntil || this.snowPenaltyActive(); }
   breakGuard(byNick: string): void {
     this.guardUntil = serverNow() + GUARD_BREAK_MS;
     try { localStorage.setItem(`mv-gb-${this.uid}`, String(this.guardUntil)); } catch { /* ignore */ }
@@ -491,12 +521,13 @@ export class World implements WorldCtx {
     this.toast(`🏏 ${byNick} 의 빠따에 방어가 깨졌다! ${GUARD_BREAK_MS / 1000}초 동안 갑옷·펫이 막아 주지 않는다.`, true);
     this.events.emit('log', { channel: 'sys', from: '', text: `🏏 ${byNick} 의 빠따에 방어가 깨졌다 (${GUARD_BREAK_MS / 1000}초)`, ts: serverNow() });
   }
-  petReflect(): boolean { return this.petRide.rollReflect(); }
+  petReflect(): boolean { return !this.snowPenaltyActive() && this.petRide.rollReflect(); }
   // 순간이동 전 정리: 낚시 중이면 취소, 방에 있으면 나간다 (리스폰·관리자 이동 공용)
   leaveForTeleport(): void {
     const me = this.me;
     this.fishing.cancel();
     this.mine.cancel();
+    this.winter.resetSlide();
     if (me.roomId) { const left = me.roomId; me.roomId = null; this.seat = null; this.net.setRoom(null); this.roomMgr.leave(left); }
   }
   // 화면 갱신(rAF)이 멈춰 있나: 탭이 뒤에 있거나 창이 가려지거나 PC 가 잠겨 있으면 tick 이 돌지 않는다.
@@ -505,6 +536,7 @@ export class World implements WorldCtx {
   private finishMove(): void {
     const me = this.me;
     me.moving = false; me.dispX = me.x; me.dispY = me.y;
+    this.winter.resetSlide(); // 뒤쪽 탭에서 끝난 걸음: 관성은 이어 가지 않는다
     this.fishing.cancel(); // 밀려났으니 던져 둔 찌는 거둔다 (tick 이 돌 때와 같은 동작)
     this.afterStep();
   }
@@ -597,6 +629,7 @@ export class World implements WorldCtx {
   async teleportTo(x: number, y: number): Promise<void> {
     const me = this.me;
     if (this.switching) return; // 맵을 옮기는 중: 옛 맵 좌표로 걸음을 보내지 않는다
+    this.winter.resetSlide();
     const tried = new Set<string>();
     for (let i = 0; i < 8; i++) {
       const t = findFreeTile(this.map, x, y, (a, b) => this.occupied(a, b) || tried.has(`${a},${b}`), true);
@@ -607,6 +640,66 @@ export class World implements WorldCtx {
         return;
       }
     }
+  }
+
+  // ---------- 겨울 맵 놀이 (빙판 관성 · 눈덩이. winterplay.ts) ----------
+  private resetWinter(): void { this.winter = new WinterPlay(this.map, this.winterBlockedFn); this.smash = null; this.snowfight.reset(); } // 뭉친 눈도 맵을 옮기면 사라진다
+  // ---- 스키 장갑 눈싸움 (snowfight.ts): 눈 위에서 F 로 뭉치고 다음 F 로 던진다. 뭉친 눈은 이 브라우저에만 있다 ----
+  private snowfight = new SnowfightState();
+  private glovesOn(): boolean { return !!this.profile.eq?.[SKI_GLOVES_EQ] && !!this.profile.own?.[SKI_GLOVES_ID]; } // 가지고 있고 직접 낀 것만
+  private snowGate(): SnowGate {
+    const me = this.me;
+    const busy = this.switching || !this.input.enabled || me.moving || me.locked || !!me.roomId || performance.now() < me.stunUntil || this.mafia.frozen();
+    return snowGateAt(this.map, this.mapId, me.x, me.y, this.glovesOn(), busy);
+  }
+  private snowfightF(): void {
+    const a = this.snowfight.press(this.snowGate(), this.input.interactRepeat); // 키를 누르고 있어 반복된 F 는 뭉치기·던지기 어느 쪽도 하지 않는다
+    if (a === 'throw' && this.toss.throwSnow()) { this.snowfight.consume(); this.doEmote(12); }
+  }
+  // 사람이 서 있는(또는 걸어 들어오는) 칸: 눈덩이를 놓거나 굴려 넣지 않는다
+  private winterBlocked(x: number, y: number): boolean {
+    const me = this.me;
+    return (me.x === x && me.y === y) || (me.moving && me.fromX === x && me.fromY === y) || this.occupied(x, y) || !!this.playerAt(x, y);
+  }
+  // 손을 뗀 뒤 빙판에서 이어 가는 한 칸 (칸마다 기존 걸음 하나 = Net.step 한 번)
+  private slideOn(): void {
+    const me = this.me;
+    const s = this.winter.slideStep(me.x, me.y, (nx, ny) => this.canStep(nx, ny));
+    if (!s) return;
+    this.fishing.cancel();
+    me.dir = s.dir;
+    void this.tryMove(s.x, s.y);
+  }
+  private winterBlockedFn = (x: number, y: number): boolean => this.winterBlocked(x, y);
+  // ---- 눈사람 부수기: F 두 번 (처음엔 확인만, 두 번째가 벌칙을 서버에 쓰고 부순다) ----
+  // 서 있는 자리·방향·부술 눈사람이 그대로이고 SMASH_CONFIRM_MS 안일 때만 두 번째 F 가 이어진다. 움직이거나 돌아서거나 다른 F 를 쓰면 처음부터
+  private smash: { mx: number; my: number; px: number; py: number; dir: number; until: number } | null = null;
+  private smashing = false; // 벌칙을 쓰는 중 (끝날 때까지 F 무시)
+  private checkSmash(now: number): void {
+    const s = this.smash, me = this.me;
+    if (!s || this.smashing) return;
+    const man = me.moving ? null : this.winter.manAhead(me.x, me.y, me.dir);
+    if (!man || man.x !== s.mx || man.y !== s.my || me.x !== s.px || me.y !== s.py || me.dir !== s.dir || now > s.until) this.smash = null;
+  }
+  private smashStep(man: { x: number; y: number }): void {
+    if (this.input.interactRepeat || this.smashing) return; // 키를 누르고 있어 반복된 F 는 세지 않는다
+    const me = this.me;
+    if (!this.smash) {
+      // 직전에 부순 지 얼마 안 됐으면 확인(첫 F)도 시작하지 않는다: 남은 시간을 알리고, 지난 뒤에 F 두 번을 처음부터 다시 누르게 한다 (규칙의 연타 간격과 같다)
+      const wait = this.snowPenalty.waitMs();
+      if (wait > 0) { this.toast(`눈사람은 ${Math.ceil(wait / 1000)}초 뒤에 다시 부술 수 있어요.`, true); return; }
+      this.smash = { mx: man.x, my: man.y, px: me.x, py: me.y, dir: me.dir, until: performance.now() + SMASH_CONFIRM_MS }; return; }
+    void this.smashSnowman(man);
+  }
+  // 벌칙(서버 쓰기)이 성공한 뒤에만 눈사람이 사라진다. 실패하면 눈사람은 그대로. 전체 알림은 breakSnowman 이 낸다
+  private async smashSnowman(man: { x: number; y: number }): Promise<void> {
+    this.smashing = true;
+    const play = this.winter;
+    let ok = false;
+    try { ok = await this.snowPenalty.breakSnowman(); } catch (e) { console.warn('snowman penalty failed', e); }
+    this.smashing = false; this.smash = null;
+    if (ok) play.removeMan(man.x, man.y);
+    else this.toast('눈사람을 부수지 못했어요. 잠시 후 다시 시도하세요.', true);
   }
 
   // ---------- 포탈 (맵 이동) ----------
@@ -622,7 +715,7 @@ export class World implements WorldCtx {
     if (src === 'active') return this.mainMap;
     if (src === 'builtin') {
       let m = this.builtinMaps.get(id);
-      if (!m) { m = id === GOLD_MINE_MAP_ID ? buildGoldMine() : buildPortalGarden(); this.builtinMaps.set(id, m); }
+      if (!m) { m = id === GOLD_MINE_MAP_ID ? buildGoldMine() : id === WINTER_MAP_ID ? buildWinterMap() : buildPortalGarden(); this.builtinMaps.set(id, m); }
       return m;
     }
     if (src === 'saved') return loadSavedMap(id);
@@ -690,6 +783,7 @@ export class World implements WorldCtx {
     this.setMap(map);
     Object.assign(me, { x, y, fromX: x, fromY: y, dispX: x, dispY: y, moving: false, pushMore: null, bubble: null, pose: 'none', emoteId: 0 });
     this.waterHoldUntil = 0;
+    this.resetWinter(); // 눈덩이·눈사람·관성은 맵을 나가면 사라지고 들어올 때 새로 놓인다
     this.fishing.cancel(); // 맵을 읽는 사이 자동 낚시가 옛 맵 물에 다시 던졌을 수 있다
     this.bugs.clear(); this.toss.clear(); this.pets.forget(this.uid); this.mine.left();
     for (const rp of this.players.values()) rp.bubble = null;
@@ -709,7 +803,7 @@ export class World implements WorldCtx {
 
   // ---------- 상호작용 ----------
   // F 로 할 수 있는 것과 그 안내 위치. 우선순위: 게시판 → 낚시 중 → 물가(낚시 시작) → 낚시 표지판
-  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' } | null {
+  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' } | null {
     const me = this.me;
     if (me.roomId) return null;
     if (this.switching) return { x: me.x, y: me.y - 1, text: '🌀 이동 중…', kind: 'portal' };
@@ -735,7 +829,13 @@ export class World implements WorldCtx {
     if (room) return { x: room.x, y: room.y - 1, text: PRIMARY_ONLY_ROOM_MSG, kind: 'sign' };
     if (fv) { if (fv.auto) return null; return { x: fv.x, y: fv.y, text: fv.bite ? 'F 당겨!' : '찌를 기다리는 중… (이동하면 취소)', kind: 'fishing' }; } // 자동 낚시 중에는 안내를 띄우지 않는다 (2026-11-09, 사용자: 두 군데 뜨는 게 거슬림)
     if (bug) return { x: bug.x, y: bug.y, text: 'F 채집', kind: 'bug' };
+    // 겨울 맵: 바로 앞 눈덩이 굴리기. 포탈·하던 낚시·벌레 다음, 새로 던지는 낚시보다 먼저
+    const man = me.moving ? null : this.winter.manAhead(me.x, me.y, me.dir);
+    if (man) return { x: man.x, y: man.y, text: this.smashing ? '눈사람 부수는 중…' : this.smash ? 'F · 진짜 부술거야..?' : 'F · 눈사람 부수기..?', kind: 'snowman' };
+    // 스키 장갑 눈싸움: 포탈·눈사람 확인·하던 낚시·벌레 다음. 뭉친 눈이 있으면 던지기가 새 낚시보다 먼저고, 뭉치기는 낚시를 던질 수 있는 자리면 양보한다 (얼음 구멍 낚시가 그대로 되게)
     const t = this.fishing.targetTile();
+    const sf = snowfightAction(this.snowfight.packed, this.snowGate());
+    if (sf === 'throw' || (sf === 'pack' && !t)) return { x: me.x, y: me.y - 1, text: sf === 'pack' ? SNOW_PACK_HINT : SNOW_THROW_HINT, kind: 'snowfight' };
     if (t) return { x: t.x, y: t.y, text: 'F 낚시', kind: 'cast' };
     if (this.fishZone && nearZone(this.fishZone, me.x, me.y, 1)) return { x: this.fishZone.x, y: this.fishZone.y - 1, text: 'F 낚시 기록 보기', kind: 'sign' };
     if (this.arcadeZone && nearZone(this.arcadeZone, me.x, me.y, 1)) return { x: this.arcadeZone.x, y: this.arcadeZone.y - 1, text: 'F 두더지 잡기', kind: 'arcade' };
@@ -767,8 +867,10 @@ export class World implements WorldCtx {
   }
   interact(): void {
     if (this.switching) return; // 목적지를 읽는 동안 옛 맵에서 낚시·채집·삽질 등을 시작하지 않는다
+    this.winter.resetSlide(); // F 는 빙판 관성을 먼저 멈춘다 (구멍가에서 미끄러지는 중에도 낚시를 던질 수 있게. 걸음이 끝난 뒤 F 가 먹는다)
     if (this.me.roomId) { this.casinoHidden = !this.casinoHidden; this.syncCasinoPanel(); return; }
     const ch = this.canvasHint();
+    if (ch?.kind !== 'snowman') this.smash = null; // 눈사람 확인은 연달아 누른 F 두 번만 이어진다: 다른 F 가 끼면 처음부터
     if (!ch) return;
     if (ch.kind === 'mafia') { void this.mafiaInteract(); return; }
     if (ch.kind === 'portal') { const z = portalNear(this.map, this.me.x, this.me.y); if (z) this.openPortal(z); return; }
@@ -778,6 +880,8 @@ export class World implements WorldCtx {
     else if (ch.kind === 'bug') { if (this.bugs.swing()) this.doEmote(11); } // 잠자리채 휘두르기 (남들에게도 보임)
     else if (ch.kind === 'dig') { if (this.dig.begin()) this.doEmote(13); }
     else if (ch.kind === 'mine') { if (!this.input.interactRepeat) this.mine.begin(); } // 키를 누르고 있어 반복된 F 로는 치지 않는다 (한 번 누르면 한 번)
+    else if (ch.kind === 'snowman') this.smashStep(ch);
+    else if (ch.kind === 'snowfight') this.snowfightF();
     else if (ch.kind === 'arcade') { this.input.releaseAll(); openMole({ uid: this.uid, nick: this.profile.nick, wallet: this.wallet, input: this.input, toast: (m, e) => this.toast(m, e), stat: (k) => this.net.stat(k) }); }
     else if (ch.kind === 'sign') { this.input.releaseAll(); this.openFishBook(); }
   }
@@ -1029,9 +1133,10 @@ export class World implements WorldCtx {
   private async stop(replaced = false): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
-    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.wallet.stop(); this.contest.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
+    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.wallet.stop(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});
     await this.net.leave(replaced);
     document.body.classList.remove('mobile');

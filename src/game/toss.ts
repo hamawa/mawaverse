@@ -4,6 +4,9 @@ import { weekKey } from '../shared/fish';
 import { dirVec, frontTiles } from './area';
 import { guardedOf, assignBats } from '../shared/shop';
 import { serverNow } from '../firebase/db';
+import { snowActive } from '../shared/snowpenalty';
+import { playerMapId } from '../shared/maps';
+import { planSnowThrow, snowStillThere, snowMsgValid } from './snowfight';
 import type { Net } from './net';
 import type { WorldCtx, RemotePlayer } from './state';
 import type { TossMsg } from '../shared/types';
@@ -14,7 +17,7 @@ export const TOSS_FLY_MS = 400;   // 날아가는 시간. 이 안에 옆으로 �
 export const TOSS_STUN_MS = 1000; // 맞으면 이만큼 못 움직인다
 
 // 렌더용 (타일 좌표, performance.now). icon 이 있으면 그 글자를 직선으로(장풍 💨), 없으면 🧸 포물선
-export interface TossView { fx: number; fy: number; tx: number; ty: number; start: number; icon?: string }
+export interface TossView { fx: number; fy: number; tx: number; ty: number; start: number; icon?: string; snow?: true } // snow: 스키 장갑 눈덩이 (🧸 대신 눈덩이를 같은 포물선으로 그린다)
 export interface TossWeekEntry { n: string; h: number; t: number; at: number }             // toss/week/{wk}/{uid}: 닉, 명중, 던짐, 마지막
 type Shot = { uid: string; m: Omit<TossMsg, 't'> };
 
@@ -87,9 +90,44 @@ export class TossMgr {
     return true;
   }
 
+  // 스키 장갑 눈덩이 (겨울 눈싸움, snowfight.ts). F 로 던진다. true 면 던졌다: 쿨타임(말랑이와 같은 TOSS_COOLDOWN_MS, 실제로 던질 때만 시작)이면 false 라 뭉친 눈이 남는다.
+  // 앞 4칸(frontTiles) 안 가장 가까운 사람에게 말랑이 경로로 보낸다(s=1: 방어 무시 표시, b 빠따와 무관). 대상이 없으면 눈덩이만 날아가고 알림은 없다. 추적 없음: 날아간 뒤 그 칸에 있어야 맞는다.
+  // 방어 깨짐(gb)·갑옷 해제는 하지 않고 말랑이 주간 기록(toss/week)에도 넣지 않는다
+  throwSnow(): boolean {
+    const w = this.w, me = w.me, now = performance.now();
+    const left = this.cooldownLeft();
+    if (left > 0) { w.toast(`눈덩이는 ${Math.ceil(left / 1000)}초 후에 다시 던질 수 있어요.`, true); return false; }
+    this.lastThrow = now;
+    const plan = planSnowThrow(me, (x, y) => w.playerAt(x, y));
+    const m: Omit<TossMsg, 't'> = { f: w.uid, fx: me.x, fy: me.y, tx: plan.tx, ty: plan.ty, s: 1 };
+    this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: now, snow: true });
+    const target = plan.target;
+    if (!target) return true;
+    this.net.toss(target.uid, m);
+    this.land(() => {
+      const rp = w.players.get(target.uid);
+      if (!rp || !snowStillThere(rp, m.tx, m.ty)) { w.note(`❄ ${w.nickOf(target.uid)} 이(가) 피했다!`); return; }
+      rp.hitAt = performance.now();
+      w.note(`❄ ${w.nickOf(target.uid)} 명중!`);
+    });
+    return true;
+  }
+
+  // 눈덩이를 받는 쪽의 공통 검사: 나도 던진 사람도 같은 겨울 맵, 범위 안
+  private snowOk(m: TossMsg): boolean {
+    const thrower = this.w.players.get(m.f);
+    return snowMsgValid(this.w.mapId, thrower ? playerMapId(thrower.st) : undefined, m);
+  }
+
   // 다른 사람이 던진 것 (상대의 presence 로 전파). 내가 던진 건 이미 그렸으므로 제외
   onRemote(targetUid: string, m: TossMsg): void {
     if (m.f === this.w.uid) return;
+    if (m.s) { // 눈덩이: 방어를 보지 않는다 (🛡 없음)
+      if (!this.snowOk(m)) return;
+      this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now(), snow: true });
+      this.land(() => { const rp = this.w.players.get(targetUid); if (rp && snowStillThere(rp, m.tx, m.ty)) rp.hitAt = performance.now(); });
+      return;
+    }
     this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now() });
     this.land(() => {
       const rp = this.w.players.get(targetUid);
@@ -102,12 +140,13 @@ export class TossMgr {
   onHitMe(m: TossMsg): void {
     const w = this.w;
     if (w.me.roomId) return; // 카지노 안에 앉아 있는 동안은 말랑이도 안 맞는다
+    if (m.s) { this.onSnowHitMe(m); return; }
     this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now() });
     this.land(() => {
       const me = w.me, now = performance.now();
       if (me.x !== m.tx || me.y !== m.ty) { w.toast('🧸 휙! 피했다.'); return; }
       // 빠따(b=1): 방어를 깨고 그대로 맞는다. 이미 깨져 있는 동안에도 방어가 없다 (2026-11-11)
-      if (m.b === 1 && (w.profile.eq?.ta || w.petGuard())) w.breakGuard(w.nickOf(m.f));
+      if (m.b === 1 && !snowActive(w.snowBrokenAt, serverNow()) && (w.profile.eq?.ta || w.petGuard())) w.breakGuard(w.nickOf(m.f));
       const open = w.guardBroken();
       if (!open && w.profile.eq?.ta) { me.blockAt = now; w.toast(`🧥 푹신 갑옷이 ${w.nickOf(m.f)} 의 말랑이를 튕겨냈다.`); return; }
       if (!open && w.petGuard()) {
@@ -126,6 +165,20 @@ export class TossMgr {
       me.hitAt = now; me.stunUntil = now + TOSS_STUN_MS;
       this.hooks.cancelFishing();
       w.toast(m.r ? `😵 ${w.nickOf(m.f)} 의 펫이 되던진 말랑이에 맞았다!` : `😵 ${w.nickOf(m.f)} 의 말랑이에 맞았다!`);
+    });
+  }
+
+  // 나한테 날아온 눈덩이: 갑옷·펫 방어·되받아치기·빠따 방어 깨짐을 모두 건너뛰고, 그 칸에 아직 있으면 말랑이와 같은 TOSS_STUN_MS 스턴 (방어 깨짐 gb·갑옷 해제 없음)
+  private onSnowHitMe(m: TossMsg): void {
+    const w = this.w;
+    if (!this.snowOk(m)) return;
+    this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now(), snow: true });
+    this.land(() => {
+      const me = w.me, now = performance.now();
+      if (!snowStillThere(me, m.tx, m.ty)) { w.toast('❄ 휙! 피했다.'); return; }
+      me.hitAt = now; me.stunUntil = now + TOSS_STUN_MS;
+      this.hooks.cancelFishing();
+      w.toast(`😵 ${w.nickOf(m.f)} 의 눈덩이에 맞았다!`);
     });
   }
 

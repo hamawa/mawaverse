@@ -307,3 +307,34 @@ test('금광: 24×18, 물·잔디·꽃밭이 없고 가운데 6×5 금덩어리 
   for (const k of stand) assert.ok(seen.has(k), `캐는 자리 ${k} 에 갈 수 있어야 함`);
   assert.equal(isReservedMapId(GOLD_MINE_MAP_ID), true);
 });
+
+test('겨울 낚시터: 빙판의 구멍만 낚시 가능하고 구멍에 들어갈 수 없으며 정원과 왕복할 수 있다', async () => {
+  const { buildWinterMap, buildPortalGarden, isFishable, G_ICE, G_ICE_HOLE, G_SNOW, isWalkable, portalNear, portalDests, isReservedMapId } = await import('../src/game/map.ts');
+  const { WINTER_MAP_ID, BUILTIN_MAP_IDS } = await import('../src/shared/maps.ts');
+  const m = buildWinterMap();
+  assert.equal(m.id, WINTER_MAP_ID); assert.ok(BUILTIN_MAP_IDS.includes(WINTER_MAP_ID)); assert.equal(isReservedMapId(WINTER_MAP_ID), true);
+  assert.ok(m.ground.includes(G_ICE_HOLE));
+  assert.equal(m.ground[m.spawn.y * m.w + m.spawn.x], G_SNOW);
+  const holes = m.ground.flatMap((g, i) => g === G_ICE_HOLE ? [{ x: i % m.w, y: Math.floor(i / m.w) }] : []);
+  assert.ok(holes.length > 1);
+  assert.equal(new Set(holes.map((p) => p.x)).size, 1);
+  assert.ok(holes.every((p) => p.x > m.spawn.x));
+  assert.equal(Math.max(...holes.map((p) => p.y)) - Math.min(...holes.map((p) => p.y)) + 1, holes.length);
+  for (let i = 0; i < m.ground.length; i++) {
+    const x = i % m.w, y = Math.floor(i / m.w);
+    assert.equal(isFishable(m, x, y), m.ground[i] === G_ICE_HOLE);
+    if (m.ground[i] === G_ICE_HOLE) {
+      assert.equal(isWalkable(m, x, y), false);
+      assert.ok([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => m.ground[(y + dy) * m.w + x + dx] === G_ICE && isWalkable(m, x + dx, y + dy)));
+    }
+  }
+  for (const g of m.ground) assert.ok(g !== G.GRASS && g !== G.GRASS2 && g !== G.FLOWER);
+  assert.ok(isWalkable(m, m.spawn.x, m.spawn.y)); assert.equal(portalNear(m, m.spawn.x, m.spawn.y), undefined);
+  const back = m.zones.find((z) => z.kind === 'portal');
+  assert.deepEqual(portalDests(back), [{ map: 'portal-garden' }]);
+  const garden = buildPortalGarden();
+  const go = garden.zones.find((z) => z.kind === 'portal' && z.targetMap === WINTER_MAP_ID);
+  assert.ok(go);
+  assert.equal(garden.zones.find((z) => z.kind === 'portal').targetMap, 'main'); // 첫 포탈(귀환)은 그대로
+  assert.equal(portalNear(garden, garden.spawn.x, garden.spawn.y), undefined);
+});

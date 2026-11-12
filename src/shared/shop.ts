@@ -1,5 +1,6 @@
 // 상점 품목과 지갑 형태. 게임·관리자 페이지가 같이 쓴다 (DOM/Firebase 의존 없음)
 // 가격은 config/prices/{id} 로 관리자가 덮어쓸 수 있다 (priceOf)
+import { snowActive } from './snowpenalty';
 
 export type ItemKind = 'hat' | 'name' | 'fx' | 'pet' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
 export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
@@ -135,6 +136,18 @@ export const GEAR_GOODS: ShopItem[] = [
 export type ArmorKey = 'pa' | 'ta';
 export const ARMOR_KEY: Partial<Record<string, ArmorKey>> = { pusharmor: 'pa', tossarmor: 'ta' };
 
+// ---- 스키 장갑 (겨울 눈싸움) ----
+// 단일 영구 품목(기본 2,000 코인, 일반 구매 분기로 사고 가격은 config/prices). 보유만으로는 안 되고 users/{uid}/eq/sg 를 켜야 쓴다(입고 벗기, 규칙: 보유 필요).
+// 켠 채 겨울 맵 눈 위에서 F 로 눈을 뭉치고(보관 상태는 이 브라우저에만), 다음 F 로 던진다. 던진 눈덩이는 말랑이 경로(TossMsg)에 s=1 로 실려 가고, 맞으면 말랑이와 같은 스턴이지만
+// 갑옷·펫 방어·되받아치기를 모두 무시한다(방어 깨짐 gb·갑옷 해제도 없다). 규칙: s=1 은 장갑을 보유·착용한 겨울 맵의 보낸 사람이 같은 겨울 맵 대상에게 범위 안으로 쓸 때만 (tools/gen-rules.cjs·database.rules.json).
+// presence 에는 싣지 않는다(켜고 끄는 것만 프로필에 쓰고, 눈 뭉치기·던지기는 DB 에 쓰지 않는다)
+export const SKI_GLOVES_ID = 'skigloves';
+export const SKI_GLOVES_EQ = 'sg' as const;
+export const SKI_GLOVES: ShopItem = { id: SKI_GLOVES_ID, kind: 'gear', name: '스키 장갑', price: 2000, icon: '🧤', desc: '겨울 맵 전용 눈싸움. 끼고 눈 위에서 F 로 눈을 뭉친 뒤 다시 F 로 던진다. 맞으면 말랑이처럼 1초 스턴이고 갑옷·펫 방어도 뚫는다(방어가 깨지지는 않는다). 끼고 빼는 것은 직접. 영구.' };
+// 입고 벗는(켜고 끄는) 장비의 프로필 칸: 갑옷 둘 + 스키 장갑. 갑옷만 presence 에도 실린다
+export type ToggleKey = ArmorKey | typeof SKI_GLOVES_EQ;
+export const TOGGLE_KEY: Partial<Record<string, ToggleKey>> = { ...ARMOR_KEY, [SKI_GLOVES_ID]: SKI_GLOVES_EQ };
+
 // ---- 빠따 (2026-11-11 밸런스 패치) ----
 // 갑옷(만 코인)과 펫 Lv8 방어를 거의 모두가 갖추면서 밀치기·말랑이가 안 통하게 됐다(12명 중 8명). 방어 확률은 그대로 두고, 깨는 수단을 소모품으로 판다.
 // 밀치기·말랑이·끌기를 쓸 때 상대가 방어 중이면 빠따 하나를 써서(지갑 bt −1) 방어를 깨고 그대로 맞힌다(메시지에 b=1). 맞은 사람은 GUARD_BREAK_MS 동안
@@ -142,12 +155,14 @@ export const ARMOR_KEY: Partial<Record<string, ArmorKey>> = { pusharmor: 'pa', t
 // 규칙: b=1 이 붙은 메시지는 보낸 사람의 지갑 bt 가 같은 쓰기에서 줄어들 때만 받는다. 깨진 상태를 지키는 것은 받는 쪽 클라이언트다 (밀치기와 같은 신뢰 수준)
 export const BAT: ShopItem = { id: 'bat', kind: 'use', name: '빠따', price: 1000, icon: '🏏', desc: '밀치기·말랑이·끌기가 상대의 갑옷이나 펫 방어에 막힐 때 하나를 써서 방어를 깨고 그대로 맞힌다. 맞은 사람은 60초 동안 방어가 깨져 누구에게나 밀린다(갑옷이 없어지지는 않는다).' };
 export const GUARD_BREAK_MS = 60000;
-type GuardState = { pa?: boolean | null; ta?: boolean | null; pt?: string | null; pl?: number | null; gb?: number | null } | undefined;
+type GuardState = { pa?: boolean | null; ta?: boolean | null; pt?: string | null; pl?: number | null; gb?: number | null; sn?: number | null } | undefined;
 // 방어가 깨져 있나: gb(풀리는 시각)가 지금(서버 시각)보다 뒤
 export function guardBrokenOf(st: GuardState, now: number): boolean { return typeof st?.gb === 'number' && st.gb > now; }
+// presence 에 싣는 빠따 방어 깨짐(gb): 풀리는 시각이 아직 남았을 때만. 눈사람 벌칙(sn)은 guardBroken() 이 켜져도 gb 를 싣지 않는다 (둘은 별개 상태)
+export function batGuardField(guardUntil: number, now: number): { gb?: number } { return guardBrokenOf({ gb: guardUntil }, now) ? { gb: guardUntil } : {}; }
 // 남의 presence 로 보는 방어. kind: 'push' 밀치기·끌기(철벽 갑옷 pa) | 'toss' 말랑이(푹신 갑옷 ta). 펫 Lv8 은 둘 다 막는다. 깨져 있으면 방어가 없는 것으로 본다
 export function guardedOf(st: GuardState, kind: 'push' | 'toss', now: number): boolean {
-  if (!st || guardBrokenOf(st, now)) return false;
+  if (!st || guardBrokenOf(st, now) || snowActive(st.sn, now)) return false; // 눈사람 부순 벌칙(sn)은 갑옷·펫 방어를 SNOW_PENALTY_MS 동안 끈다
   return !!(kind === 'push' ? st.pa : st.ta) || petGuardOf(st);
 }
 // 겨냥한 사람들 가운데 누구에게 빠따를 쓸지: 방어 중인 사람에게 앞에서부터 한 개씩, 빠따가 모자라면 나머지는 막힌다
@@ -165,7 +180,17 @@ export const ROD_GOODS: ShopItem[] = [
 // 등급별 배수 (0 기본, 1 좋은, 2 명품, 3 킹). 킹 낚싯대는 명품과 같은 배수에 강화 성만 35성으로 고정해 쓴다 (KING_BASE_STARS)
 export const ROD_BOOST = [1, 1.5, 2.5, 2.5];
 export const ROD_JUNK = [1, 0.5, 0.25, 0.25];
-export function rodTierOf(own?: Record<string, true> | null): number { return own?.rod3 ? 3 : own?.rod2 ? 2 : own?.rod1 ? 1 : 0; }
+// 얼음 낚싯대 (겨울 맵 전용): 단일 영구 품목 하나. 선행 조건 없이 가격표대로 산다(기본 1,000 코인). 성능은 명품 낚싯대 20성으로 고정(등급 2 배수 + 20성 효과)이고,
+// 강화·킹 낚싯대·킹 사이즈·지갑 성 칸이 없다. 미끼는 일반 낚싯대와 같이 쓴다. 일반 낚싯대의 보유·강화와 서로 영향이 없다
+export type RodFamily = 'normal' | 'ice';
+export const ICE_ROD_ID = 'iceRod';
+export const ICE_ROD_TIER = 2;     // ROD_BOOST·ROD_JUNK 에서 명품(2)과 같은 배수
+export const ICE_ROD_STARS = 20;   // 낚시 확률에 쓰는 고정 성 (starFactor)
+export const ICE_ROD: ShopItem = { id: ICE_ROD_ID, kind: 'rod', name: '얼음 낚싯대', price: 1000, icon: '🧊', desc: '겨울 맵 낚시 전용. 명품 낚싯대 20성급 성능(희귀 이상 2.5배·꽝 1/4)으로 고정이라 강화할 수 없고 킹 사이즈도 없다. 영구.' };
+export function rodTierOf(own?: Record<string, true> | null, family: RodFamily = 'normal'): number {
+  if (family === 'ice') return own?.[ICE_ROD_ID] ? ICE_ROD_TIER : 0;
+  return own?.rod3 ? 3 : own?.rod2 ? 2 : own?.rod1 ? 1 : 0;
+}
 
 // ---- 낚싯대 강화 (2026-11-10) ----
 // 명품 낚싯대(금색)만 강화할 수 있다. 주문서(상점 200코인, 지갑 es 에 보관) 1장으로 1성 도전. 성공하면 +1성(지갑 rs), 실패하면 명품 낚싯대가 부서져
@@ -202,7 +227,7 @@ export function netTierOf(own?: Record<string, true> | null): number { return ow
 // 잠자리채 등급을 반영한 채집 성공 확률
 export function netChance(base: number, tier: number): number { return tier >= 2 ? 1 : tier === 1 ? 1 - (1 - base) / 2 : base; }
 
-export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ...NET_GOODS];
+export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }
 // 보관함(users/{uid}/own)에 들어가는 품목인가 (소모품인 자동 낚시·미끼·자동 채집·펫 먹이·강화 주문서는 지갑에만 기록된다)
@@ -216,12 +241,13 @@ export function priceOf(item: ShopItem, prices?: Record<string, number> | null):
 // ab: 자동 채집 만료 시각, rd: 마지막으로 룰렛을 돌린 날짜(dayKey), ad/an/bn: 예전 하루 한도 카운트(2026-11-05 한도 해제로 안 씀. 기존 지갑에 남은 값은 다음 자동 구매 때 지워지고, 규칙은 숫자만 허용)
 // b: 마지막으로 산 품목 id (사용액이 그 품목 가격과 같아야 바뀔 수 있고, 보유 등록은 b 가 그 품목일 때만 허용). rd 는 KST 0시(ms), 예전 값은 'YYYYMMDD' 문자열
 // wt/we/md: 예전 코인 획득 속도 상한(10분 창)·신화 보상 날짜. 2026-11-10 상한을 없애며 더 쓰지 않는다 (옛 지갑에 남은 값은 규칙이 숫자로만 허용)
-export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?: number; bu?: boolean; rd?: number | string; ab?: number; b?: string; wt?: number; we?: number; gf?: { n: number; at: number }; gt?: string; cb?: string; ch?: number; ca?: number; cr?: string; md?: number; ad?: number; an?: number; bn?: number; px?: Record<string, number>; pp?: string; es?: number; rs?: number; gn?: number; ga?: number; ks?: number; bt?: number; bo?: boolean; ik?: 's' | 'o'; ib?: number; ip?: number; it?: number; ic?: number; dl?: string; dc?: string; pk?: string; ps?: 'a' | 'b'; pc?: string }
+export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?: number; bu?: boolean; rd?: number | string; ab?: number; b?: string; wt?: number; we?: number; gf?: { n: number; at: number }; gt?: string; cb?: string; ch?: number; ca?: number; cr?: string; md?: number; ad?: number; an?: number; bn?: number; px?: Record<string, number>; pp?: string; es?: number; rs?: number; gn?: number; ga?: number; ks?: number; pi?: number; bt?: number; bo?: boolean; ik?: 's' | 'o'; ib?: number; ip?: number; it?: number; ic?: number; dl?: string; dc?: string; pk?: string; ps?: 'a' | 'b'; pc?: string }
 // pk/ps/pc: 인디언 포커(2026-11-12, shared/poker.ts). pk = 내가 들어간 마지막 판 id, ps = 그 판의 내 자리 (b='poker' 결제에서만 바뀜), pc = 마지막으로 정산한 판 id. pk != pc 이면 아직 정산 안 한 판
 // dl/dc: 1:1 내기(2026-11-12, shared/duel.ts). dl = 내가 판돈을 낸 마지막 내기 id (b='duel' 결제에서만 바뀜), dc = 마지막으로 정산(승리·환불)한 내기 id
 // ik/ib/ip/it/ic: 슬롯 방의 즉석 게임(슬롯·홀짝. 2026-11-12, shared/slots.ts). 베팅하면 ik(게임)·ib(건 돈)·ip(홀짝에서 고른 쪽)·it(서버 시각)가 적히고, 정산하면 ic 가 그 it 가 된다. it != ic 이면 아직 정산 안 한 판
 // bt: 빠따 개수 (2026-11-11. b='bat' 결제에서만 늘고, 방어를 깨는 밀치기·말랑이·끌기 쓰기에서 준다), bo: 빠따 자동 사용 (기본 true)
 // gn: 가진 금덩이 (2026-11-11. 금광 채광으로 늘고 킹 낚싯대 제작·강화로 준다), ga: 마지막 채광 시각(서버 시각. 규칙이 간격을 본다), ks: 킹 낚싯대 강화 성(0~30. 주문서 1장 + 금덩이 1개가 같이 줄 때만 +1 또는 0)
+// pi: 곡괭이 단계 (0~10, 없으면 0. b='pick' 결제에서만 +1, 값은 정확히 1000·단계² 코인. shared/mine.ts. 포커의 pk 와 이름이 겹쳐 pi).
 // cb/ch/ca: 마지막 경마 배팅(라운드 id, 말 번호, 금액. b='race' 결제 쓰기에서만 바뀜) → casino/r/{cb}/bets/{uid} 에 그대로 적어야 배팅이 성립. cr: 배당을 받은 마지막 라운드 id (커지기만 함, 한 라운드 한 번)
 // px/{펫 id}: 그 펫에게 먹인 누적 먹이 (2026-11-10. b='petfood' 결제 쓰기에서 pp 에 적은 펫만 사용액/가격 만큼 오른다), pp: 마지막으로 먹인 펫
 // es: 강화 주문서 개수 (b='scroll' 결제에서만 는다), rs: 명품 낚싯대 강화 성(0~30. es 가 1 줄어드는 쓰기에서만 +1 또는 0 으로 바뀐다. 0 보다 크면 rod2 를 가지고 있어야 함)
@@ -231,7 +257,8 @@ export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?:
 export interface GiftMark { f: string; fn: string; i: string; m?: string; at: number }
 export const GIFT_MSG_MAX = 40;
 // users/{uid}/eq: 착용 중인 모자(h), 이름표 색(nc), 이동 이펙트(fx), 펫(pt), 철벽 갑옷(pa), 푹신 갑옷(ta). players/{uid} 에도 같은 키로 실린다
-export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null }
+export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null }
+// sg: 스키 장갑을 낀 상태 (프로필에만. presence 에는 안 싣는다. 규칙: 보유해야 켤 수 있다)
 // nr: 만렙(Lv10) 펫을 타지 않고 데리고 다닌다 (2026-11-12 건의 반영. 없으면 지금까지처럼 탄다). 걷기 속도 등 펫 효과는 타든 안 타든 같다: 모습만 바뀐다
 export const EQUIP_KEY: Record<CosmeticKind, keyof Equip> = { hat: 'h', name: 'nc', fx: 'fx', pet: 'pt' };
 

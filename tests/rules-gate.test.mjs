@@ -171,6 +171,8 @@ await expect('맵: 존재하지 않는 맵 이동', 'deny', () => ok.ref('player
 await expect('맵: 잘못된 맵 ID', 'deny', () => ok.ref('players/OK/m').set('../island'));
 await expect('맵: 저장된 맵 ID 허용', 'allow', () => ok.ref('players/OK/m').set('island'));
 await expect('맵: 코드에 든 금광 맵 허용', 'allow', () => ok.ref('players/OK/m').set('gold-mine'));
+await expect('맵: 겨울 맵(winter) 허용', 'allow', () => ok.ref('players/OK/m').set('winter'));
+await expect('맵: 겨울 맵과 비슷한 이름은 저장된 맵이 없으면 거부', 'deny', () => ok.ref('players/OK/m').set('winter2'));
 await expect('맵: 채광 중 표시는 true 만', 'allow', () => ok.ref('players/OK/mn').set(true));
 await expect('맵: 채광 중 표시에 다른 값', 'deny', () => ok.ref('players/OK/mn').set(1));
 await expect('맵: 채광 중 표시 지우기', 'allow', () => ok.ref('players/OK/mn').remove());
@@ -655,6 +657,207 @@ await expect('게시판: 없는 분류', 'deny', () => ok.ref('board/posts/p-bad
 await expect('게시판: 관리자가 패치 노트와 알림 칸을 한 번에 쓰기', 'allow', () => admin.ref().update({ 'board/posts/p-patch': post('ADMIN', 'patch'), 'config/patchNote': { id: 'p-patch', t: '제목' } }));
 await expect('게시판: 일반 사용자가 패치 노트 알림 칸 쓰기', 'deny', () => ok.ref('config/patchNote').set({ id: 'x', t: '가짜' }));
 await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', 'allow', () => ok.ref('config/patchNote').get());
+
+// ---------- 눈사람 부순 벌칙 (users/{uid}/snowBrokenAt · players/{uid}/sn · winter/events). 벌칙 30분 = 1800000ms ----------
+// 저장된 시각은 관리자 권한(root)으로 직접 심는다. 규칙의 now 는 에뮬레이터의 실제 시각이라 심는 시각도 Date.now() 기준으로 잡는다.
+// 클라이언트가 믿어지는 한계는 그대로다: 눈사람이 실제로 있었는지는 서버가 모른다. 아래 '알려진 한계' 시험이 그것을 적어 둔다
+{
+  await setNow('2026-11-14 12:00:00');
+  const TS = ServerValue.TIMESTAMP;
+  const active = () => Date.now() - 60000;       // 1분 전에 부숨 → 29분 남음
+  const expired = () => Date.now() - 3600000;    // 1시간 전 → 끝남
+  const userNode = (stamp, extra = {}) => ({ ...profile('ok', '승인됨'), ...(stamp ? { snowBrokenAt: stamp } : {}), ...extra });
+  // 한 시험 전의 상태를 새로 깐다: 저장된 시각(stamp)과 presence(sn 이 undefined 면 presence 없음, null 이면 sn 없는 presence)
+  const seed = async (stamp, sn, extra = {}) => {
+    await root.ref().update({ 'users/OK': userNode(stamp), 'approved/OK': true, 'approved/OTHER': true, players: null, occ: null, winter: null, 'config/hoursBlock': null, ...extra });
+    if (sn !== undefined) await root.ref('players/OK').set({ ...presence, hb: Date.now(), ...(sn ? { sn } : {}) });
+  };
+  const gone = async (label, path) => { if ((await root.ref(path).get()).exists()) { fail++; console.log(`  ✖ ${label}`); } else pass++; };
+  const kept = async (label, path) => { if (!(await root.ref(path).get()).exists()) { fail++; console.log(`  ✖ ${label}`); } else pass++; };
+
+  // --- users/{uid}/snowBrokenAt ---
+  let S = active();
+  await seed(null);
+  await expect('벌칙(users): 처음 부수면 서버 시각으로 쓸 수 있다', 'allow', () => ok.ref('users/OK/snowBrokenAt').set(TS));
+  await seed(null);
+  await expect('벌칙(users): 서버 시각이 아닌 값(과거)을 직접 쓰기', 'deny', () => ok.ref('users/OK/snowBrokenAt').set(Date.now() - 1000));
+  await expect('벌칙(users): 먼 미래 값', 'deny', () => ok.ref('users/OK/snowBrokenAt').set(Date.now() + 3600000));
+  await expect('벌칙(users): 숫자가 아닌 값', 'deny', () => ok.ref('users/OK/snowBrokenAt').set(true));
+  await expect('벌칙(users): 남이 내 벌칙 시각을 쓰기', 'deny', () => other.ref('users/OK/snowBrokenAt').set(TS));
+  await seed(S);
+  await expect('벌칙(users): 벌칙 중에 다시 부수면(10초 지난 뒤) 시각이 갱신된다', 'allow', () => ok.ref('users/OK/snowBrokenAt').set(TS));
+  // 재부수기 간격 10초 (shared/snowpenalty.ts SNOW_BREAK_GAP_MS). 에뮬레이터 시계와 시험 사이의 지연이 있어 경계가 아닌 분명히 안/밖인 값으로만 본다
+  const R = Date.now() - 3000;
+  await seed(R);
+  await expect('벌칙(users): 3초 전에 부쉈는데 또 서버 시각으로 쓰기 (간격 미달)', 'deny', () => ok.ref('users/OK/snowBrokenAt').set(TS));
+  await expect('벌칙(users): 간격 미달에 프로필 통째로 덮어쓰며 새 시각', 'deny', () => ok.ref('users/OK').set(userNode(TS)));
+  await expect('벌칙(users): 간격 미달에도 같은 값 다시 쓰기는 된다', 'allow', () => ok.ref('users/OK/snowBrokenAt').set(R));
+  await seed(Date.now() - 20000);
+  await expect('벌칙(users): 20초 전에 부쉈다면 다시 부술 수 있다', 'allow', () => ok.ref('users/OK/snowBrokenAt').set(TS));
+  await seed(S);
+  await expect('벌칙(users): 벌칙 중에 시각을 앞당겨(줄여) 쓰기', 'deny', () => ok.ref('users/OK/snowBrokenAt').set(S - 1000));
+  await expect('벌칙(users): 벌칙 중에 0 으로 쓰기', 'deny', () => ok.ref('users/OK/snowBrokenAt').set(0));
+  await expect('벌칙(users): 벌칙 중에 칸 지우기', 'deny', () => ok.ref('users/OK/snowBrokenAt').remove());
+  await expect('벌칙(users): 벌칙 중에 null 로 쓰기', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': null }));
+  await expect('벌칙(users): 벌칙 중에 같은 값 다시 쓰기', 'allow', () => ok.ref('users/OK/snowBrokenAt').set(S));
+  await expect('벌칙(users): 벌칙 중에 프로필 통째로 덮어쓰며 칸 빼기', 'deny', () => ok.ref('users/OK').set(userNode(null)));
+  await expect('벌칙(users): 벌칙 중에 프로필 통째로 덮어쓰며 더 옛 시각', 'deny', () => ok.ref('users/OK').set(userNode(S - 600000)));
+  await expect('벌칙(users): 벌칙 중에 프로필 통째로 덮어쓰되 칸 유지', 'allow', () => ok.ref('users/OK').set(userNode(S)));
+  await expect('벌칙(users): 관리자는 벌칙을 지울 수 있다', 'allow', () => admin.ref('users/OK/snowBrokenAt').remove());
+  await seed(S);
+  await expect('벌칙(users): 관리자가 서버 시각으로 쓰기', 'allow', () => admin.ref('users/OK/snowBrokenAt').set(TS));
+  await seed(expired());
+  await expect('벌칙(users): 끝난 뒤에는 칸을 지울 수 있다', 'allow', () => ok.ref('users/OK/snowBrokenAt').remove());
+  await seed(expired());
+  await expect('벌칙(users): 끝난 뒤 프로필을 통째로 덮어써도 된다', 'allow', () => ok.ref('users/OK').set(userNode(null)));
+  await seed(expired());
+  await expect('벌칙(users): 끝난 뒤 옛 값보다 낮추는 직접 쓰기는 값 검증에 걸린다', 'deny', () => ok.ref('users/OK/snowBrokenAt').set(expired() - 1000));
+  await expect('벌칙(users): 끝난 뒤 다시 부수면 새 벌칙', 'allow', () => ok.ref('users/OK/snowBrokenAt').set(TS));
+
+  // 벌칙 중에도 평소 프로필 쓰기(닉네임·아바타·꾸미기·접속 시각·마지막 위치)는 그대로 된다 — 칸 하나만 쓰는 부분 쓰기라도 막지 않는다
+  await seed(S);
+  await expect('벌칙 중 프로필: 닉네임·아바타 바꾸기', 'allow', () => ok.ref().update({ 'users/OK/nick': '바뀐닉', 'users/OK/avatar': 'm-2' }));
+  await expect('벌칙 중 프로필: 닉네임이 너무 짧음은 평소처럼 거부', 'deny', () => ok.ref('users/OK/nick').set('가'));
+  await expect('벌칙 중 프로필: 꾸미기 착용 칸', 'allow', () => ok.ref('users/OK/eq/nr').set(true));
+  await expect('벌칙 중 프로필: 접속 시각', 'allow', () => ok.ref('users/OK').update({ lastLoginAt: TS }));
+  await expect('벌칙 중 프로필: 마지막 위치', 'allow', () => ok.ref('users/OK/lastPos').set({ x: 3, y: 4, d: 0 }));
+  await expect('벌칙 중 프로필: 선물 받은 칸을 남이 쓰는 경로는 그대로 막힘', 'deny', () => other.ref('users/OK/own/hat1').set(true));
+  await kept('벌칙 중 프로필 쓰기 뒤에도 벌칙 칸이 남아 있다', 'users/OK/snowBrokenAt');
+
+  // 탈퇴·삭제: 벌칙 중에 프로필만 지워 벌칙을 없애고 다시 만드는 길을 막는다. 탈퇴(승인 표시까지 한 번에 지움)는 된다
+  await seed(S, undefined, { 'signups/OK': { name: '김승인', reason: '친구 소개', at: 1 }, 'ids/ok': 'OK', 'nicknames/승인됨': 'OK' });
+  await root.ref('winter/events/OK').set({ ts: S }); // 지워질 알림 기록 (seed 가 winter 를 비우므로 따로)
+  await expect('벌칙(users): 남이 내 알림 기록을 지우기', 'deny', () => other.ref('winter/events/OK').remove());
+  await expect('벌칙(users): 벌칙 중에 프로필만 지우기', 'deny', () => ok.ref('users/OK').remove());
+  await kept('벌칙 중 프로필 삭제가 거부되면 프로필이 남는다', 'users/OK');
+  await expect('벌칙(users): 지우고 벌칙 없이 다시 만들기(한 번에)', 'deny', () => ok.ref('users/OK').set(userNode(null)));
+  await expect('벌칙(users): 벌칙 중 프로필 삭제 + 승인 표시는 그대로', 'deny', () => ok.ref().update({ 'users/OK': null, 'signups/OK': null }));
+  await expect('벌칙(users): 벌칙 중에도 탈퇴(프로필·승인·신청서·아이디·닉네임을 한 번에 삭제)는 된다', 'allow', () => ok.ref().update({ 'signups/OK': null, 'approved/OK': null, 'users/OK': null, 'ids/ok': null, 'nicknames/승인됨': null, 'players/OK': null, 'sessions/OK': null, 'wallet/OK': null, 'fish/book/OK': null, 'bug/book/OK': null, 'winter/events/OK': null }));
+  await gone('탈퇴 뒤 알림 기록(winter/events/OK)이 남아 있다', 'winter/events/OK');
+  await gone('탈퇴 뒤 프로필이 남아 있다', 'users/OK');
+  await gone('탈퇴 뒤 승인 표시가 남아 있다', 'approved/OK');
+  await seed(expired());
+  await expect('벌칙(users): 끝난 뒤에는 프로필만 지울 수 있다', 'allow', () => ok.ref('users/OK').remove());
+  await seed(null);
+  await expect('벌칙(users): 벌칙이 없던 사람의 프로필 삭제는 평소대로', 'allow', () => ok.ref('users/OK').remove());
+  await seed(S);
+  await expect('벌칙(users): 관리자 삭제(거절·강제 탈퇴)는 벌칙 중에도 된다', 'allow', () => admin.ref('users/OK').remove());
+
+  // --- players/{uid}/sn ---
+  await seed(S, S);
+  await expect('presence: 벌칙 중 걸음(칸 하나 쓰기)', 'allow', () => ok.ref('players/OK/x').set(3));
+  await expect('presence: 벌칙 중 하트비트', 'allow', () => ok.ref('players/OK').update({ hb: TS }));
+  await expect('presence: 벌칙 중 맵 이동 쓰기(점유 + 맵·좌표)', 'allow', () => ok.ref().update({ 'occ/portal-garden~2_2': 'OK', 'players/OK/m': 'portal-garden', 'players/OK/x': 2, 'players/OK/y': 2 }));
+  await expect('presence: 벌칙 중 sn 칸만 지우기', 'deny', () => ok.ref('players/OK/sn').remove());
+  await expect('presence: 벌칙 중 sn 을 null 로 쓰기', 'deny', () => ok.ref('players/OK').update({ sn: null }));
+  await expect('presence: 벌칙 중 sn 을 더 옛 값으로', 'deny', () => ok.ref('players/OK/sn').set(S - 1));
+  await expect('presence: 벌칙 중 sn 을 서버 시각(저장값과 다름)으로', 'deny', () => ok.ref('players/OK/sn').set(TS));
+  await kept('sn 거부 뒤에도 presence 의 sn 이 남는다', 'players/OK/sn');
+  await expect('presence: 벌칙 중 다른 칸을 쓰며 sn 을 빼 통째로 덮어쓰기', 'deny', () => ok.ref('players/OK').set({ ...presence, hb: TS }));
+  await expect('presence: 벌칙 중 통째로 덮어쓰며 sn 위조', 'deny', () => ok.ref('players/OK').set({ ...presence, hb: TS, sn: S - 1 }));
+  await expect('presence: 벌칙 중 통째로 덮어쓰며 sn 이 저장값과 같음', 'allow', () => ok.ref('players/OK').set({ ...presence, hb: TS, sn: S }));
+  await expect('presence: 벌칙 중 퇴장(presence 삭제)은 된다', 'allow', () => ok.ref('players/OK').remove());
+  await expect('presence: 퇴장 뒤 sn 없이 다시 입장', 'deny', () => ok.ref().update({ 'occ/1_1': 'OK', 'players/OK': { ...presence, hb: TS } }));
+  await expect('presence: 퇴장 뒤 sn 을 싣고 다시 입장', 'allow', () => ok.ref().update({ 'occ/1_1': 'OK', 'players/OK': { ...presence, hb: TS, sn: S } }));
+  await expect('presence: 관리자는 sn 이 없는 presence 도 쓴다', 'allow', () => admin.ref('players/OK/sn').remove());
+  await expect('presence: 남의 유령 정리(하트비트가 120초 넘게 없는 노드 삭제)는 그대로', 'allow', async () => { await root.ref('players/OK/hb').set(Date.now() - 300000); await other.ref('players/OK').remove(); });
+  await seed(S, S);
+  await expect('presence: 남이 벌칙 중인 사람의 sn 을 지우기', 'deny', () => other.ref('players/OK/sn').remove());
+  await seed(null, 5);
+  await expect('presence: 저장된 벌칙이 없는데 sn 을 만들어 올리기', 'deny', () => ok.ref('players/OK/sn').set(Date.now() - 1000));
+  await seed(null, null);
+  await expect('presence: 벌칙이 없는 사람의 평소 쓰기(sn 없음)', 'allow', () => ok.ref('players/OK/x').set(3));
+  await expect('presence: 벌칙이 없는 사람이 통째로 입장(sn 없음)', 'allow', () => ok.ref('players/OK').set({ ...presence, hb: TS }));
+  const E = expired();
+  await seed(E, null);
+  await expect('presence: 끝난 벌칙은 sn 없이도 쓰인다', 'allow', () => ok.ref('players/OK/x').set(3));
+  await expect('presence: 끝난 벌칙은 통째로 입장도 sn 없이 된다', 'allow', () => ok.ref('players/OK').set({ ...presence, hb: TS }));
+  await seed(E, E);
+  await expect('presence: 끝난 뒤 sn 을 거두기(하트비트와 함께)', 'allow', () => ok.ref('players/OK').update({ hb: TS, sn: null }));
+
+  // 부술 때: 벌칙 시각 + presence sn + 알림 항목을 쓰기 한 번에. 따로 쓰면 그 사이 걸음·하트비트가 거부된다 (아래 '따로 쓰면' 시험)
+  // 알림 기록은 계정당 하나: winter/events/{uid} = { ts } (부술 때마다 덮어쓴다). 푸시 키로 쌓이는 길은 없다
+  const brk = () => ({ 'users/OK/snowBrokenAt': TS, 'players/OK/sn': TS, 'winter/events/OK': { ts: TS } });
+  await seed(null, null);
+  await expect('부수기: 벌칙 시각 + sn + 알림을 한 번에 (처음)', 'allow', () => ok.ref().update(brk()));
+  await expect('부수기: 곧바로 이어지는 걸음·하트비트', 'allow', () => ok.ref('players/OK').update({ hb: TS, x: 4 }));
+  await expect('부수기: 10초 안에 연타 (벌칙 시각·sn·알림 기록 한 번에)', 'deny', () => ok.ref().update(brk()));
+  await expect('부수기: 10초 안에 알림 기록만 덮어쓰기 (users 시각은 그대로)', 'deny', () => ok.ref('winter/events/OK').set({ ts: TS }));
+  await seed(S, S);
+  await expect('부수기: 10초 지난 뒤 다시 부수며 sn 도 갱신(한 번에) — 기록은 덮어쓴다', 'allow', () => ok.ref().update(brk()));
+  await seed(null);
+  await expect('부수기: presence 가 없으면(접속이 끊긴 순간) sn 만 있는 반쪽 노드가 되어 부모 검증이 쓰기를 통째로 거부', 'deny', () => ok.ref().update(brk()));
+  await gone('presence 없는 거부 뒤에 벌칙 시각이 남았다', 'users/OK/snowBrokenAt');
+  await gone('presence 없는 거부 뒤에 반쪽 presence 가 남았다', 'players/OK');
+  await gone('presence 없는 거부 뒤에 알림 기록이 남았다', 'winter/events/OK');
+  await seed(null, null);
+  await expect('부수기: 벌칙 시각만 쓰고 presence 의 sn 은 안 올리면 (알림만 같이) 허용', 'allow', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS } }));
+  await expect('부수기: 그 뒤 sn 없이 걸으면 거부 — 부수는 쪽이 sn 을 같이 실어야 하는 이유', 'deny', () => ok.ref('players/OK/x').set(5));
+  await expect('부수기: 그 뒤 sn 을 올리면 다시 걸을 수 있다', 'allow', async () => ok.ref('players/OK/sn').set((await root.ref('users/OK/snowBrokenAt').get()).val()));
+  await expect('부수기: sn 이 올라간 뒤 걸음', 'allow', () => ok.ref('players/OK/x').set(5));
+  await seed(S, S);
+  await expect('부수기: 벌칙 중 다시 부수며 users 만 갱신하면 옛 sn 이 어긋나 걸음이 거부된다', 'allow', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS } }));
+  await expect('부수기: (위 이어서) 어긋난 sn 으로 걸음', 'deny', () => ok.ref('players/OK/x').set(6));
+
+  // --- winter/events ---
+  await seed(null, null);
+  await expect('알림: 벌칙 시각과 한 번에 쓴 내 uid 기록', 'allow', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS } }));
+  await seed(null);
+  await expect('알림: 벌칙 시각 없이 기록만 (저장된 벌칙 없음)', 'deny', () => ok.ref('winter/events/OK').set({ ts: TS }));
+  await seed(S);
+  await expect('알림: 같은 쓰기에서 갱신하지 않은 옛 벌칙 시각으로 기록만 (옛 시각 재사용)', 'deny', () => ok.ref('winter/events/OK').set({ ts: TS }));
+  await expect('알림: 기록에 사람(u) 같은 추가 칸', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS, u: 'OK' } }));
+  await expect('알림: 기록에 문구(t) 같은 추가 칸', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS, t: '가짜 공지' } }));
+  await expect('알림: 기록 시각을 서버 시각이 아닌 값으로', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: Date.now() - 1000 } }));
+  await expect('알림: 기록에 ts 가 없음', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { x: 1 } }));
+  await expect('알림: 기록이 숫자 하나', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': TS }));
+  await expect('알림: 남의 벌칙 시각과 묶으려 하기', 'deny', () => other.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS } }));
+  await expect('알림: 내가 남의 uid 키에 쓰기 (내 벌칙 시각과 묶어도)', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OTHER': { ts: TS } }));
+  await expect('알림: 벌칙 시각이 거부되는 쓰기는 기록도 통째로 거부', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': S - 1000, 'winter/events/OK': { ts: TS } }));
+  await gone('거부된 쓰기에 알림 기록이 남았다', 'winter/events/OK');
+
+  // 푸시 키 연타(fan-out): 한 번의 허용된 쓰기에 키를 여러 개 실어 알림을 부풀리는 길이 없다 — 내 uid 키 하나만 쓸 수 있다
+  await seed(null, null);
+  await expect('알림: 한 쓰기에 푸시 키 여러 개 (내 uid 키 없이)', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/p1': { ts: TS }, 'winter/events/p2': { ts: TS }, 'winter/events/p3': { ts: TS } }));
+  await expect('알림: 한 쓰기에 내 uid 키 + 푸시 키 여러 개', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS }, 'winter/events/p1': { ts: TS }, 'winter/events/p2': { ts: TS } }));
+  await expect('알림: 푸시 키 하나만', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/-Nabc': { ts: TS } }));
+  await gone('거부된 fan-out 쓰기에 내 uid 기록이 남았다', 'winter/events/OK');
+  await gone('거부된 fan-out 쓰기에 푸시 키 기록이 남았다', 'winter/events/p1');
+  await gone('거부된 fan-out 쓰기에 벌칙 시각이 남았다', 'users/OK/snowBrokenAt');
+
+  // 연타(속도 제한 SNOW_BREAK_GAP_MS = 10초): 부순 지 얼마 안 되면 새 기록도 못 쓴다. 이 간격은 users 값 검증과 기록 쓰기 양쪽이 같이 본다
+  await expect('알림: 첫 번째 (벌칙 시각과 한 번에)', 'allow', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS } }));
+  await expect('알림: 바로 이어서 두 번째는 거부 (연타)', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS } }));
+  await expect('알림: 연타 중 기록만 다시 쓰기', 'deny', () => ok.ref('winter/events/OK').set({ ts: TS }));
+  await seed(Date.now() - 20000);
+  await root.ref('winter/events/OK').set({ ts: Date.now() - 20000 });
+  await expect('알림: 20초 뒤에는 같은 uid 기록을 덮어쓴다 (쌓이지 않고 갱신)', 'allow', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS } }));
+  {
+    const evs = (await root.ref('winter/events').get()).val() || {};
+    if (Object.keys(evs).length === 1 && 'OK' in evs) pass++; else { fail++; console.log(`  ✖ 알림 저장은 계정당 하나여야 한다: ${Object.keys(evs).join(',')}`); }
+  }
+  await expect('알림: 내 기록 지우기', 'allow', () => ok.ref('winter/events/OK').remove());
+  await root.ref('winter/events/OK').set({ ts: Date.now() - 5000 });
+  await expect('알림: 남이 내 기록 지우기', 'deny', () => other.ref('winter/events/OK').remove());
+  await expect('알림: 관리자가 기록 지우기', 'allow', () => admin.ref('winter/events/OK').remove());
+  await expect('알림: 승인된 사용자가 읽기', 'allow', () => ok.ref('winter/events').get());
+  await expect('알림: 로그인 안 한 사람이 읽기', 'deny', () => anon.ref('winter/events').get());
+  await expect('알림: 승인 안 된 사용자가 기록 쓰기(프로필 생성 포함)', 'deny', () => as('NEWOFF').ref().update({ 'users/NEWOFF': { ...profile('newoff', '신규'), snowBrokenAt: TS }, 'winter/events/NEWOFF': { ts: TS } }));
+  await expect('알림: 승인 안 된 사용자가 읽기', 'deny', () => as('NEWOFF').ref('winter/events').get());
+  await seed(null, null);
+  await root.ref('config/hoursBlock').set(true);
+  await setNow('2026-11-11 14:00:00');
+  await expect('알림: 이용 차단 시간에는 기록을 못 쓴다', 'deny', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS } }));
+  await root.ref('config/hoursBlock').remove();
+  await setNow('2026-11-14 12:00:00');
+
+  // 남은 한계 (서버 완전 증명이 아니다): 눈사람이 실제로 있었는지는 서버가 모른다. 10초마다 한 번, 계정당 기록 하나로 묶였을 뿐 눈사람 없이도 알림을 만들 수 있다.
+  await seed(null, null);
+  await expect('남은 한계: 눈사람 없이도 자기 벌칙과 묶으면 알림 기록을 쓸 수 있다 (계정당 10초에 한 번)', 'allow', () => ok.ref().update({ 'users/OK/snowBrokenAt': TS, 'winter/events/OK': { ts: TS } }));
+
+  await seed(null);
+  await root.ref().update({ winter: null, players: null, occ: null, 'config/hoursBlock': null });
+}
 
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
 process.exit(fail ? 1 : 0);

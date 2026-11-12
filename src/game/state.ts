@@ -115,7 +115,8 @@ export interface WorldCtx {
   // 밀치기·끌기를 당했다: 도착한 뒤 PUSH_STUN_MS 동안 못 움직이고 😵 가 뜬다
   stunAfter(moveMs: number): void;
   guardUntil: number;                    // 빠따에 맞아 방어가 깨져 있으면 풀리는 서버 시각 (아니면 0 또는 지난 시각)
-  guardBroken(): boolean;                // 지금 방어(갑옷·펫)가 깨져 있나
+  snowBrokenAt: number;                  // 눈사람을 부순 서버 시각 (0 = 없음). guardUntil(빠따)과 별개로 SNOW_PENALTY_MS 동안 방어가 깨진다
+  guardBroken(): boolean;                // 지금 방어(갑옷·펫)가 깨져 있나 (빠따 또는 눈사람 벌칙)
   breakGuard(byNick: string): void;      // 빠따에 맞았다: GUARD_BREAK_MS 동안 방어 없음
   petGuard(): boolean;                   // 펫 Lv8 이상: 밀치기·장풍·말랑이·끌기·갈고리를 갑옷처럼 막는다
   petReflect(): boolean;                 // 막은 보통 밀치기·말랑이를 되받아칠지 (80%)

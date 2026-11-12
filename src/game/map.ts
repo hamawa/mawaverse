@@ -1,5 +1,5 @@
 import { mulberry32 } from '../shared/hash';
-import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, isMapId } from '../shared/maps';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, isMapId } from '../shared/maps';
 
 // 바닥 타일
 export const G = {
@@ -8,6 +8,9 @@ export const G = {
 
 // 금광 맵의 거대한 금덩어리가 놓인 칸: 지나갈 수 없고, 옆 칸에서 캔다 (mine.ts). 금광 맵 빌더만 쓰므로 관리자 편집기 팔레트(G 의 값들)에는 넣지 않는다
 export const G_GOLD = 12;
+export const G_ICE = 13;
+export const G_ICE_HOLE = 14;
+export const G_SNOW = 15;
 
 // 오브젝트 (0 = 없음)
 export const O = {
@@ -27,7 +30,7 @@ export const OBJECT_NAMES: Record<number, string> = {
 
 export const WALKABLE_OBJECTS = new Set<number>([O.NONE, O.MAT]);
 // 들어갈 수 없는 바닥. 물은 수영으로 들어갈 수 있으므로 현재 비어 있음
-export const SOLID_GROUND = new Set<number>([G_GOLD]);
+export const SOLID_GROUND = new Set<number>([G_GOLD, G_ICE_HOLE]);
 // 2타일 높이로 그려지는 오브젝트 (아랫칸 기준, 윗칸을 덮음)
 export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE]);
 
@@ -65,7 +68,7 @@ function validPortalDest(d: unknown): boolean {
   return true;
 }
 
-export const RESERVED_MAP_IDS = [MAIN_MAP_ID, 'default', GARDEN_MAP_ID, GOLD_MINE_MAP_ID] as const;
+export const RESERVED_MAP_IDS = [MAIN_MAP_ID, 'default', GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID] as const;
 
 export function isReservedMapId(id: string): boolean {
   return (RESERVED_MAP_IDS as readonly string[]).includes(id);
@@ -125,6 +128,9 @@ export function inBounds(m: MapData, x: number, y: number): boolean {
 export function groundAt(m: MapData, x: number, y: number): number { return inBounds(m, x, y) ? m.ground[y * m.w + x] : G.WATER; }
 export function objectAt(m: MapData, x: number, y: number): number { return inBounds(m, x, y) ? m.objects[y * m.w + x] : O.WALL; }
 export function isWater(m: MapData, x: number, y: number): boolean { return inBounds(m, x, y) && m.ground[y * m.w + x] === G.WATER; }
+export function isFishable(m: MapData, x: number, y: number): boolean {
+  return inBounds(m, x, y) && (m.id === WINTER_MAP_ID ? groundAt(m, x, y) === G_ICE_HOLE : isWater(m, x, y));
+}
 // 보간된(소수) 타일 좌표에서 물에 잠긴 정도 0..1. 물가를 드나들 때 부드럽게 가라앉고 떠오르도록 이웃 타일과 섞는다
 export function waterDepth(m: MapData, fx: number, fy: number): number {
   const x0 = Math.floor(fx), y0 = Math.floor(fy), tx = fx - x0, ty = fy - y0;
@@ -405,6 +411,11 @@ export function buildPortalGarden(): MapData {
     targetMap: MAIN_MAP_ID,
   });
 
+  // 겨울 얼음 낚시터로 가는 포탈 (동쪽 길가). 행선지가 하나라 고르는 창 없이 바로
+  fillG(16, 14, 4, 3, G.PATH2);
+  fillG(17, 15, 2, 1, G.PLAZA);
+  m.zones.push({ id: 'portal-winter', kind: 'portal', x: 17, y: 15, w: 2, h: 1, label: '겨울 얼음 낚시터', targetMap: WINTER_MAP_ID });
+
   // 스폰 위치: 포탈 앞 안전한 타일 (12, 13)
   m.spawn = { x: 12, y: 13 };
   return m;
@@ -442,6 +453,30 @@ export function buildGoldMine(): MapData {
   // 복귀 포탈: 행선지가 하나라 고르는 창 없이 바로 기본 맵의 시작 자리로
   m.zones.push({ id: 'portal-main', kind: 'portal', x: 11, y: 15, w: 2, h: 1, label: '메인 광장', targetMap: MAIN_MAP_ID });
   m.spawn = { x: 12, y: 13 };
+  return m;
+}
+
+// 겨울 얼음 낚시터: 왼쪽 눈 광장과 오른쪽 빙판을 구분한다.
+// 빙판 위의 구멍만 낚시 대상으로 삼으며 구멍에는 걸어 들어갈 수 없다.
+export function buildWinterMap(): MapData {
+  const W = 40, H = 28;
+  const m = emptyMap(WINTER_MAP_ID, '겨울 얼음 낚시터', W, H);
+  const setG = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.ground[y * W + x] = id; };
+  const setO = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.objects[y * W + x] = id; };
+  const fillG = (x: number, y: number, w: number, h: number, id: number) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) setG(x + i, y + j, id); };
+
+  fillG(0, 0, W, H, G_SNOW);
+  for (let x = 0; x < W; x++) { setO(x, 0, O.PINE); setO(x, H - 1, O.PINE); }
+  for (let y = 0; y < H; y++) { setO(0, y, O.PINE); setO(W - 1, y, O.PINE); }
+  for (let x = 0; x < W; x++) setO(x, H - 2, O.PINE);
+  fillG(28, 2, 10, 22, G_ICE);
+  fillG(33, 5, 1, 16, G_ICE_HOLE);
+  setO(3, 3, O.LAMP); setO(25, 23, O.LAMP);
+  setO(6, 22, O.BENCH); setO(9, 22, O.BENCH);
+  m.zones.push({ id: 'lbl-snow', kind: 'label', x: 2, y: 2, w: 25, h: 22, label: '눈 덮인 광장 · 눈뭉치를 굴려 보세요' });
+  m.zones.push({ id: 'lbl-ice', kind: 'label', x: 28, y: 2, w: 10, h: 22, label: '얼음 낚시터 · 빙판 주의' });
+  m.zones.push({ id: 'portal-garden', kind: 'portal', x: 19, y: 21, w: 2, h: 1, label: '포탈 정원', targetMap: GARDEN_MAP_ID });
+  m.spawn = { x: 20, y: 19 };
   return m;
 }
 
