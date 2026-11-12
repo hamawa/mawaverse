@@ -419,6 +419,186 @@ await expect('경마: 옛 방식(기록 나중)', 'allow', () => ok.ref('casino/
   await root.ref().update({ 'wallet/OK': null, 'wallet/OTHER': null, duel: null, duelInv: null, 'players/OK/nd': null });
 }
 
+// ---------- 인디언 포커 (2026-11-12) ----------
+// 판 열기 → 참가 → 서로 상대 카드를 적음(주인은 못 읽는다) → 베팅(다이·체크/콜·레이즈, 올인) → 공개 → 결과 → 각자 정산
+{
+  const SH = (t) => ((t % 9973) * 7919 + 4421) % 9973;
+  const cardOf = (at) => (SH(at) % 10) + 1;
+  const TS = ServerValue.TIMESTAMP;
+  let cur = Date.now() - 3600000;
+  const atCard = (n) => { for (let t = cur + 1; ; t++) if (cardOf(t) === n) { cur = t; return t; } };
+  await setNow('2026-11-14 15:00:00');
+  await root.ref().update({ 'approved/OTHER': true, 'wallet/OK': { c: 100000, e: 100000 }, 'wallet/OTHER': { c: 100000, e: 100000 }, 'players/OK': presence, 'players/OTHER': presence, pkh: null, pkc: null, pkt: null });
+  const db = { OK: ok, OTHER: other };
+  const wal = async (uid) => (await root.ref(`wallet/${uid}`).get()).val();
+  // 지갑에서 amount 를 판(hid)의 내 자리(side)에 건다
+  const put = (uid, w, amount, hid, side) => ({ [`wallet/${uid}/c`]: w.c - amount, [`wallet/${uid}/sp`]: (w.sp || 0) + amount, [`wallet/${uid}/b`]: 'poker', [`wallet/${uid}/pk`]: hid, [`wallet/${uid}/ps`]: side });
+  const H = (hid, o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [`pkh/${hid}/${k}`, v]));
+  const claim = (uid, w, amount, hid, side) => ({ [`wallet/${uid}/c`]: w.c + amount, [`wallet/${uid}/e`]: w.e + amount, [`wallet/${uid}/pc`]: hid, [`pkh/${hid}/x${side}`]: true });
+
+  // ---- 판 열기 ----
+  const hand1 = { t: 't1', A: 1000, a: 'OK', an: '닉', pa: 1000, pb: 0, st: 'wait', o: TS };
+  let w = await wal('OK');
+  await expect('포커: 참가비 없이 판 열기', 'deny', () => ok.ref().update({ 'pkh/H1': hand1, 'pkt/t1/hid': 'H1' }));
+  await expect('포커: 없는 참가비(500)', 'deny', () => ok.ref().update({ 'pkh/H1': { ...hand1, A: 500, pa: 500 }, 'pkt/t1/hid': 'H1', ...put('OK', w, 500, 'H1', 'a') }));
+  await expect('포커: 테이블에 올리지 않고 판만', 'deny', () => ok.ref().update({ 'pkh/H1': hand1, ...put('OK', w, 1000, 'H1', 'a') }));
+  await expect('포커: 판 없이 테이블만', 'deny', () => ok.ref('pkt/t1').set({ hid: 'H1' }));
+  await expect('포커: 상대 돈을 채워서 열기', 'deny', () => ok.ref().update({ 'pkh/H1': { ...hand1, pb: 1000 }, 'pkt/t1/hid': 'H1', ...put('OK', w, 1000, 'H1', 'a') }));
+  await expect('포커: 남의 이름으로 열기', 'deny', () => ok.ref().update({ 'pkh/H1': { ...hand1, a: 'OTHER' }, 'pkt/t1/hid': 'H1', ...put('OK', w, 1000, 'H1', 'a') }));
+  await expect('포커: 없는 테이블(t3)', 'deny', () => ok.ref().update({ 'pkh/H1': { ...hand1, t: 't3' }, 'pkt/t3/hid': 'H1', ...put('OK', w, 1000, 'H1', 'a') }));
+  await expect('포커: 판 열기 (참가비 1,000, 테이블 1)', 'allow', () => ok.ref().update({ 'pkh/H1': hand1, 'pkt/t1/hid': 'H1', ...put('OK', w, 1000, 'H1', 'a') }));
+  let w2 = await wal('OTHER');
+  await expect('포커: 판이 진행 중인 테이블에 새 판', 'deny', () => other.ref().update({ 'pkh/H1x': { ...hand1, a: 'OTHER' }, 'pkt/t1/hid': 'H1x', ...put('OTHER', w2, 1000, 'H1x', 'a') }));
+
+  // ---- 참가 ----
+  const joinW = H('H1', { st: 'deal', b: 'OTHER', bn: '닉2', pb: 1000, tj: TS });
+  await expect('포커: 참가비 없이 참가', 'deny', () => other.ref().update(joinW));
+  await expect('포커: 자기 판에 참가', 'deny', () => ok.ref().update({ ...H('H1', { st: 'deal', b: 'OK', bn: '닉', pb: 1000, tj: TS }), ...put('OK', { c: 99000, sp: 1000 }, 1000, 'H1', 'b') }));
+  await expect('포커: 참가비보다 적게 내고 참가', 'deny', () => other.ref().update({ ...joinW, 'pkh/H1/pb': 500, ...put('OTHER', w2, 500, 'H1', 'b') }));
+  await expect('포커: 참가하며 상대가 건 돈을 바꿈', 'deny', () => other.ref().update({ ...joinW, 'pkh/H1/pa': 9000, ...put('OTHER', w2, 1000, 'H1', 'b') }));
+  await expect('포커: 참가', 'allow', () => other.ref().update({ ...joinW, ...put('OTHER', w2, 1000, 'H1', 'b') }));
+
+  // ---- 카드: 상대가 적고, 주인은 못 읽는다 ----
+  const startW = H('H1', { st: 'bet', turn: 'b', n: 0, ta: TS });
+  await expect('포커: 내 카드를 내가 적기', 'deny', () => ok.ref('pkc/H1/a').set({ at: TS }));
+  await expect('포커: 카드 시각이 서버 시각이 아님', 'deny', () => other.ref('pkc/H1/a').set({ at: Date.now() - 1000 }));
+  await expect('포커: 카드와 베팅 시작을 한 번에 (시각이 드러난다)', 'deny', () => other.ref().update({ 'pkc/H1/a': { at: TS }, ...startW }));
+  await expect('포커: 상대 카드 적기', 'allow', () => other.ref('pkc/H1/a').set({ at: TS }));
+  await expect('포커: 카드 다시 적기', 'deny', () => other.ref('pkc/H1/a').set({ at: TS }));
+  await expect('포커: 내 카드 읽기', 'deny', () => ok.ref('pkc/H1/a').get());
+  await expect('포커: 내 카드의 시각만 읽기', 'deny', () => ok.ref('pkc/H1/a/at').get());
+  await expect('포커: 카드 묶음째 읽기', 'deny', () => ok.ref('pkc/H1').get());
+  await expect('포커: 상대 카드 읽기', 'allow', () => other.ref('pkc/H1/a').get());
+  await expect('포커: 카드가 한 장뿐인데 베팅 시작', 'deny', () => ok.ref().update(startW));
+  await expect('포커: 나머지 카드 적기', 'allow', () => ok.ref('pkc/H1/b').set({ at: TS }));
+  await expect('포커: 먼저 하는 사람을 바꿔 시작', 'deny', () => ok.ref().update({ ...startW, 'pkh/H1/turn': 'a' }));
+  await expect('포커: 베팅 시작', 'allow', () => other.ref().update(startW));
+
+  // ---- 베팅: 참가한 쪽(b = OTHER)부터 ----
+  w = await wal('OK'); w2 = await wal('OTHER');
+  await expect('포커: 차례가 아닌데 레이즈', 'deny', () => ok.ref().update({ ...H('H1', { pa: 2000, turn: 'b', n: 1, ta: TS }), ...put('OK', w, 1000, 'H1', 'a') }));
+  await expect('포커: 돈을 안 내고 레이즈', 'deny', () => other.ref().update(H('H1', { pb: 3000, turn: 'a', n: 1, ta: TS })));
+  await expect('포커: 참가비 단위가 아닌 레이즈', 'deny', () => other.ref().update({ ...H('H1', { pb: 2500, turn: 'a', n: 1, ta: TS }), ...put('OTHER', w2, 1500, 'H1', 'b') }));
+  await expect('포커: 상한(참가비 × 50)을 넘는 레이즈', 'deny', () => other.ref().update({ ...H('H1', { pb: 51000, turn: 'a', n: 1, ta: TS }), ...put('OTHER', w2, 50000, 'H1', 'b') }));
+  await expect('포커: 레이즈하며 상대가 건 돈을 줄임', 'deny', () => other.ref().update({ ...H('H1', { pb: 3000, pa: 100, turn: 'a', n: 1, ta: TS }), ...put('OTHER', w2, 2000, 'H1', 'b') }));
+  await expect('포커: 레이즈 (+2,000)', 'allow', () => other.ref().update({ ...H('H1', { pb: 3000, turn: 'a', n: 1, ta: TS }), ...put('OTHER', w2, 2000, 'H1', 'b') }));
+  await expect('포커: 베팅 중에도 내 카드는 못 읽는다', 'deny', () => ok.ref('pkc/H1/a').get());
+  await expect('포커: 제한 시간 전에 시간 초과 처리', 'deny', () => other.ref().update(H('H1', { st: 'done', w: 'b', why: 'time' })));
+  await expect('포커: 돈이 남았는데 덜 내고 콜', 'deny', () => ok.ref().update({ ...H('H1', { pa: 2000, st: 'show' }), ...put('OK', w, 1000, 'H1', 'a') }));
+  await expect('포커: 돈을 안 내고 콜', 'deny', () => ok.ref().update(H('H1', { pa: 3000, st: 'show' })));
+  await expect('포커: 콜하며 결과까지 적기', 'deny', () => ok.ref().update({ ...H('H1', { pa: 3000, st: 'done', w: 'a' }), ...put('OK', w, 2000, 'H1', 'a') }));
+  await expect('포커: 콜 → 공개', 'allow', () => ok.ref().update({ ...H('H1', { pa: 3000, st: 'show' }), ...put('OK', w, 2000, 'H1', 'a') }));
+  await expect('포커: 공개된 뒤에는 내 카드를 읽는다', 'allow', () => ok.ref('pkc/H1/a').get());
+
+  // ---- 결과와 정산 (둘 다 3,000: 이긴 쪽 3,000 + 3,000 − 300, 진 쪽 0, 비기면 3,000 씩) ----
+  const ca = cardOf((await root.ref('pkc/H1/a/at').get()).val()), cb = cardOf((await root.ref('pkc/H1/b/at').get()).val());
+  const res = ca > cb ? 'a' : ca < cb ? 'b' : 'tie', wrong = res === 'a' ? 'b' : 'a';
+  await expect('포커: 결과를 거꾸로 적기', 'deny', () => other.ref().update(H('H1', { st: 'done', w: wrong })));
+  await expect('포커: 공개된 판을 취소로 적기', 'deny', () => other.ref().update(H('H1', { st: 'done', w: 'void' })));
+  await expect('포커: 결과 적기', 'allow', () => other.ref().update(H('H1', { st: 'done', w: res, why: 'show' })));
+  const uidOf = { a: 'OK', b: 'OTHER' };
+  const pay1 = (side) => (res === 'tie' ? 3000 : res === side ? 5700 : 0);
+  for (const side of ['a', 'b']) {
+    const u = uidOf[side], cw = await wal(u), amt = pay1(side);
+    await expect(`포커: 정산(${side}) 더 받기`, 'deny', () => db[u].ref().update(claim(u, cw, amt + 100, 'H1', side)));
+    await expect(`포커: 정산(${side}) 표시 없이 받기`, 'deny', () => db[u].ref().update({ [`wallet/${u}/c`]: cw.c + amt, [`wallet/${u}/e`]: cw.e + amt, [`wallet/${u}/pc`]: 'H1' }));
+    await expect(`포커: 정산(${side}) 남의 표시 적기`, 'deny', () => db[u].ref(`pkh/H1/x${side === 'a' ? 'b' : 'a'}`).set(true));
+    if (side === 'a') await expect('포커: 지난 판을 정산하지 않고 새 판 열기', 'deny', () => ok.ref().update({ 'pkh/H1y': { ...hand1, t: 't2' }, 'pkt/t2/hid': 'H1y', ...put('OK', cw, 1000, 'H1y', 'a') }));
+    await expect(`포커: 정산(${side}) ${amt}`, 'allow', () => db[u].ref().update(claim(u, cw, amt, 'H1', side)));
+    await expect(`포커: 정산(${side}) 두 번`, 'deny', () => db[u].ref().update({ [`wallet/${u}/c`]: cw.c + amt * 2 + 100, [`wallet/${u}/e`]: cw.e + amt * 2 + 100, [`wallet/${u}/pc`]: 'H1z', [`pkh/H1/x${side}`]: true }));
+  }
+  await expect('포커: 하루 안 된 판 지우기', 'deny', () => ok.ref('pkh/H1').remove());
+
+  // ---- 다이: 끝난 테이블에 새 판 → 참가 → 카드 받는 중에 다이 (참가비 100: 이긴 쪽 100 + 100 − 10) ----
+  w2 = await wal('OTHER');
+  await expect('포커: 끝난 테이블에 새 판', 'allow', () => other.ref().update({ 'pkh/H2': { t: 't1', A: 100, a: 'OTHER', an: '닉2', pa: 100, pb: 0, st: 'wait', o: TS }, 'pkt/t1/hid': 'H2', ...put('OTHER', w2, 100, 'H2', 'a') }));
+  w = await wal('OK');
+  await ok.ref().update({ ...H('H2', { st: 'deal', b: 'OK', bn: '닉', pb: 100, tj: TS }), ...put('OK', w, 100, 'H2', 'b') });
+  await expect('포커: 남이 대신 다이', 'deny', () => other.ref().update(H('H2', { st: 'done', w: 'a', why: 'fold' })));
+  await expect('포커: 다이하며 내가 이긴 것으로', 'deny', () => ok.ref().update(H('H2', { st: 'done', w: 'b', why: 'fold' })));
+  await expect('포커: 다이', 'allow', () => ok.ref().update(H('H2', { st: 'done', w: 'a', why: 'fold' })));
+  w2 = await wal('OTHER'); w = await wal('OK');
+  await expect('포커: 다이로 이긴 쪽 190', 'allow', () => other.ref().update(claim('OTHER', w2, 190, 'H2', 'a')));
+  await expect('포커: 다이한 쪽이 돈 받기', 'deny', () => ok.ref().update(claim('OK', w, 100, 'H2', 'b')));
+  await expect('포커: 다이한 쪽 정산 0', 'allow', () => ok.ref().update(claim('OK', w, 0, 'H2', 'b')));
+
+  // ---- 아래부터는 판 상태를 만들어 놓고 본다 ----
+  const now0 = Date.now();
+  const mk = async (hid, hand, wa, wb, cards) => root.ref().update({
+    [`pkh/${hid}`]: { t: 't2', A: 1000, a: 'OK', an: '닉', b: 'OTHER', bn: '닉2', o: now0 - 60000, tj: now0 - 50000, ...hand },
+    'wallet/OK': { c: 50000, e: 100000, sp: hand.pa, b: 'poker', pk: hid, ps: 'a', pc: 'H2', ...wa },
+    'wallet/OTHER': { c: 50000, e: 100000, sp: hand.pb, b: 'poker', pk: hid, ps: 'b', pc: 'H2', ...wb },
+    ...(cards ? { [`pkc/${hid}/a`]: { at: atCard(cards[0]) }, [`pkc/${hid}/b`]: { at: atCard(cards[1]) } } : {}),
+  });
+
+  // 시간 초과: 차례인 사람이 25초를 넘기면 상대가 이긴 것으로
+  await mk('H3', { pa: 1000, pb: 1000, st: 'bet', turn: 'a', n: 1, ta: Date.now() - 10000 });
+  await expect('포커: 10초밖에 안 됐는데 시간 초과', 'deny', () => other.ref().update(H('H3', { st: 'done', w: 'b', why: 'time' })));
+  await root.ref('pkh/H3/ta').set(Date.now() - 26000);
+  await expect('포커: 차례인 사람이 스스로 시간 초과 승리', 'deny', () => ok.ref().update(H('H3', { st: 'done', w: 'a', why: 'time' })));
+  await expect('포커: 시간 초과 → 상대 승리', 'allow', () => other.ref().update(H('H3', { st: 'done', w: 'b', why: 'time' })));
+  // 접속이 끊긴 사람의 차례면 기다리지 않는다
+  await mk('H3b', { pa: 1000, pb: 1000, st: 'bet', turn: 'a', n: 1, ta: Date.now() });
+  await root.ref('players/OK').remove();
+  await expect('포커: 차례인 사람이 접속해 있지 않으면 바로 승리', 'allow', () => other.ref().update(H('H3b', { st: 'done', w: 'b', why: 'time' })));
+  await root.ref('players/OK').set(presence);
+
+  // 체크: 첫 체크는 차례를 넘기고, 둘 다 체크하면 공개
+  await mk('H4', { pa: 1000, pb: 1000, st: 'bet', turn: 'b', n: 0, ta: Date.now() });
+  await expect('포커: 첫 체크에 바로 공개', 'deny', () => other.ref().update(H('H4', { st: 'show' })));
+  await expect('포커: 첫 체크 → 차례 넘김', 'allow', () => other.ref().update(H('H4', { turn: 'a', n: 1, ta: TS })));
+  await expect('포커: 두 번째 체크 → 공개', 'allow', () => ok.ref().update(H('H4', { st: 'show' })));
+
+  // 올인: 5,000 을 받았는데 700 밖에 없다 → 가진 만큼 걸고 공개. 겨룬 돈은 1,700 씩
+  await mk('H5', { pa: 5000, pb: 1000, st: 'bet', turn: 'b', n: 1, ta: Date.now() }, {}, { c: 700 }, [9, 3]);
+  await expect('포커: 돈을 남기고 덜 낸 콜', 'deny', () => other.ref().update({ ...H('H5', { pb: 1500, st: 'show' }), ...put('OTHER', { c: 700, sp: 1000 }, 500, 'H5', 'b') }));
+  await expect('포커: 올인 콜 (가진 700 전부)', 'allow', () => other.ref().update({ ...H('H5', { pb: 1700, st: 'show' }), ...put('OTHER', { c: 700, sp: 1000 }, 700, 'H5', 'b') }));
+  await expect('포커: 카드로 이긴 쪽(a) 적기', 'allow', () => ok.ref().update(H('H5', { st: 'done', w: 'a', why: 'show' })));
+  w = await wal('OK'); w2 = await wal('OTHER');
+  await expect('포커: 올인 판 이긴 쪽이 5,000 + 5,000 받기', 'deny', () => ok.ref().update(claim('OK', w, 9750, 'H5', 'a')));
+  await expect('포커: 올인 판 이긴 쪽 5,000 + 1,700 − 170', 'allow', () => ok.ref().update(claim('OK', w, 6530, 'H5', 'a')));
+  await expect('포커: 올인 판 진 쪽 0', 'allow', () => other.ref().update(claim('OTHER', w2, 0, 'H5', 'b')));
+  // 같은 판에서 올인한 쪽이 이기면: 1,700 + 1,700 − 170, 상대는 못 따라온 3,300 을 돌려받는다
+  await mk('H6', { pa: 5000, pb: 1700, st: 'show', turn: 'b', n: 1, ta: Date.now() }, {}, { c: 0, sp: 1700 }, [2, 8]);
+  await ok.ref().update(H('H6', { st: 'done', w: 'b', why: 'show' }));
+  w = await wal('OK'); w2 = await wal('OTHER');
+  await expect('포커: 올인한 쪽이 이기면 3,230', 'allow', () => other.ref().update(claim('OTHER', w2, 3230, 'H6', 'b')));
+  await expect('포커: 진 쪽이 초과분보다 더 받기', 'deny', () => ok.ref().update(claim('OK', w, 5000, 'H6', 'a')));
+  await expect('포커: 진 쪽은 못 따라온 3,300 을 돌려받는다', 'allow', () => ok.ref().update(claim('OK', w, 3300, 'H6', 'a')));
+  // 가진 게 0 인 채 레이즈를 받으면 더 내지 않고 공개
+  await mk('H7', { pa: 3000, pb: 1000, st: 'bet', turn: 'b', n: 1, ta: Date.now() }, {}, { c: 500 });
+  await expect('포커: 돈이 있는데 안 내고 공개', 'deny', () => other.ref().update(H('H7', { st: 'show' })));
+  await root.ref('wallet/OTHER/c').set(0);
+  await expect('포커: 가진 게 없으면 그대로 공개', 'allow', () => other.ref().update(H('H7', { st: 'show' })));
+  // 비김: 건 돈 그대로
+  await mk('H8', { pa: 2000, pb: 2000, st: 'show', turn: 'a', n: 2, ta: Date.now() }, {}, {}, [6, 6]);
+  await expect('포커: 같은 카드인데 한쪽 승리로', 'deny', () => ok.ref().update(H('H8', { st: 'done', w: 'a' })));
+  await expect('포커: 비김으로 적기', 'allow', () => ok.ref().update(H('H8', { st: 'done', w: 'tie', why: 'show' })));
+  w = await wal('OK');
+  await expect('포커: 비기면 건 돈 그대로', 'allow', () => ok.ref().update(claim('OK', w, 2000, 'H8', 'a')));
+
+  // 카드가 제때 안 나오면 취소
+  await mk('H9', { pa: 1000, pb: 1000, st: 'deal', tj: Date.now() - 5000 });
+  await expect('포커: 5초 만에 판 취소', 'deny', () => ok.ref().update(H('H9', { st: 'done', w: 'void', why: 'deal' })));
+  await root.ref('pkh/H9/tj').set(Date.now() - 21000);
+  await expect('포커: 20초 넘게 카드가 안 나와 취소', 'allow', () => ok.ref().update(H('H9', { st: 'done', w: 'void', why: 'deal' })));
+  w2 = await wal('OTHER');
+  await expect('포커: 취소된 판은 건 돈 그대로', 'allow', () => other.ref().update(claim('OTHER', w2, 1000, 'H9', 'b')));
+  // 기다리던 판은 연 사람만 취소
+  await root.ref().update({ 'pkh/H10': { t: 't2', A: 100, a: 'OK', an: '닉', pa: 100, pb: 0, st: 'wait', o: Date.now() }, 'wallet/OK': { c: 50000, e: 100000, sp: 100, b: 'poker', pk: 'H10', ps: 'a', pc: 'H9' } });
+  await expect('포커: 남이 판 취소', 'deny', () => other.ref().update(H('H10', { st: 'done', w: 'void', why: 'cancel' })));
+  await expect('포커: 연 사람이 판 취소', 'allow', () => ok.ref().update(H('H10', { st: 'done', w: 'void', why: 'cancel' })));
+  w = await wal('OK');
+  await expect('포커: 취소한 판 참가비 돌려받기', 'allow', () => ok.ref().update(claim('OK', w, 100, 'H10', 'a')));
+
+  // 끼워 넣기
+  w = await wal('OK');
+  await expect('포커: 보통 획득에 정산 표시 끼우기', 'deny', () => ok.ref().update({ 'wallet/OK/c': w.c + 10, 'wallet/OK/e': w.e + 10, 'wallet/OK/pc': 'H1' }));
+  await expect('포커: 보통 획득에 판 표시 끼우기', 'deny', () => ok.ref().update({ 'wallet/OK/c': w.c + 10, 'wallet/OK/e': w.e + 10, 'wallet/OK/pk': 'H99' }));
+  await expect('포커: 판에 없는 칸 적기', 'deny', () => ok.ref('pkh/H10/zz').set(1));
+  await root.ref().update({ 'wallet/OK': null, 'wallet/OTHER': null, pkh: null, pkc: null, pkt: null });
+}
+
 // ---------- 게시판: 패치 노트 분류는 관리자만 (2026-11-12) ----------
 const post = (u, cat) => ({ title: '제목', body: '내용', u, n: '닉', ts: 1, cc: 0, cat });
 await expect('게시판: 일반 사용자가 똥글 쓰기', 'allow', () => ok.ref('board/posts/p-junk').set(post('OK', 'junk')));

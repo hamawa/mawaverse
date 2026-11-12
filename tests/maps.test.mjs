@@ -96,9 +96,27 @@ test('카지노 자리: 문에서 먼 빈 칸부터, 문 칸은 비워 두고, �
 
 test('옛 커피 내기 방 구역(kind room)이 저장된 맵에 남아 있어도 방으로 치지 않는다', () => {
   const map = buildDefaultMap();
-  map.zones.push({ id: 'room10', kind: 'room', x: 19, y: 6, w: 4, h: 4, cap: 10 });
+  map.zones.push({ id: 'room10', kind: 'room', x: 2, y: 30, w: 4, h: 4, cap: 10 });
   assert.equal(validateZone(map.zones.at(-1)), true, '저장된 맵을 읽을 때 버리지는 않는다');
-  assert.equal(roomAt(map, 20, 7), undefined);
+  assert.equal(roomAt(map, 3, 31), undefined);
+});
+
+test('도박장 세 채: 포커 방·경마장·슬롯 방이 겹치지 않고, 문과 나가는 칸이 제대로 놓였다', () => {
+  const map = buildDefaultMap();
+  const rooms = map.zones.filter((z) => z.kind === 'casino');
+  assert.deepEqual(rooms.map((z) => z.id).sort(), ['casino', 'poker', 'slots']);
+  for (const z of rooms) {
+    assert.equal(z.cap, 10);
+    assert.equal(roomAt(map, z.door.x, z.door.y), z, `${z.id}: 문 칸은 방 안`);
+    assert.equal(roomAt(map, z.exit.x, z.exit.y), undefined, `${z.id}: 나가는 칸은 방 밖`);
+    assert.equal(isWalkable(map, z.door.x, z.door.y), true);
+    assert.equal(isWalkable(map, z.exit.x, z.exit.y), true);
+    let seats = 0;
+    for (let y = z.y; y < z.y + z.h; y++) for (let x = z.x; x < z.x + z.w; x++) { assert.equal(roomAt(map, x, y), z); if (isWalkable(map, x, y)) seats++; }
+    assert.ok(seats > z.cap, `${z.id}: 정원보다 앉을 칸이 많다 (${seats})`);
+  }
+  // 마피아 미션 자리(가로등 3,9 · 벤치 30,9 · 화분 57,9)는 그대로
+  assert.equal(objectAt(map, 3, 9), O.LAMP); assert.equal(objectAt(map, 30, 9), O.BENCH); assert.equal(objectAt(map, 57, 9), O.POT);
 });
 
 test('공사 펜스는 스폰에서 포탈 상호작용 거리까지 접근하는 모든 길을 막는다', () => {

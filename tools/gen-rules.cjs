@@ -46,8 +46,10 @@ const dlSame = `${n('dl', "''")} == ${d('dl', "''")}`, dcSame = `${n('dc', "''")
 const i4Only = `${n('ik', "''")} == ${d('ik', "''")} && ${n('ib')} == ${d('ib')} && ${n('ip', '-1')} == ${d('ip', '-1')} && ${n('it')} == ${d('it')}`;
 const icOnly = `${n('ic')} == ${d('ic')}`;
 // 아래 둘은 "그 전용 쓰기가 아니면 그대로"를 한데 묶은 것: 사용 쪽(i4Same)에는 내기 결제 표시 dl, 획득 쪽(icSame)에는 내기 정산 표시 dc 가 같이 들어 있다
-const i4Same = `${i4Only} && ${dlSame}`;
-const icSame = `${icOnly} && ${dcSame}`;
+// 인디언 포커: pk = 내가 들어간 마지막 판 id, ps = 그 판의 내 자리(a|b) (b='poker' 결제 쓰기에서만 바뀐다), pc = 마지막으로 정산한 판 id
+const pkSame = `${n('pk', "''")} == ${d('pk', "''")} && ${n('ps', "''")} == ${d('ps', "''")}`, pcSame = `${n('pc', "''")} == ${d('pc', "''")}`;
+const i4Same = `${i4Only} && ${dlSame} && ${pkSame}`;
+const icSame = `${icOnly} && ${dcSame} && ${pcSame}`;
 const IT = `data.child('it').val()`, IB = `data.child('ib').val()`;
 const SLOT_H = `((${IT} % ${SLOT_MOD}) * ${SLOT_MUL} + ${SLOT_ADD}) % ${SLOT_MOD}`;
 const SLOT_JP = `(root.child('slot/jp').isNumber() ? root.child('slot/jp').val() : 0)`;
@@ -73,7 +75,7 @@ function walletValidate(pre = '') {
   // 즉석 게임 정산 (2026-11-12): ic 가 그 판의 it 로 바뀌는 쓰기 한 번. 받는 돈은 it 에서 계산한 결과와 정확히 같아야 한다 (꽝이면 0).
   //  잭팟이면 쌓인 금액을 통째로 받고, 같은 쓰기에서 slot/jp 를 시작 금액으로 되돌려야 한다
   const rootNew = pre ? `newData.parent().parent().parent()` : `newData.parent().parent()`;
-  const instantWin = `(data.child('it').isNumber() && ${d('ic')} != ${IT} && newData.child('ic').val() == ${IT} && ${dE} == ${instantPay} && (!${isJackpot} || ${rootNew}.child('slot/jp').val() == ${JACKPOT_SEED}) && ${n('rd')} == ${d('rd')} && ${crSame} && ${dcSame})`;
+  const instantWin = `(data.child('it').isNumber() && ${d('ic')} != ${IT} && newData.child('ic').val() == ${IT} && ${dE} == ${instantPay} && (!${isJackpot} || ${rootNew}.child('slot/jp').val() == ${JACKPOT_SEED}) && ${n('rd')} == ${d('rd')} && ${crSame} && ${dcSame} && ${pcSame})`;
   // 1:1 내기 정산 (2026-11-12): dc 가 그 내기 id 로 바뀌는 쓰기 한 번. 같은 쓰기에서 duel/{id}/paid 를 적어야 하고(두 번 못 받게) 받는 돈은
   //  - 이겼을 때: 판돈 합계 − 수수료 (승자는 수락 시각 acc 를 섞은 값의 홀짝. 짝이면 신청한 a, 홀이면 수락한 b)
   //  - 수락되지 않았을 때(거절했거나 시간이 지남): 신청한 사람이 낸 돈 그대로
@@ -82,7 +84,14 @@ function walletValidate(pre = '') {
   const DWIN = `(((${DC}.child('acc').val() % ${SLOT_MOD}) * ${SLOT_MUL} + ${SLOT_ADD}) % ${SLOT_MOD} % 2 == 0 ? ${DC}.child('a').val() : ${DC}.child('b').val())`;
   const duelWon = `(${DC}.child('acc').exists() && ${DWIN} == auth.uid && ${dE} == 2 * ${DC}.child('s').val() - 2 * ${DC}.child('s').val() * ${DFEE} / 100)`;
   const duelBack = `(!${DC}.child('acc').exists() && ${DC}.child('a').val() == auth.uid && (${DC}.child('no').val() === true || now > ${DC}.child('o').val() + ${DUEL_ACCEPT_LIMIT_MS}) && ${dE} == ${DC}.child('s').val())`;
-  const duelWin = `(newData.child('dc').isString() && !(${dcSame}) && ${DC}.child('s').isNumber() && ${DC}.child('paid').val() !== true && ${DCN}.child('paid').val() === true && (${duelWon} || ${duelBack}) && ${n('rd')} == ${d('rd')} && ${crSame} && ${icOnly})`;
+  const duelWin = `(newData.child('dc').isString() && !(${dcSame}) && ${DC}.child('s').isNumber() && ${DC}.child('paid').val() !== true && ${DCN}.child('paid').val() === true && (${duelWon} || ${duelBack}) && ${n('rd')} == ${d('rd')} && ${crSame} && ${icOnly} && ${pcSame})`;
+  // 인디언 포커 정산 (2026-11-12): pc 가 내가 들어가 있던 판(pk)으로 바뀌는 쓰기 한 번. 같은 쓰기에서 그 판의 내 정산 표시(xa|xb)를 적어야 한다.
+  //  겨룬 돈 m = 둘 중 적게 건 쪽. 이겼으면 건 돈 + m − 수수료, 졌으면 건 돈 − m(상대가 못 따라온 초과분), 비김·취소면 건 돈 그대로
+  const PH = `root.child('pkh/' + data.child('pk').val())`, PSD = `data.child('ps').val()`;
+  const POWN = `${PH}.child('p' + ${PSD}).val()`, PM = `(${PH}.child('pa').val() < ${PH}.child('pb').val() ? ${PH}.child('pa').val() : ${PH}.child('pb').val())`;
+  const PFEE = `((2 * ${PM} - (2 * ${PM}) % 100) * ${DFEE} / 100)`;
+  const PPAY = `((${PH}.child('w').val() == 'tie' || ${PH}.child('w').val() == 'void') ? ${POWN} : (${PH}.child('w').val() == ${PSD} ? ${POWN} + ${PM} - ${PFEE} : ${POWN} - ${PM}))`;
+  const pokerWin = `(data.child('pk').isString() && newData.child('pc').val() == data.child('pk').val() && !(${pcSame}) && ${PH}.child('st').val() == 'done' && ${PH}.child(${PSD}).val() == auth.uid && ${PH}.child('x' + ${PSD}).val() !== true && ${rootNew}.child('pkh/' + data.child('pk').val() + '/x' + ${PSD}).val() === true && ${dE} == ${PPAY} && ${n('rd')} == ${d('rd')} && ${crSame} && ${icOnly} && ${dcSame})`;
   // 사용: 안 썼으면 구매 표시(b)·자동 버프·미끼·주문서 증가·펫 먹이·성 변경 불가(강화 쓰기만 예외). 썼으면 b 에 산 품목을 적고 금액이 가격표와 정확히 같아야 한다
   // 선물 대상 gt 는 구매 쓰기에서만 바뀐다 (안 쓰면 그대로). 그래서 한 번 결제로 나와 상대 둘 다 등록하는 일이 없다
   // 경마 배팅 표시 cb/ch/ca 는 b='race' 결제 쓰기에서만 바뀐다 (다른 구매에 끼워 넣어 싸게 배팅하지 못하게)
@@ -109,24 +118,27 @@ function walletValidate(pre = '') {
   const feedCost = `(${price('petfood')} * ${K} + ${PET_FOOD_STEP} * (${K} * ${PXD} + ${K} * (${K} - 1) / 2))`;
   const feed = `(${bIs('petfood')} && newData.child('pp').isString() && ${price('petfood')} > 0 && newData.child('px/' + newData.child('pp').val()).isNumber() && ${K} >= 1 && ${K} % 1 == 0 && ${dS} == ${feedCost} && (${PET_IDS.map((id) => `(newData.child('pp').val() == '${id}' || ${n('px/' + id)} == ${d('px/' + id)})`).join(' && ')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${baitNoUp} && ${esNoUp} && ${rsSame} && ${kingSame} && ${btNoUp} && ${i4Same})`;
   // 자동 버프 품목은 autoreel/autoreel30/autoreel60, autobug/autobug30/autobug60 (2026-11-09: 30분·1시간 추가). 그 구매 쓰기에서만 ar/ab 가 바뀔 수 있다
-  const buyOne = `(newData.child('b').val() != 'bait' && newData.child('b').val() != 'race' && newData.child('b').val() != 'scroll' && newData.child('b').val() != 'petfood' && newData.child('b').val() != 'rod3' && newData.child('b').val() != 'bat' && newData.child('b').val() != 'slot' && newData.child('b').val() != 'oddeven' && newData.child('b').val() != 'duel' && ${dS} == ${priceB} && ${baitNoUp} && ${cbSame} && ${gearSame} && ${i4Same} && (newData.child('b').val().beginsWith('autoreel') || ${sameAr}) && (newData.child('b').val().beginsWith('autobug') || ${sameAb}))`;
+  const buyOne = `(newData.child('b').val() != 'bait' && newData.child('b').val() != 'race' && newData.child('b').val() != 'scroll' && newData.child('b').val() != 'petfood' && newData.child('b').val() != 'rod3' && newData.child('b').val() != 'bat' && newData.child('b').val() != 'slot' && newData.child('b').val() != 'oddeven' && newData.child('b').val() != 'duel' && newData.child('b').val() != 'poker' && ${dS} == ${priceB} && ${baitNoUp} && ${cbSame} && ${gearSame} && ${i4Same} && (newData.child('b').val().beginsWith('autoreel') || ${sameAr}) && (newData.child('b').val().beginsWith('autobug') || ${sameAb}))`;
   // 경마 배팅 결제: 금액은 100 단위로 100 ~ config/casinoMax(기본 10000), 말은 0~4, 라운드는 열려 있어야(o 있고 at 없음). 수령 표시 cr 은 그대로
   const MAXBET = `(root.child('config/casinoMax').isNumber() ? root.child('config/casinoMax').val() : 10000)`;
   const CB = `root.child('casino/r/' + newData.child('cb').val()`;
   const bet = `(${bIs('race')} && ${dS} == ${n('ca')} && ${n('ca')} >= 100 && ${n('ca')} <= ${MAXBET} && ${n('ca')} % 100 == 0 && ${n('ch', '-1')} >= 0 && ${n('ch', '-1')} <= 4 && ${n('ch', '-1')} % 1 == 0 && newData.child('cb').isString() && ${CB} + '/o').exists() && !${CB} + '/at').exists() && ${crSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame} && ${i4Same})`;
   // 즉석 게임 베팅 (2026-11-12): b 는 'slot' 또는 'oddeven'. 금액은 경마와 같은 한도, it 는 지금(서버 시각)이고 지난 판은 정산돼 있어야 하며(ic == it) 지난 판에서 INSTANT_GAP_MS 이상 지났다
-  const betInstant = `(((${bIs('slot')} && newData.child('ik').val() == 's' && !newData.child('ip').exists()) || (${bIs('oddeven')} && newData.child('ik').val() == 'o' && (newData.child('ip').val() === 0 || newData.child('ip').val() === 1))) && ${dS} == ${n('ib')} && ${n('ib')} >= 100 && ${n('ib')} <= ${MAXBET} && ${n('ib')} % 100 == 0 && newData.child('it').val() == now && ${d('ic')} == ${d('it')} && (!data.child('it').exists() || now - ${IT} >= ${INSTANT_GAP_MS}) && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame} && ${dlSame})`;
+  const betInstant = `(((${bIs('slot')} && newData.child('ik').val() == 's' && !newData.child('ip').exists()) || (${bIs('oddeven')} && newData.child('ik').val() == 'o' && (newData.child('ip').val() === 0 || newData.child('ip').val() === 1))) && ${dS} == ${n('ib')} && ${n('ib')} >= 100 && ${n('ib')} <= ${MAXBET} && ${n('ib')} % 100 == 0 && newData.child('it').val() == now && ${d('ic')} == ${d('it')} && (!data.child('it').exists() || now - ${IT} >= ${INSTANT_GAP_MS}) && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame} && ${dlSame} && ${pkSame})`;
   // 1:1 내기 판돈 (2026-11-12): b='duel', dl 이 새 내기 id 로 바뀌고 낸 돈이 그 내기의 판돈과 같다. 그 내기는 이 쓰기에서 내가 만들었거나(a), 이 쓰기에서 내가 수락했다(b, acc 가 새로 적힘)
   const DN = `${rootNew}.child('duel/' + newData.child('dl').val())`, D0 = `root.child('duel/' + newData.child('dl').val())`;
-  const betDuel = `(${bIs('duel')} && newData.child('dl').isString() && !(${dlSame}) && ${DN}.child('s').isNumber() && ${dS} == ${DN}.child('s').val() && ((${DN}.child('a').val() == auth.uid && !${D0}.exists()) || (${DN}.child('b').val() == auth.uid && ${DN}.child('acc').exists() && !${D0}.child('acc').exists())) && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame} && ${i4Only})`;
-  const spend = `(${noSpend} || (${dS} > 0 && newData.child('b').isString() && (${buyBait} || ${buyScroll} || ${buyBat} || ${feed} || ${craft} || ${buyOne} || ${bet} || ${betInstant} || ${betDuel})))`;
+  const betDuel = `(${bIs('duel')} && newData.child('dl').isString() && !(${dlSame}) && ${DN}.child('s').isNumber() && ${dS} == ${DN}.child('s').val() && ((${DN}.child('a').val() == auth.uid && !${D0}.exists()) || (${DN}.child('b').val() == auth.uid && ${DN}.child('acc').exists() && !${D0}.child('acc').exists())) && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame} && ${i4Only} && ${pkSame})`;
+  // 인디언 포커에 거는 돈 (2026-11-12): b='poker'. 낸 돈이 그 판(pk)의 내 자리(ps)에 쌓인 돈의 증가분과 같다. 새 판에 들어갈 때(pk 가 바뀜)는 지난 판을 정산했어야 한다(pk == pc)
+  const PHN = `${rootNew}.child('pkh/' + newData.child('pk').val())`, PH0 = `root.child('pkh/' + newData.child('pk').val())`, PSN = `newData.child('ps').val()`;
+  const betPoker = `(${bIs('poker')} && newData.child('pk').isString() && (${PSN} == 'a' || ${PSN} == 'b') && ${PHN}.child(${PSN}).val() == auth.uid && ${dS} == ${PHN}.child('p' + ${PSN}).val() - (${PH0}.child('p' + ${PSN}).exists() ? ${PH0}.child('p' + ${PSN}).val() : 0) && ((${pkSame}) || ${d('pk', "''")} == ${d('pc', "''")} || !root.child('pkh/' + data.child('pk').val()).exists()) && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame} && ${i4Only} && ${dlSame})`;
+  const spend = `(${noSpend} || (${dS} > 0 && newData.child('b').isString() && (${buyBait} || ${buyScroll} || ${buyBat} || ${feed} || ${craft} || ${buyOne} || ${bet} || ${betInstant} || ${betDuel} || ${betPoker})))`;
   // 성(rs)을 올리려면 명품 낚싯대를 가지고 있어야 한다 (킹 성 ks 는 킹 낚싯대). 성이 그대로인 쓰기에는 묻지 않는다:
   //  예전엔 "성 > 0 이면 보유"를 모든 쓰기에 물어서, 낚싯대 없이 성만 남은 지갑은 코인 획득·구매까지 전부 거부됐다 (2026-11-11 실제 발생)
   const rodOwned = `(${rsSame} || ${n('rs')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod2').val() === true) && (${ksSame} || ${n('ks')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod3').val() === true)`;
   // 관리자 지급(관리자 페이지의 코인 지급/회수): 관리자가 쓰는 지갑은 형식만 보고 나머지 검사를 건너뛴다. 지급 표시 gf 는 관리자만 바꿀 수 있다
   const admin = `root.child('admins/' + auth.uid).val() === true`;
   const gfSame = `newData.child('gf/at').val() == data.child('gf/at').val() && newData.child('gf/n').val() == data.child('gf/n').val()`;
-  return `${base} && (${admin} || (${mono} && ${balance} && (${roulette} || ${normal} || ${race} || ${instantWin} || ${duelWin}) && ${spend} && ${rodOwned} && ${gfSame}))`;
+  return `${base} && (${admin} || (${mono} && ${balance} && (${roulette} || ${normal} || ${race} || ${instantWin} || ${duelWin} || ${pokerWin}) && ${spend} && ${rodOwned} && ${gfSame}))`;
 }
 
 const q = (s) => JSON.stringify(s);
@@ -176,12 +188,110 @@ function walletBlock(pre, ind) {
       child('ic', 'newData.isNumber()'),                                                 // 즉석 게임: 정산한 판의 it
       child('dl', 'newData.isString() && newData.val().length <= 40'),                   // 1:1 내기: 판돈을 낸 마지막 내기 id (2026-11-12)
       child('dc', 'newData.isString() && newData.val().length <= 40'),                   // 1:1 내기: 마지막으로 정산한 내기 id
+      child('pk', 'newData.isString() && newData.val().length <= 40'),                   // 인디언 포커: 내가 들어간 마지막 판 id (2026-11-12)
+      child('ps', "newData.val() == 'a' || newData.val() == 'b'"),                       // 인디언 포커: 그 판의 내 자리
+      child('pc', 'newData.isString() && newData.val().length <= 40'),                   // 인디언 포커: 마지막으로 정산한 판 id
       `${K}"gf": { "n": { ".validate": "newData.isNumber()" }, "at": { ".validate": "newData.isNumber()" }, "$other": { ".validate": false } }`,
       child('ad', 'newData.isNumber()'),
       child('an', 'newData.isNumber()'),
       child('bn', 'newData.isNumber()'),
       `${K}"$other": { ".validate": false }`,
     ].join(',\n'),
+    `${J}}`,
+    `${I}}`,
+  ].join('\n');
+}
+// ---- 인디언 포커 (2026-11-12, shared/poker.ts 머리말이 설계) ----
+// 판 pkh/{hid}, 카드 pkc/{hid}/{a|b}, 테이블 pkt/{t1|t2}. 아래 숫자는 shared/poker.ts 와 같아야 한다 (tests/poker.test.mjs 가 대조)
+const POKER_ANTES = [100, 1000, 10000], POKER_CAP_MULT = 50, POKER_TURN_LIMIT_MS = 25000, POKER_DEAL_LIMIT_MS = 20000, POKER_TABLE_STALE_MS = 900000;
+function pokerBlocks(ind) {
+  const I = ind, J = ind + '  ', K = ind + '    ', L = ind + '      ';
+  const N = (k) => `newData.child('${k}').val()`, D = (k) => `data.child('${k}').val()`;
+  // 바뀔 수 있는 칸들. 한 번 정해지면 안 바뀌는 칸(t·A·a·an·o)은 아래 칸 규칙이 따로 막는다 (지우는 것은 hasChildren 이 막는다): 경우마다 되풀이하면 규칙이 너무 커진다
+  const KEYS = ['b', 'bn', 'pa', 'pb', 'st', 'tj', 'turn', 'n', 'ta', 'w', 'xa', 'xb'];
+  // 적은 것 말고는 그대로 (why 는 꾸밈말이라 언제나 뺀다: 형식은 아래 칸 규칙이 본다)
+  const keep = (...changed) => KEYS.filter((k) => !changed.includes(k)).map((k) => `${N(k)} == ${D(k)}`).join(' && ');
+  const ROOTN = `newData.parent().parent()`; // pkh/$hid 에서 본 "이 쓰기 뒤의 루트"
+  const WN = `${ROOTN}.child('wallet/' + auth.uid)`, W0 = `root.child('wallet/' + auth.uid)`;
+  const sp = (w) => `(${w}.child('sp').exists() ? ${w}.child('sp').val() : 0)`;
+  // 이 쓰기에서 내 지갑이 정확히 delta 만큼 냈다 (지갑 규칙의 betPoker 가 반대쪽에서 같은 것을 본다)
+  const paid = (delta, side) => `(${sp(WN)} - ${sp(W0)} == ${delta} && ${WN}.child('pk').val() == $hid && ${WN}.child('ps').val() == '${side}')`;
+  const card = (s) => `(((root.child('pkc/' + $hid + '/${s}/at').val() % ${SLOT_MOD}) * ${SLOT_MUL} + ${SLOT_ADD}) % ${SLOT_MOD} % 10)`;
+  const bothCards = `(root.child('pkc/' + $hid + '/a').exists() && root.child('pkc/' + $hid + '/b').exists())`;
+  const isPlayer = `(auth.uid == ${D('a')} || auth.uid == ${D('b')})`;
+  const cases = [];
+  // 판 열기: 참가비를 내고 테이블에 올린다
+  cases.push(`(!data.exists() && ${N('st')} == 'wait' && ${N('a')} == auth.uid && (${POKER_ANTES.map((a) => `${N('A')} == ${a}`).join(' || ')}) && ${N('pa')} == ${N('A')} && ${N('pb')} == 0 && ${N('o')} == now && ${['b', 'bn', 'tj', 'turn', 'n', 'ta', 'w', 'xa', 'xb'].map((k) => `!newData.hasChild('${k}')`).join(' && ')} && ${paid(N('A'), 'a')} && ${ROOTN}.child('pkt/' + ${N('t')} + '/hid').val() == $hid)`);
+  const ex = (s) => `(data.exists() && ${s})`;
+  // 기다리던 판 취소 (연 사람)
+  cases.push(ex(`${D('st')} == 'wait' && auth.uid == ${D('a')} && ${N('st')} == 'done' && ${N('w')} == 'void' && ${keep('st', 'w')}`));
+  // 참가
+  cases.push(ex(`${D('st')} == 'wait' && auth.uid != ${D('a')} && ${N('st')} == 'deal' && ${N('b')} == auth.uid && newData.child('bn').isString() && ${N('pb')} == ${D('A')} && ${N('tj')} == now && ${paid(D('A'), 'b')} && ${keep('st', 'b', 'bn', 'pb', 'tj')}`));
+  // 베팅 시작: 두 카드가 이미(이 쓰기 전에) 나와 있어야 한다. 그래야 ta(공개되는 시각)가 카드 시각과 같아질 수 없다
+  cases.push(ex(`${D('st')} == 'deal' && ${isPlayer} && ${bothCards} && ${N('st')} == 'bet' && ${N('turn')} == 'b' && ${N('n')} == 0 && ${N('ta')} == now && ${keep('st', 'turn', 'n', 'ta')}`));
+  // 카드가 제때 안 나왔다: 판 취소 (각자 건 돈을 돌려받는다)
+  cases.push(ex(`${D('st')} == 'deal' && ${isPlayer} && !${bothCards} && now > ${D('tj')} + ${POKER_DEAL_LIMIT_MS} && ${N('st')} == 'done' && ${N('w')} == 'void' && ${keep('st', 'w')}`));
+  for (const [x, y] of [['a', 'b'], ['b', 'a']]) {
+    const mine = `auth.uid == ${D(x)}`, turn = `${D('st')} == 'bet' && ${D('turn')} == '${x}' && ${mine}`;
+    // 다이 (언제든. 방을 나가도 다이)
+    cases.push(ex(`(${D('st')} == 'deal' || ${D('st')} == 'bet') && ${mine} && ${N('st')} == 'done' && ${N('w')} == '${y}' && ${keep('st', 'w')}`));
+    // 체크: 건 돈이 같다. 첫 체크는 차례를 넘기고, 그다음 체크는 공개
+    cases.push(ex(`${turn} && ${D('p' + x)} == ${D('p' + y)} && ((${D('n')} == 0 && ${N('st')} == 'bet' && ${N('turn')} == '${y}' && ${N('n')} == 1 && ${N('ta')} == now && ${keep('turn', 'n', 'ta')}) || (${D('n')} > 0 && ${N('st')} == 'show' && ${keep('st')}))`));
+    // 콜: 상대가 건 돈에 맞추고 공개. 모자라면 가진 만큼(지갑이 0 이 된다) 올인
+    cases.push(ex(`${turn} && ${D('p' + x)} < ${D('p' + y)} && ${N('st')} == 'show' && (${N('p' + x)} == ${D('p' + y)} || (${N('p' + x)} < ${D('p' + y)} && ${N('p' + x)} >= ${D('p' + x)} && ${WN}.child('c').val() == 0)) && ${paid(`${N('p' + x)} - ${D('p' + x)}`, x)} && ${keep('st', 'p' + x)}`));
+    // 레이즈: 상대가 건 돈보다 참가비 단위로 더. 한 사람이 걸 수 있는 돈은 참가비 × POKER_CAP_MULT 까지
+    cases.push(ex(`${turn} && ${N('st')} == 'bet' && ${N('p' + x)} > ${D('p' + y)} && ${N('p' + x)} <= ${D('A')} * ${POKER_CAP_MULT} && (${N('p' + x)} - ${D('p' + y)}) % ${D('A')} == 0 && ${N('turn')} == '${y}' && ${N('n')} == ${D('n')} + 1 && ${N('ta')} == now && ${paid(`${N('p' + x)} - ${D('p' + x)}`, x)} && ${keep('p' + x, 'turn', 'n', 'ta')}`));
+    // 시간 초과: 차례인 x 가 제한 시간을 넘겼거나 접속해 있지 않으면 y 가 이긴 것으로
+    cases.push(ex(`${D('st')} == 'bet' && ${D('turn')} == '${x}' && auth.uid == ${D(y)} && (now > ${D('ta')} + ${POKER_TURN_LIMIT_MS} || !root.child('players/' + ${D(x)}).exists()) && ${N('st')} == 'done' && ${N('w')} == '${y}' && ${keep('st', 'w')}`));
+    // 정산 표시: 내 몫을 받는 지갑 쓰기(pc = 판 id)와 같이
+    cases.push(ex(`${D('st')} == 'done' && ${mine} && ${N('x' + x)} === true && ${D('x' + x)} !== true && ${WN}.child('pc').val() == $hid && ${W0}.child('pc').val() != $hid && ${keep('x' + x)}`));
+  }
+  // 공개된 판의 결과: 두 카드로 정해진 그대로 (아무나 적는다)
+  cases.push(ex(`${D('st')} == 'show' && ${N('st')} == 'done' && ${N('w')} == (${card('a')} > ${card('b')} ? 'a' : (${card('a')} < ${card('b')} ? 'b' : 'tie')) && ${keep('st', 'w')}`));
+  const hand = `newData.hasChildren(['t', 'A', 'a', 'an', 'pa', 'pb', 'st', 'o']) && (${cases.join(' || ')})`;
+  const str = (max) => `newData.isString() && newData.val().length <= ${max}`;
+  const cardNode = (own, dealer) => [
+    `${K}"${own}": {`,
+    // 카드 주인(own)은 못 읽는다: 상대(dealer)만. 공개된 뒤(show·done)에는 모두
+    `${L}".read": ${q(`auth != null && (root.child('pkh/' + $hid + '/${dealer}').val() == auth.uid || root.child('pkh/' + $hid + '/st').val() == 'show' || root.child('pkh/' + $hid + '/st').val() == 'done')`)},`,
+    `${L}".write": ${q(`auth != null && !data.exists() && ((newData.exists() && root.child('pkh/' + $hid + '/st').val() == 'deal' && root.child('pkh/' + $hid + '/${dealer}').val() == auth.uid) || (!newData.exists() && !root.child('pkh/' + $hid).exists()))`)},`,
+    `${L}".validate": "newData.hasChildren(['at']) && newData.child('at').val() == now",`,
+    `${L}"at": { ".validate": true },`,
+    `${L}"$other": { ".validate": false }`,
+    `${K}}`,
+  ].join('\n');
+  const HN = `newData.parent().parent().child('pkh/' + newData.child('hid').val())`, H0 = `root.child('pkh/' + data.child('hid').val())`;
+  return [
+    `${I}"pkh": {`,
+    `${J}".read": "auth != null",`,
+    `${J}".indexOn": ["o"],`,
+    `${J}"$hid": {`,
+    `${K}".write": ${q(`auth != null && (newData.exists() || (data.child('st').val() == 'done' && data.child('o').val() < now - 86400000))`)},`,
+    `${K}".validate": ${q(hand)},`,
+    `${K}"t": { ".validate": "(!data.exists() || newData.val() == data.val()) && (newData.val() == 't1' || newData.val() == 't2')" },`,
+    `${K}"an": { ".validate": ${q(`(!data.exists() || newData.val() == data.val()) && ${str(20)}`)} },`,
+    ...['A', 'a', 'o'].map((k) => `${K}"${k}": { ".validate": "!data.exists() || newData.val() == data.val()" },`),
+    `${K}"bn": { ".validate": ${q(str(20))} },`,
+    `${K}"why": { ".validate": ${q(str(10))} },`,
+    ...['b', 'pa', 'pb', 'st', 'tj', 'turn', 'n', 'ta', 'w', 'xa', 'xb'].map((k) => `${K}"${k}": { ".validate": true },`),
+    `${K}"$other": { ".validate": false }`,
+    `${J}}`,
+    `${I}},`,
+    `${I}"pkc": {`,
+    `${J}"$hid": {`,
+    cardNode('a', 'b') + ',',
+    cardNode('b', 'a') + ',',
+    `${K}"$other": { ".validate": false }`,
+    `${J}}`,
+    `${I}},`,
+    `${I}"pkt": {`,
+    `${J}".read": "auth != null",`,
+    `${J}"$t": {`,
+    `${K}".write": "auth != null && newData.exists()",`,
+    // 새 판을 테이블에 올린다: 지금 판이 끝났거나(done) 없거나 너무 오래됐을 때만
+    `${K}".validate": ${q(`($t == 't1' || $t == 't2') && newData.child('hid').isString() && ${HN}.child('t').val() == $t && ${HN}.child('o').val() == now && ${HN}.child('a').val() == auth.uid && (!data.exists() || !${H0}.exists() || ${H0}.child('st').val() == 'done' || ${H0}.child('o').val() < now - ${POKER_TABLE_STALE_MS})`)},`,
+    `${K}"hid": { ".validate": true },`,
+    `${K}"$other": { ".validate": false }`,
     `${J}}`,
     `${I}}`,
   ].join('\n');
@@ -313,6 +423,17 @@ if (mode === 'sandbox') {
     must(at > 0 && at < t.indexOf('        "push": {', plAt), 'players 검증 끝을 못 찾음');
     t = t.slice(0, at) + pvNew + t.slice(at + pvOld.length);
   }
+  // 5) 인디언 포커 블록(pkh · pkc · pkt): 있으면 지우고 casino 블록 앞에 다시 만들어 넣는다
+  for (const key of ['pkh', 'pkc', 'pkt']) {
+    const at = t.indexOf(`\n    "${key}": {`);
+    if (at < 0) continue;
+    let e = blockRange(t, key, at)[1];
+    if (t[e] === ',') e++;
+    t = t.slice(0, at) + t.slice(e);
+  }
+  const casAt = t.indexOf('\n    "casino": {');
+  must(casAt >= 0, 'casino 블록을 못 찾음');
+  t = t.slice(0, casAt + 1) + pokerBlocks('    ') + ',\n' + t.slice(casAt + 1);
 } else must(mode === 'strip', 'mode 는 sandbox|final|strip');
 
 const parsed = JSON.parse(t); // 형식 확인

@@ -189,6 +189,22 @@ export class WalletMgr {
       return true;
     } catch (e) { console.warn('내기 정산이 거부됨', e); return false; }
   }
+  // ---- 인디언 포커 (2026-11-12. 설계는 shared/poker.ts 머리말) ----
+  // 판에 돈 걸기: 지갑(값 빼기, b='poker', pk=판 id, ps=자리)과 판 쪽 쓰기(extra)를 쓰기 한 번에. amount 가 0 이면(체크, 가진 게 없는 올인) 판 쪽만 쓴다
+  async pokerPut(hid: string, side: 'a' | 'b', amount: number, extra: Record<string, unknown>): Promise<boolean> {
+    if (amount > this.balance) return false;
+    const W = `wallet/${this.w.uid}`;
+    const upd: Record<string, unknown> = { ...extra };
+    if (amount > 0) Object.assign(upd, { [`${W}/c`]: increment(-amount), [`${W}/sp`]: increment(amount), [`${W}/b`]: 'poker', [`${W}/gt`]: null, [`${W}/pk`]: hid, [`${W}/ps`]: side });
+    try { await update(ref(db), upd); return true; } catch (e) { console.warn('포커 쓰기가 거부됨', e); return false; }
+  }
+  // 정산: 내 몫(0 일 수도 있다)을 받으며 판에 내 정산 표시를 남긴다. 이걸 해야 다음 판에 들어갈 수 있다
+  async pokerClaim(hid: string, side: 'a' | 'b', amount: number): Promise<boolean> {
+    const W = `wallet/${this.w.uid}`;
+    const upd: Record<string, unknown> = { [`${W}/pc`]: hid, [`pkh/${hid}/x${side}`]: true };
+    if (amount > 0) { upd[`${W}/c`] = increment(amount); upd[`${W}/e`] = increment(amount); }
+    try { await update(ref(db), upd); return true; } catch (e) { console.warn('포커 정산이 거부됨', e); return false; }
+  }
   // 자동 버프를 더 살 수 있는 최대 시간(ms): 남은 시간을 뺀 것
   autoRoom(kind: 'fish' | 'bug'): number { return Math.max(0, AUTO_MAX_MS - Math.max(0, (this.wallet[kind === 'fish' ? 'ar' : 'ab'] || 0) - serverNow())); }
   buyBait(price: number, n = 1): Promise<boolean> {
