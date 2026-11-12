@@ -335,6 +335,90 @@ await expect('경마: 옛 방식(기록 나중)', 'allow', () => ok.ref('casino/
   await root.ref().update({ 'wallet/OK': null, 'slot/jp': null });
 }
 
+// ---------- 1:1 내기: 주사위 대결 (2026-11-12) ----------
+// 신청(내기 만들기 + 판돈 + 초대) → 수락(판돈 + acc = 서버 시각) → 이긴 사람이 정산. 수락되지 않으면 신청한 사람이 돌려받는다
+{
+  const SH = (t) => ((t % 9973) * 7919 + 4421) % 9973;
+  const TS = ServerValue.TIMESTAMP;
+  await setNow('2026-11-14 14:00:00');
+  await root.ref().update({ 'approved/OTHER': true, 'wallet/OK': { c: 50000, e: 50000 }, 'wallet/OTHER': { c: 50000, e: 50000 }, 'players/OK': presence, 'players/OTHER': presence, 'duel': null, 'duelInv': null });
+  const duelOf = (s, extra = {}) => ({ a: 'OK', b: 'OTHER', an: '닉', bn: '닉2', k: 'dice', s, o: TS, ...extra });
+  const invOf = (id, s) => ({ id, f: 'OK', fn: '닉', s, k: 'dice', t: TS });
+  const stake = (uid, bal, s, id) => ({ [`wallet/${uid}/c`]: bal - s, [`wallet/${uid}/sp`]: s, [`wallet/${uid}/b`]: 'duel', [`wallet/${uid}/dl`]: id });
+  const claim = (uid, bal, sp, amount, id) => ({ [`wallet/${uid}/c`]: bal + amount, [`wallet/${uid}/e`]: 50000 + amount, [`wallet/${uid}/sp`]: sp, [`wallet/${uid}/dc`]: id, [`duel/${id}/paid`]: true });
+
+  // 신청
+  await expect('내기: 판돈 없이 내기만 만들기', 'deny', () => ok.ref('duel/D1').set(duelOf(1000)));
+  await expect('내기: 내기 없이 판돈 표시만', 'deny', () => ok.ref().update(stake('OK', 50000, 1000, 'D1')));
+  await expect('내기: 낸 돈과 판돈이 다름', 'deny', () => ok.ref().update({ 'duel/D1': duelOf(1000), ...stake('OK', 50000, 100, 'D1') }));
+  await expect('내기: 150코인 (100 단위 아님)', 'deny', () => ok.ref().update({ 'duel/D1': duelOf(150), ...stake('OK', 50000, 150, 'D1') }));
+  await expect('내기: 남의 이름으로 신청', 'deny', () => ok.ref().update({ 'duel/D1': duelOf(1000, { a: 'OTHER', b: 'OK' }), ...stake('OK', 50000, 1000, 'D1') }));
+  await expect('내기: 자기 자신에게', 'deny', () => ok.ref().update({ 'duel/D1': duelOf(1000, { b: 'OK' }), ...stake('OK', 50000, 1000, 'D1') }));
+  await expect('내기: 접속해 있지 않은 상대', 'deny', () => ok.ref().update({ 'duel/D1': duelOf(1000, { b: 'NOBODY' }), ...stake('OK', 50000, 1000, 'D1') }));
+  await expect('내기: 수락까지 같이 적어 신청', 'deny', () => ok.ref().update({ 'duel/D1': duelOf(1000, { acc: TS }), ...stake('OK', 50000, 1000, 'D1') }));
+  await expect('내기: 초대만 보내기 (내기 없음)', 'deny', () => ok.ref('duelInv/OTHER').set(invOf('D1', 1000)));
+  await expect('내기: 신청 (내기 + 판돈 + 초대)', 'allow', () => ok.ref().update({ 'duel/D1': duelOf(1000), 'duelInv/OTHER': invOf('D1', 1000), ...stake('OK', 50000, 1000, 'D1') }));
+  await expect('내기: 초대는 받는 사람만 읽는다', 'deny', () => ok.ref('duelInv/OTHER').get());
+  await expect('내기: 받는 사람이 초대 읽기', 'allow', () => other.ref('duelInv/OTHER').get());
+  await expect('내기: 방금 초대받은 사람에게 또 신청', 'deny', () => ok.ref().update({ 'duel/D1b': duelOf(1000), 'duelInv/OTHER': invOf('D1b', 1000), ...stake('OK', 49000, 1000, 'D1b') }));
+  await expect('내기: 수락 전에 신청한 사람이 돌려받기', 'deny', () => ok.ref().update(claim('OK', 49000, 1000, 1000, 'D1')));
+
+  // 수락
+  await expect('내기: 신청한 사람이 대신 수락', 'deny', () => ok.ref('duel/D1/acc').set(TS));
+  await expect('내기: 판돈 없이 수락', 'deny', () => other.ref('duel/D1/acc').set(TS));
+  await expect('내기: 수락 시각이 서버 시각이 아님', 'deny', () => other.ref().update({ 'duel/D1/acc': Date.now() - 3000, ...stake('OTHER', 50000, 1000, 'D1') }));
+  await expect('내기: 판돈보다 적게 내고 수락', 'deny', () => other.ref().update({ 'duel/D1/acc': TS, ...stake('OTHER', 50000, 100, 'D1') }));
+  await expect('내기: 수락 (판돈 + acc + 초대 지우기)', 'allow', () => other.ref().update({ 'duel/D1/acc': TS, 'duelInv/OTHER': null, ...stake('OTHER', 50000, 1000, 'D1') }));
+  await expect('내기: 수락한 뒤 거절 표시', 'deny', () => other.ref('duel/D1/no').set(true));
+  await expect('내기: 두 번 수락', 'deny', () => other.ref('duel/D1/acc').set(TS));
+
+  // 정산: 이긴 사람만, 정확한 금액(1,000 × 2 − 5% = 1,900)
+  const acc = (await root.ref('duel/D1/acc').get()).val();
+  const win = SH(acc) % 2 === 0 ? 'OK' : 'OTHER', lose = win === 'OK' ? 'OTHER' : 'OK';
+  const dbOf = (uid) => (uid === 'OK' ? ok : other);
+  await expect('내기: 진 사람이 정산', 'deny', () => dbOf(lose).ref().update(claim(lose, 49000, 1000, 1900, 'D1')));
+  await expect('내기: 이긴 사람이 수수료 없이 받기', 'deny', () => dbOf(win).ref().update(claim(win, 49000, 1000, 2000, 'D1')));
+  await expect('내기: paid 표시 없이 받기', 'deny', () => dbOf(win).ref().update({ [`wallet/${win}/c`]: 50900, [`wallet/${win}/e`]: 51900, [`wallet/${win}/sp`]: 1000, [`wallet/${win}/dc`]: 'D1' }));
+  await expect('내기: 돈은 안 받고 paid 만 적기', 'deny', () => dbOf(lose).ref('duel/D1/paid').set(true));
+  await expect('내기: 이긴 사람이 1,900 받기', 'allow', () => dbOf(win).ref().update(claim(win, 49000, 1000, 1900, 'D1')));
+  await expect('내기: 두 번 받기', 'deny', () => dbOf(win).ref().update({ [`wallet/${win}/c`]: 52800, [`wallet/${win}/e`]: 53800, [`wallet/${win}/dc`]: 'D1x', 'duel/D1/paid': true }));
+  await expect('내기: 하루 안 된 내기 지우기', 'deny', () => ok.ref('duel/D1').remove());
+
+  // 수수료 설정을 바꾸면 그 값으로
+  await root.ref().update({ 'config/duelFee': 10, 'wallet/OK': { c: 50000, e: 50000 }, 'wallet/OTHER': { c: 50000, e: 50000 }, 'duel/D2': { a: 'OK', b: 'OTHER', an: '닉', bn: '닉2', k: 'dice', s: 500, o: Date.now() - 5000, acc: Date.now() - 2000 } });
+  const acc2 = (await root.ref('duel/D2/acc').get()).val();
+  const win2 = SH(acc2) % 2 === 0 ? 'OK' : 'OTHER';
+  await expect('내기: 수수료 10% 인데 5% 로 받기', 'deny', () => dbOf(win2).ref().update({ [`wallet/${win2}/c`]: 50950, [`wallet/${win2}/e`]: 50950, [`wallet/${win2}/dc`]: 'D2', 'duel/D2/paid': true }));
+  await expect('내기: 수수료 10% 로 900 받기', 'allow', () => dbOf(win2).ref().update({ [`wallet/${win2}/c`]: 50900, [`wallet/${win2}/e`]: 50900, [`wallet/${win2}/dc`]: 'D2', 'duel/D2/paid': true }));
+  await root.ref('config/duelFee').remove();
+
+  // 거절 → 신청한 사람이 판돈 그대로 돌려받는다
+  await root.ref().update({ 'wallet/OK': { c: 50000, e: 50000 }, 'duelInv': null });
+  await ok.ref().update({ 'duel/D3': duelOf(2000), 'duelInv/OTHER': invOf('D3', 2000), ...stake('OK', 50000, 2000, 'D3') });
+  await expect('내기: 남이 거절 표시', 'deny', () => ok.ref('duel/D3/no').set(true));
+  await expect('내기: 받는 사람이 거절', 'allow', () => other.ref().update({ 'duel/D3/no': true, 'duelInv/OTHER': null }));
+  await expect('내기: 거절한 뒤 수락', 'deny', () => other.ref().update({ 'duel/D3/acc': TS, ...stake('OTHER', 50000, 2000, 'D3') }));
+  await expect('내기: 거절됐는데 더 많이 돌려받기', 'deny', () => ok.ref().update(claim('OK', 48000, 2000, 3800, 'D3')));
+  await expect('내기: 받는 사람이 대신 돌려받기', 'deny', () => other.ref().update({ 'wallet/OTHER/c': 52000, 'wallet/OTHER/e': 52000, 'wallet/OTHER/dc': 'D3', 'duel/D3/paid': true }));
+  await expect('내기: 신청한 사람이 판돈 돌려받기', 'allow', () => ok.ref().update(claim('OK', 48000, 2000, 2000, 'D3')));
+
+  // 시간 초과: 25초가 지나야 돌려받고, 그 뒤에는 수락할 수 없다
+  await root.ref().update({ 'wallet/OK': { c: 48000, e: 50000, sp: 2000, b: 'duel', dl: 'D4' }, 'duel/D4': { a: 'OK', b: 'OTHER', an: '닉', bn: '닉2', k: 'dice', s: 2000, o: Date.now() - 10000 } });
+  await expect('내기: 10초밖에 안 지났는데 돌려받기', 'deny', () => ok.ref().update(claim('OK', 48000, 2000, 2000, 'D4')));
+  await root.ref('duel/D4/o').set(Date.now() - 26000);
+  await expect('내기: 시간이 지난 뒤 수락', 'deny', () => other.ref().update({ 'duel/D4/acc': TS, ...stake('OTHER', 50000, 2000, 'D4') }));
+  await expect('내기: 시간이 지나 돌려받기', 'allow', () => ok.ref().update(claim('OK', 48000, 2000, 2000, 'D4')));
+  await expect('내기: 돌려받은 뒤 수락', 'deny', () => other.ref().update({ 'duel/D4/acc': TS, ...stake('OTHER', 50000, 2000, 'D4') }));
+
+  // 끼워 넣기: 다른 쓰기에 내기 표시를 바꿔 넣지 못한다
+  await root.ref('wallet/OK').set({ c: 50000, e: 50000 });
+  await expect('내기: 보통 획득에 정산 표시 끼우기', 'deny', () => ok.ref().update({ 'wallet/OK/c': 50010, 'wallet/OK/e': 50010, 'wallet/OK/dc': 'D1' }));
+  await expect('내기: 보통 획득에 결제 표시 끼우기', 'deny', () => ok.ref().update({ 'wallet/OK/c': 50010, 'wallet/OK/e': 50010, 'wallet/OK/dl': 'D9' }));
+  await expect('내기: 접속 표시에 신청 안 받음', 'allow', () => ok.ref('players/OK/nd').set(true));
+  await expect('내기: 접속 표시에 이상한 값', 'deny', () => ok.ref('players/OK/nd').set('x'));
+  await root.ref().update({ 'wallet/OK': null, 'wallet/OTHER': null, duel: null, duelInv: null, 'players/OK/nd': null });
+}
+
 // ---------- 게시판: 패치 노트 분류는 관리자만 (2026-11-12) ----------
 const post = (u, cat) => ({ title: '제목', body: '내용', u, n: '닉', ts: 1, cc: 0, cat });
 await expect('게시판: 일반 사용자가 똥글 쓰기', 'allow', () => ok.ref('board/posts/p-junk').set(post('OK', 'junk')));

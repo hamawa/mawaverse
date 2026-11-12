@@ -47,6 +47,10 @@ export class Net {
   // 지금 맵에서의 내 자리 키
   private occKey(x: number, y: number) { return occupancyKey(this.w.mapId, x, y); }
   private mapField(): Pick<PlayerState, 'm'> { return this.w.mapId === MAIN_MAP_ID ? {} : { m: this.w.mapId }; }
+  // 내기 신청을 받지 않는다는 표시 (DuelMgr 가 켜고 끈다. 재등록 때도 다시 싣는다)
+  private noDuel = false;
+  setNoDuel(on: boolean): void { this.noDuel = on; set(ref(db, `players/${this.w.uid}/nd`), on ? true : null).catch(() => {}); }
+  private duelField(): Pick<PlayerState, 'nd'> { return this.noDuel ? { nd: true } : {}; }
   private guardField(): Pick<PlayerState, 'gb'> { return this.w.guardBroken() ? { gb: this.w.guardUntil } : {}; } // 빠따에 맞아 방어가 깨져 있는 동안
   private pendingSteps = 0;  // 서버 답을 기다리는 걸음 수
   private changing = false;  // 맵 이동 쓰기 중 (재등록이 옛 맵 상태로 덮어쓰지 않게)
@@ -56,14 +60,14 @@ export class Net {
 
   private currentState(): PlayerState {
     const w = this.w;
-    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField() };
+    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.duelField() };
   }
 
   // 월드 입장: 현재 접속자 스냅샷을 읽고 빈 타일을 잡은 뒤 presence 등록
   async join(spawnX: number, spawnY: number, dir: Dir = 0): Promise<void> {
     const w = this.w;
     const st: PlayerState = {
-      n: w.profile.nick, a: w.profile.avatar, x: spawnX, y: spawnY, d: dir, s: w.sessionId, e: null, r: null, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(),
+      n: w.profile.nick, a: w.profile.avatar, x: spawnX, y: spawnY, d: dir, s: w.sessionId, e: null, r: null, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.duelField(),
     };
     await onDisconnect(this.playerRef()).remove();
     // 자리(occ)와 presence 를 한 번에 올린다. 자리는 규칙이 지킨다(비었거나, 내 것이거나, 적힌 사람이 거기 없을 때만). 방금 누가 그 자리를 잡아 거부되면 자리 없이 들어가고 다음 걸음에서 잡는다

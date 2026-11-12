@@ -98,6 +98,13 @@ body.mobile #casino .horse { padding: 8px; }
 body.mobile #casino .horse .ic { font-size: 20px; }
 body.mobile #casino .amts .btn { padding: 8px 10px; }
 body.mobile.in-casino #mobile { display: none; }
+/* 1:1 내기 주사위 창 */
+.duel-roll .side { text-align: center; min-width: 96px; padding: 8px; border-radius: 12px; }
+.duel-roll .side.win { background: rgba(255, 216, 77, 0.16); outline: 1px solid var(--accent); }
+.duel-roll .nm { font-weight: bold; margin-bottom: 4px; word-break: break-all; }
+.duel-roll .die { font-size: 64px; line-height: 1; }
+.duel-roll .vs { align-self: center; color: var(--muted); font-weight: bold; }
+.duel-roll .res { text-align: center; font-weight: bold; margin-top: 10px; word-break: keep-all; }
 /* 슬롯 방 판 (#casino.slots): 탭 · 잭팟 · 릴 · 결과 · 돌리기 */
 #casino.slots .tabs { display: flex; gap: 4px; margin: 6px 0; }
 #casino.slots .tabs .btn { flex: 1; }

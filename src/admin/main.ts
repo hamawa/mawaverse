@@ -14,6 +14,7 @@ import { groundTile, objectSprite } from '../game/tiles';
 import { catLabel } from '../game/board';
 import { ALL_ITEMS, priceOf, itemById, petLevel, type Wallet } from '../shared/shop';
 import { BET_MAX_DEFAULT } from '../shared/casino';
+import { DUEL_FEE_DEFAULT } from '../shared/duel';
 import { DEFAULT_CONTEST, WEEKDAY_NAME } from '../shared/contest';
 import { TILE } from '../shared/config';
 import { fishColl, weekKey, fmtSize } from '../shared/fish';
@@ -118,7 +119,7 @@ async function deleteUserData(uid: string, u: UserProfile, action = 'delete-user
   const upd: Record<string, null> = {
     [`signups/${uid}`]: null, [`approved/${uid}`]: null,
     [`users/${uid}`]: null, [`ids/${safeKey(idKey(u.id))}`]: null, [`nicknames/${nickKey(u.nick)}`]: null,
-    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null,
+    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`duelInv/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null,
   };
   await update(ref(db), upd);
   adminLog(action, uid, action === 'reject' ? undefined : u.id);
@@ -758,6 +759,7 @@ function tabConfig(main: HTMLElement): void {
   const retConn = el('input', { type: 'number', min: '100' });
   const boardRet = el('input', { type: 'number', min: '10' });
   const casinoMax = el('input', { type: 'number', min: '100', step: '100' });
+  const duelFeeIn = el('input', { type: 'number', min: '0', max: '50', step: '1' });
   const minVer = el('input', { type: 'number', min: '0' });
   const activeMap = el('select');
   const conOn = el('select'); conOn.innerHTML = '<option value="1">매주 진행</option><option value="0">끄기</option>';
@@ -768,7 +770,7 @@ function tabConfig(main: HTMLElement): void {
   const priceBox = el('div', { class: 'price-grid' });
   for (const it of ALL_ITEMS) { const inp = el('input', { type: 'number', min: '0' }); priceInputs.set(it.id, inp); priceBox.append(el('label', { text: `${it.icon} ${it.name}` }), inp); }
   form.append(f('최대 동시 접속자 (무료 플랜 연결 한도 100)', maxPlayers), f('운영 상태', maint), f('점검 안내 문구', maintMsg), f('평일 근무시간 이용 차단 (관리자 제외. 주말·공휴일은 종일 허용)', hoursSel), f('공지 (상단 배너)', ann),
-    f('채팅 로그 보존 개수', retChat), f('입퇴장 로그 보존 개수', retConn), f('게시글 보존 개수', boardRet), f(`최소 클라이언트 버전 (지금 배포본은 ${CLIENT_VERSION}. 이보다 낮은 접속자는 자동으로 새로고침)`, minVer), f(`경마 한 번 최대 배팅 (100 단위, 기본 ${BET_MAX_DEFAULT}. 규칙이 서버에서 강제)`, casinoMax), f('활성 맵', activeMap), f('낚시 대회 (점수·코인 2배, 대회 한정 어종)', conOn), el('div', { class: 'row' }, [f('대회 요일', conDay), f('시작 시각 (시)', conHour), f('길이 (분)', conMin)]), f('상점 가격 (코인)', priceBox));
+    f('채팅 로그 보존 개수', retChat), f('입퇴장 로그 보존 개수', retConn), f('게시글 보존 개수', boardRet), f(`최소 클라이언트 버전 (지금 배포본은 ${CLIENT_VERSION}. 이보다 낮은 접속자는 자동으로 새로고침)`, minVer), f(`경마 한 번 최대 배팅 (100 단위, 기본 ${BET_MAX_DEFAULT}. 규칙이 서버에서 강제. 슬롯·홀짝·1:1 내기 판돈도 이 한도)`, casinoMax), f('1:1 내기 수수료 % (0~50 정수. 판돈 합계에서 떼고 없앤다: 주사위 대결·포커·낚시 내기)', duelFeeIn), f('활성 맵', activeMap), f('낚시 대회 (점수·코인 2배, 대회 한정 어종)', conOn), el('div', { class: 'row' }, [f('대회 요일', conDay), f('시작 시각 (시)', conHour), f('길이 (분)', conMin)]), f('상점 가격 (코인)', priceBox));
   const save = el('button', { class: 'btn primary', text: '저장' });
   const reduce = el('button', { class: 'btn', text: '🔻 사용량 절감 모드 적용' });
   const info = el('p', { class: 'muted', text: '사용량 절감 모드: 최대 접속 30명, 로그 보존 500개로 낮추고 로그/오래된 채팅을 즉시 정리합니다.' });
@@ -777,7 +779,7 @@ function tabConfig(main: HTMLElement): void {
   const load = async () => {
     cfg = mergeConfig((await get(ref(db, 'config'))).val());
     maxPlayers.value = String(cfg.maxPlayers); maint.value = cfg.maintenance.on ? '1' : '0'; hoursSel.value = cfg.hoursBlock ? '1' : '0'; maintMsg.value = cfg.maintenance.message; ann.value = cfg.announcement?.text || '';
-    retChat.value = String(cfg.logRetention.chat); retConn.value = String(cfg.logRetention.conn); boardRet.value = String(cfg.boardRetention); casinoMax.value = String(cfg.casinoMax ?? BET_MAX_DEFAULT); minVer.value = String(cfg.minVersion ?? 0);
+    retChat.value = String(cfg.logRetention.chat); retConn.value = String(cfg.logRetention.conn); boardRet.value = String(cfg.boardRetention); casinoMax.value = String(cfg.casinoMax ?? BET_MAX_DEFAULT); duelFeeIn.value = String(cfg.duelFee ?? DUEL_FEE_DEFAULT); minVer.value = String(cfg.minVersion ?? 0);
     const maps = (await get(ref(db, 'maps'))).val() as Record<string, { name?: string }> | null;
     activeMap.innerHTML = '<option value="default">기본 맵 (내장)</option>' + Object.entries(maps || {}).map(([id, m]) => `<option value="${id}">${escapeHtml(m.name || id)} (${id})</option>`).join('');
     activeMap.value = cfg.activeMap;
@@ -796,6 +798,7 @@ function tabConfig(main: HTMLElement): void {
       allCooldownSec: cfg.allCooldownSec, // 전체 채팅 채널이 없어져 더 쓰지 않음 (값만 유지)
       boardRetention: Number(boardRet.value) || 300,
       casinoMax: Math.max(100, Math.floor((Number(casinoMax.value) || BET_MAX_DEFAULT) / 100) * 100),
+      duelFee: Math.min(50, Math.max(0, Math.round(Number(duelFeeIn.value)) || 0)), // 0~50 의 정수만 (규칙이 이 값으로 정산 금액을 계산한다)
       minVersion: Math.max(0, Math.floor(Number(minVer.value) || 0)),
       prices: Object.fromEntries(ALL_ITEMS.map((it) => [it.id, Math.max(0, Math.floor(Number(priceInputs.get(it.id)!.value) || it.price))])),
       contest: { on: conOn.value === '1', weekday: Number(conDay.value) || 0, hour: Math.min(23, Math.max(0, Number(conHour.value) || 0)), minutes: Math.max(5, Number(conMin.value) || 60) },

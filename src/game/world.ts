@@ -25,6 +25,7 @@ import { PetRide } from './petride';
 import { CasinoMgr } from './casino';
 import { CasinoPanel } from './casinoui';
 import { SlotPanel } from './slotui';
+import { DuelMgr } from './duel';
 import { MafiaMgr } from './mafia';
 import { MafiaHud, openMafiaLobby } from './mafiaui';
 import { openBoard } from './boardui';
@@ -115,6 +116,7 @@ export class World implements WorldCtx {
   pets = new Pets();
   petRide = new PetRide(this, this.net);
   casino = new CasinoMgr(this);
+  duel = new DuelMgr(this, (on) => this.net.setNoDuel(on)); // 1:1 내기 (주사위 대결)
   casinoPanel = new CasinoPanel(this); // config 가 바뀌어도 보도록 월드 자체를 넘긴다 (uid·wallet·config·casino·toast)
   slotPanel = new SlotPanel(this);     // 슬롯 방 판 (슬롯·홀짝)
   mafia = new MafiaMgr(this);
@@ -208,6 +210,7 @@ export class World implements WorldCtx {
     this.bugs.start();
     this.dig.start();
     this.casino.start();
+    this.duel.start();
     this.mafia.start();
     this.chat.isGhost = () => this.mafia.isGhost(this.uid);
     // 리스너 등록 전에 들어온 초기 상태 반영
@@ -885,6 +888,7 @@ export class World implements WorldCtx {
   openPlayerMenu(uid: string, x: number, y: number): void {
     const nick = this.nickOf(uid);
     const items: MenuItem[] = [{ label: '💬 귓속말', onClick: () => this.hud.focusChat(`/w ${nick} `) }];
+    items.push({ label: '🎲 주사위 대결 신청', onClick: () => this.duel.openChallenge(uid) });
     items.push({ label: 'ℹ 프로필 보기', onClick: () => this.showProfile(uid) });
     // 관리자: 구석에 숨어 자리 비운 사람을 광장(시작 지점)으로 보낸다. 상대 클라이언트가 players/{uid}/tp 를 보고 순간이동한다
     // 지금은 같은 맵에 있는 사람만 (좌표가 내 맵 기준이고, 규칙도 같은 맵만 허용)
@@ -908,6 +912,7 @@ export class World implements WorldCtx {
       { label: '🏠 리스폰 (시작 지점으로)', onClick: () => this.respawnFlow() },
       { label: this.mafia.game ? (this.mafia.game.st === 'lobby' ? '🕵 마피아 (모집 중!)' : '🕵 마피아 (진행 중)') : '🕵 마피아 모집', onClick: () => openMafiaLobby(this) },
     ];
+    items.push({ label: this.duel.optedOut() ? '🎲 내기 신청 받기 (지금: 안 받음)' : '🚫 내기 신청 받지 않기', onClick: () => { const on = !this.duel.optedOut(); this.duel.setOptOut(on); this.toast(on ? '🚫 내기 신청을 받지 않습니다.' : '🎲 내기 신청을 다시 받습니다.'); } });
     items.push({ label: '🔑 비밀번호 변경', onClick: () => this.changePasswordFlow() });
     items.push({ label: '🚪 회원 탈퇴', danger: true, onClick: () => this.withdrawFlow() });
     items.push({ label: '⏻ 로그아웃', danger: true, onClick: () => this.logoutFlow() });
@@ -1018,7 +1023,7 @@ export class World implements WorldCtx {
     this.stopped = true;
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
-    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.wallet.stop(); this.contest.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
+    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.wallet.stop(); this.contest.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});
     await this.net.leave(replaced);
     document.body.classList.remove('mobile');

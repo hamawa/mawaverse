@@ -40,8 +40,14 @@ const SLOT_MOD = 9973, SLOT_MUL = 7919, SLOT_ADD = 4421, JACKPOT_MIN_BET = 1000,
 const SLOT_TIERS = [[10, 50], [40, 50], [240, 10], [739, 4], [1936, 2], [2734, 1]]; // [해시가 이 값 미만이면, 배수]. 첫 칸은 잭팟(1000 이상 걸었을 때)
 const ODD_EVEN_NUM = 19, ODD_EVEN_DEN = 10;
 // 베팅 칸 넷은 즉석 게임 베팅 쓰기에서만, 정산 표시 ic 는 정산 쓰기에서만 바뀐다 (다른 구매·획득에 끼워 넣지 못하게)
-const i4Same = `${n('ik', "''")} == ${d('ik', "''")} && ${n('ib')} == ${d('ib')} && ${n('ip', '-1')} == ${d('ip', '-1')} && ${n('it')} == ${d('it')}`;
-const icSame = `${n('ic')} == ${d('ic')}`;
+// 1:1 내기 (2026-11-12, shared/duel.ts): dl = 내가 판돈을 낸 마지막 내기 id (b='duel' 결제 쓰기에서만 바뀐다), dc = 마지막으로 정산(승리·환불)한 내기 id
+const DUEL_ACCEPT_LIMIT_MS = 25000, DUEL_FEE_DEFAULT = 5; // 수락 제한(화면 20초 + 여유 5초), 수수료 % 기본값. shared/duel.ts 와 같아야 한다
+const dlSame = `${n('dl', "''")} == ${d('dl', "''")}`, dcSame = `${n('dc', "''")} == ${d('dc', "''")}`;
+const i4Only = `${n('ik', "''")} == ${d('ik', "''")} && ${n('ib')} == ${d('ib')} && ${n('ip', '-1')} == ${d('ip', '-1')} && ${n('it')} == ${d('it')}`;
+const icOnly = `${n('ic')} == ${d('ic')}`;
+// 아래 둘은 "그 전용 쓰기가 아니면 그대로"를 한데 묶은 것: 사용 쪽(i4Same)에는 내기 결제 표시 dl, 획득 쪽(icSame)에는 내기 정산 표시 dc 가 같이 들어 있다
+const i4Same = `${i4Only} && ${dlSame}`;
+const icSame = `${icOnly} && ${dcSame}`;
 const IT = `data.child('it').val()`, IB = `data.child('ib').val()`;
 const SLOT_H = `((${IT} % ${SLOT_MOD}) * ${SLOT_MUL} + ${SLOT_ADD}) % ${SLOT_MOD}`;
 const SLOT_JP = `(root.child('slot/jp').isNumber() ? root.child('slot/jp').val() : 0)`;
@@ -67,7 +73,16 @@ function walletValidate(pre = '') {
   // 즉석 게임 정산 (2026-11-12): ic 가 그 판의 it 로 바뀌는 쓰기 한 번. 받는 돈은 it 에서 계산한 결과와 정확히 같아야 한다 (꽝이면 0).
   //  잭팟이면 쌓인 금액을 통째로 받고, 같은 쓰기에서 slot/jp 를 시작 금액으로 되돌려야 한다
   const rootNew = pre ? `newData.parent().parent().parent()` : `newData.parent().parent()`;
-  const instantWin = `(data.child('it').isNumber() && ${d('ic')} != ${IT} && newData.child('ic').val() == ${IT} && ${dE} == ${instantPay} && (!${isJackpot} || ${rootNew}.child('slot/jp').val() == ${JACKPOT_SEED}) && ${n('rd')} == ${d('rd')} && ${crSame})`;
+  const instantWin = `(data.child('it').isNumber() && ${d('ic')} != ${IT} && newData.child('ic').val() == ${IT} && ${dE} == ${instantPay} && (!${isJackpot} || ${rootNew}.child('slot/jp').val() == ${JACKPOT_SEED}) && ${n('rd')} == ${d('rd')} && ${crSame} && ${dcSame})`;
+  // 1:1 내기 정산 (2026-11-12): dc 가 그 내기 id 로 바뀌는 쓰기 한 번. 같은 쓰기에서 duel/{id}/paid 를 적어야 하고(두 번 못 받게) 받는 돈은
+  //  - 이겼을 때: 판돈 합계 − 수수료 (승자는 수락 시각 acc 를 섞은 값의 홀짝. 짝이면 신청한 a, 홀이면 수락한 b)
+  //  - 수락되지 않았을 때(거절했거나 시간이 지남): 신청한 사람이 낸 돈 그대로
+  const DC = `root.child('duel/' + newData.child('dc').val())`, DCN = `${rootNew}.child('duel/' + newData.child('dc').val())`;
+  const DFEE = `(root.child('config/duelFee').isNumber() ? root.child('config/duelFee').val() : ${DUEL_FEE_DEFAULT})`;
+  const DWIN = `(((${DC}.child('acc').val() % ${SLOT_MOD}) * ${SLOT_MUL} + ${SLOT_ADD}) % ${SLOT_MOD} % 2 == 0 ? ${DC}.child('a').val() : ${DC}.child('b').val())`;
+  const duelWon = `(${DC}.child('acc').exists() && ${DWIN} == auth.uid && ${dE} == 2 * ${DC}.child('s').val() - 2 * ${DC}.child('s').val() * ${DFEE} / 100)`;
+  const duelBack = `(!${DC}.child('acc').exists() && ${DC}.child('a').val() == auth.uid && (${DC}.child('no').val() === true || now > ${DC}.child('o').val() + ${DUEL_ACCEPT_LIMIT_MS}) && ${dE} == ${DC}.child('s').val())`;
+  const duelWin = `(newData.child('dc').isString() && !(${dcSame}) && ${DC}.child('s').isNumber() && ${DC}.child('paid').val() !== true && ${DCN}.child('paid').val() === true && (${duelWon} || ${duelBack}) && ${n('rd')} == ${d('rd')} && ${crSame} && ${icOnly})`;
   // 사용: 안 썼으면 구매 표시(b)·자동 버프·미끼·주문서 증가·펫 먹이·성 변경 불가(강화 쓰기만 예외). 썼으면 b 에 산 품목을 적고 금액이 가격표와 정확히 같아야 한다
   // 선물 대상 gt 는 구매 쓰기에서만 바뀐다 (안 쓰면 그대로). 그래서 한 번 결제로 나와 상대 둘 다 등록하는 일이 없다
   // 경마 배팅 표시 cb/ch/ca 는 b='race' 결제 쓰기에서만 바뀐다 (다른 구매에 끼워 넣어 싸게 배팅하지 못하게)
@@ -94,21 +109,24 @@ function walletValidate(pre = '') {
   const feedCost = `(${price('petfood')} * ${K} + ${PET_FOOD_STEP} * (${K} * ${PXD} + ${K} * (${K} - 1) / 2))`;
   const feed = `(${bIs('petfood')} && newData.child('pp').isString() && ${price('petfood')} > 0 && newData.child('px/' + newData.child('pp').val()).isNumber() && ${K} >= 1 && ${K} % 1 == 0 && ${dS} == ${feedCost} && (${PET_IDS.map((id) => `(newData.child('pp').val() == '${id}' || ${n('px/' + id)} == ${d('px/' + id)})`).join(' && ')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${baitNoUp} && ${esNoUp} && ${rsSame} && ${kingSame} && ${btNoUp} && ${i4Same})`;
   // 자동 버프 품목은 autoreel/autoreel30/autoreel60, autobug/autobug30/autobug60 (2026-11-09: 30분·1시간 추가). 그 구매 쓰기에서만 ar/ab 가 바뀔 수 있다
-  const buyOne = `(newData.child('b').val() != 'bait' && newData.child('b').val() != 'race' && newData.child('b').val() != 'scroll' && newData.child('b').val() != 'petfood' && newData.child('b').val() != 'rod3' && newData.child('b').val() != 'bat' && newData.child('b').val() != 'slot' && newData.child('b').val() != 'oddeven' && ${dS} == ${priceB} && ${baitNoUp} && ${cbSame} && ${gearSame} && ${i4Same} && (newData.child('b').val().beginsWith('autoreel') || ${sameAr}) && (newData.child('b').val().beginsWith('autobug') || ${sameAb}))`;
+  const buyOne = `(newData.child('b').val() != 'bait' && newData.child('b').val() != 'race' && newData.child('b').val() != 'scroll' && newData.child('b').val() != 'petfood' && newData.child('b').val() != 'rod3' && newData.child('b').val() != 'bat' && newData.child('b').val() != 'slot' && newData.child('b').val() != 'oddeven' && newData.child('b').val() != 'duel' && ${dS} == ${priceB} && ${baitNoUp} && ${cbSame} && ${gearSame} && ${i4Same} && (newData.child('b').val().beginsWith('autoreel') || ${sameAr}) && (newData.child('b').val().beginsWith('autobug') || ${sameAb}))`;
   // 경마 배팅 결제: 금액은 100 단위로 100 ~ config/casinoMax(기본 10000), 말은 0~4, 라운드는 열려 있어야(o 있고 at 없음). 수령 표시 cr 은 그대로
   const MAXBET = `(root.child('config/casinoMax').isNumber() ? root.child('config/casinoMax').val() : 10000)`;
   const CB = `root.child('casino/r/' + newData.child('cb').val()`;
   const bet = `(${bIs('race')} && ${dS} == ${n('ca')} && ${n('ca')} >= 100 && ${n('ca')} <= ${MAXBET} && ${n('ca')} % 100 == 0 && ${n('ch', '-1')} >= 0 && ${n('ch', '-1')} <= 4 && ${n('ch', '-1')} % 1 == 0 && newData.child('cb').isString() && ${CB} + '/o').exists() && !${CB} + '/at').exists() && ${crSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame} && ${i4Same})`;
   // 즉석 게임 베팅 (2026-11-12): b 는 'slot' 또는 'oddeven'. 금액은 경마와 같은 한도, it 는 지금(서버 시각)이고 지난 판은 정산돼 있어야 하며(ic == it) 지난 판에서 INSTANT_GAP_MS 이상 지났다
-  const betInstant = `(((${bIs('slot')} && newData.child('ik').val() == 's' && !newData.child('ip').exists()) || (${bIs('oddeven')} && newData.child('ik').val() == 'o' && (newData.child('ip').val() === 0 || newData.child('ip').val() === 1))) && ${dS} == ${n('ib')} && ${n('ib')} >= 100 && ${n('ib')} <= ${MAXBET} && ${n('ib')} % 100 == 0 && newData.child('it').val() == now && ${d('ic')} == ${d('it')} && (!data.child('it').exists() || now - ${IT} >= ${INSTANT_GAP_MS}) && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame})`;
-  const spend = `(${noSpend} || (${dS} > 0 && newData.child('b').isString() && (${buyBait} || ${buyScroll} || ${buyBat} || ${feed} || ${craft} || ${buyOne} || ${bet} || ${betInstant})))`;
+  const betInstant = `(((${bIs('slot')} && newData.child('ik').val() == 's' && !newData.child('ip').exists()) || (${bIs('oddeven')} && newData.child('ik').val() == 'o' && (newData.child('ip').val() === 0 || newData.child('ip').val() === 1))) && ${dS} == ${n('ib')} && ${n('ib')} >= 100 && ${n('ib')} <= ${MAXBET} && ${n('ib')} % 100 == 0 && newData.child('it').val() == now && ${d('ic')} == ${d('it')} && (!data.child('it').exists() || now - ${IT} >= ${INSTANT_GAP_MS}) && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame} && ${dlSame})`;
+  // 1:1 내기 판돈 (2026-11-12): b='duel', dl 이 새 내기 id 로 바뀌고 낸 돈이 그 내기의 판돈과 같다. 그 내기는 이 쓰기에서 내가 만들었거나(a), 이 쓰기에서 내가 수락했다(b, acc 가 새로 적힘)
+  const DN = `${rootNew}.child('duel/' + newData.child('dl').val())`, D0 = `root.child('duel/' + newData.child('dl').val())`;
+  const betDuel = `(${bIs('duel')} && newData.child('dl').isString() && !(${dlSame}) && ${DN}.child('s').isNumber() && ${dS} == ${DN}.child('s').val() && ((${DN}.child('a').val() == auth.uid && !${D0}.exists()) || (${DN}.child('b').val() == auth.uid && ${DN}.child('acc').exists() && !${D0}.child('acc').exists())) && ${cbSame} && ${sameAr} && ${sameAb} && ${baitNoUp} && ${gearSame} && ${i4Only})`;
+  const spend = `(${noSpend} || (${dS} > 0 && newData.child('b').isString() && (${buyBait} || ${buyScroll} || ${buyBat} || ${feed} || ${craft} || ${buyOne} || ${bet} || ${betInstant} || ${betDuel})))`;
   // 성(rs)을 올리려면 명품 낚싯대를 가지고 있어야 한다 (킹 성 ks 는 킹 낚싯대). 성이 그대로인 쓰기에는 묻지 않는다:
   //  예전엔 "성 > 0 이면 보유"를 모든 쓰기에 물어서, 낚싯대 없이 성만 남은 지갑은 코인 획득·구매까지 전부 거부됐다 (2026-11-11 실제 발생)
   const rodOwned = `(${rsSame} || ${n('rs')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod2').val() === true) && (${ksSame} || ${n('ks')} == 0 || root.child('${pre}users/' + auth.uid + '/own/rod3').val() === true)`;
   // 관리자 지급(관리자 페이지의 코인 지급/회수): 관리자가 쓰는 지갑은 형식만 보고 나머지 검사를 건너뛴다. 지급 표시 gf 는 관리자만 바꿀 수 있다
   const admin = `root.child('admins/' + auth.uid).val() === true`;
   const gfSame = `newData.child('gf/at').val() == data.child('gf/at').val() && newData.child('gf/n').val() == data.child('gf/n').val()`;
-  return `${base} && (${admin} || (${mono} && ${balance} && (${roulette} || ${normal} || ${race} || ${instantWin}) && ${spend} && ${rodOwned} && ${gfSame}))`;
+  return `${base} && (${admin} || (${mono} && ${balance} && (${roulette} || ${normal} || ${race} || ${instantWin} || ${duelWin}) && ${spend} && ${rodOwned} && ${gfSame}))`;
 }
 
 const q = (s) => JSON.stringify(s);
@@ -156,6 +174,8 @@ function walletBlock(pre, ind) {
       child('ip', 'newData.isNumber()'),                                                 // 홀짝에서 고른 쪽 (1 홀 · 0 짝)
       child('it', 'newData.isNumber() && newData.val() <= now'),                         // 즉석 게임: 베팅한 서버 시각
       child('ic', 'newData.isNumber()'),                                                 // 즉석 게임: 정산한 판의 it
+      child('dl', 'newData.isString() && newData.val().length <= 40'),                   // 1:1 내기: 판돈을 낸 마지막 내기 id (2026-11-12)
+      child('dc', 'newData.isString() && newData.val().length <= 40'),                   // 1:1 내기: 마지막으로 정산한 내기 id
       `${K}"gf": { "n": { ".validate": "newData.isNumber()" }, "at": { ".validate": "newData.isNumber()" }, "$other": { ".validate": false } }`,
       child('ad', 'newData.isNumber()'),
       child('an', 'newData.isNumber()'),

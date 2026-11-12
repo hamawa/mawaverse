@@ -57,6 +57,7 @@ export interface PlayerState {
   m?: string | null;    // 있는 맵 id (shared/maps.ts). 없으면 기본 맵 (옛 클라이언트와 같다)
   nr?: boolean | null;  // 만렙 펫을 타지 않고 데리고 다닌다 (없으면 탄다)
   mn?: boolean | null;  // 금광에서 채광 중 (곡괭이질이 남에게 보이게. 곡괭이질마다 쓰지 않고 켜고 끌 때만)
+  nd?: boolean | null;  // 내기 신청을 받지 않는다 (2026-11-12. 신청하는 쪽이 보고 미리 막는다)
   gb?: number | null;   // 빠따에 맞아 방어(갑옷·펫)가 깨진 상태: 풀리는 서버 시각. 이 시각까지는 누구의 밀치기·말랑이·끌기도 통한다
 }
 
@@ -90,6 +91,7 @@ export interface ServerConfig {
   contest?: ContestCfg;            // 낚시 대회 일정
   casinoMax?: number;              // 경마 한 번 최대 배팅 (규칙이 강제. 없으면 10000)
   minVersion?: number;             // 이 값보다 낮은 CLIENT_VERSION 의 접속자는 스스로 새로고침한다
+  duelFee?: number;                // 1:1 내기(주사위·포커·낚시 내기) 수수료 %. 판돈 합계에서 떼고 없앤다 (없으면 5)
   patchNote?: { id: string; t: string } | null; // 가장 최근 패치 노트 글(board/posts 의 id, 제목). 안 본 사람에게 채팅창으로 한 줄 알린다
   hoursBlock?: boolean;            // 평일 09:00~18:00 KST 이용 차단을 켤지 (관리자 설정, 기본 꺼짐). 켜져 있으면 보안 규칙이 서버 시각으로 막는다
 }

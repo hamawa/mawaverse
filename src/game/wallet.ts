@@ -171,6 +171,24 @@ export class WalletMgr {
     const r = await this.instantSettle();
     if (r && r.win > 0) this.w.toast(`${r.kind === 's' ? '🎰 지난 슬롯' : '🎲 지난 홀짝'} 판의 💰 ${r.win.toLocaleString('ko-KR')} 을 받았습니다.`);
   }
+  // ---- 1:1 내기 (2026-11-12. 설계는 shared/duel.ts 머리말) ----
+  // 판돈 내기: 지갑(값 빼기, b='duel', dl=id)과 내기 쪽 쓰기(extra: 내기 만들기+초대, 또는 수락)를 쓰기 한 번에. 어느 한쪽이라도 규칙에 걸리면 통째로 거부되어 코인이 빠지지 않는다
+  async duelStake(id: string, stake: number, extra: Record<string, unknown>): Promise<boolean> {
+    if (this.balance < stake) return false;
+    const W = `wallet/${this.w.uid}`;
+    try {
+      await update(ref(db), { ...extra, [`${W}/c`]: increment(-stake), [`${W}/sp`]: increment(stake), [`${W}/b`]: 'duel', [`${W}/gt`]: null, [`${W}/dl`]: id });
+      return true;
+    } catch (e) { console.warn('내기 판돈 쓰기가 거부됨', e); return false; }
+  }
+  // 정산: 이겨서 받는 돈 또는 수락되지 않아 돌려받는 돈. 같은 쓰기에서 duel/{id}/paid 를 적는다 (규칙이 누가 얼마를 받을 수 있는지 대조)
+  async duelClaim(id: string, amount: number): Promise<boolean> {
+    const W = `wallet/${this.w.uid}`;
+    try {
+      await update(ref(db), { [`${W}/c`]: increment(amount), [`${W}/e`]: increment(amount), [`${W}/dc`]: id, [`duel/${id}/paid`]: true });
+      return true;
+    } catch (e) { console.warn('내기 정산이 거부됨', e); return false; }
+  }
   // 자동 버프를 더 살 수 있는 최대 시간(ms): 남은 시간을 뺀 것
   autoRoom(kind: 'fish' | 'bug'): number { return Math.max(0, AUTO_MAX_MS - Math.max(0, (this.wallet[kind === 'fish' ? 'ar' : 'ab'] || 0) - serverNow())); }
   buyBait(price: number, n = 1): Promise<boolean> {

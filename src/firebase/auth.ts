@@ -88,7 +88,7 @@ export async function withdraw(uid: string, profile: Pick<UserProfile, 'id' | 'n
   await update(ref(db), {
     [`signups/${uid}`]: null, [`approved/${uid}`]: null,
     [`users/${uid}`]: null, [`ids/${idPathKey(profile.id)}`]: null, [`nicknames/${nickKey(profile.nick)}`]: null,
-    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`wallet/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null,
+    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`duelInv/${uid}`]: null, [`wallet/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null,
   });
   await deleteUser(user);
 }
