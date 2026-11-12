@@ -411,6 +411,13 @@ if (!ONLY_WALLET) {
   if (after.rs !== 0 || after.es !== 2 || after.b !== undefined || ownAfter !== null) { fail++; console.log('  FAIL 부서진 뒤 상태가 기대와 다름', JSON.stringify(after), ownAfter); } else pass++;
   await expect('deny', 'Q249 부서진 명품 낚싯대를 값 안 내고 다시 보유 등록', () => userDb.ref(`${UP}/own/rod2`).set(true));
 }
+// R. 만렙 펫을 타지 않고 데리고 다니기 (2026-11-12): 프로필 eq.nr 는 참·거짓만, 접속 노드 nr 은 true 만
+if (!ONLY_WALLET) {
+  await expect('allow', 'R260 펫에서 내리기 (프로필 eq.nr = true)', () => userDb.ref(`${UP}/eq/nr`).set(true));
+  await expect('deny', 'R261 eq.nr 에 문자열', () => userDb.ref(`${UP}/eq/nr`).set('yes'));
+  await expect('allow', 'R262 다시 타기 (eq.nr 삭제)', () => userDb.ref(`${UP}/eq/nr`).remove());
+  await expect('deny', 'R263 프로필 eq 에 모르는 칸', () => userDb.ref(`${UP}/eq/zz`).set(true));
+}
 await rootDb.ref().update({ [WP]: null, [UP]: null, [PP]: null });
 await rootDb.ref('approved').update({ [T]: null, 'zz-rules-gift': null });
 console.log(`\n결과: 통과 ${pass}, 실패 ${fail}`);

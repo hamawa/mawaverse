@@ -39,7 +39,7 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { fmtCoins, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petCanRide, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS } from '../shared/shop';
+import { fmtCoins, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS } from '../shared/shop';
 import { TASK_FOOTPRINT } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
 import { openRoulette, watchRouletteFeed } from './rouletteui';
@@ -355,7 +355,7 @@ export class World implements WorldCtx {
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: me.pose, poseAt: me.poseAt, emoteId: me.emoteId, bubble: me.bubble,
       isMe: true, ready: !!(me.roomId && this.rooms[me.roomId]?.members?.[this.uid]?.ready), pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null,
-      pet: this.pets.view(this.uid, this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp()),
+      pet: this.pets.view(this.uid, this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
       ghost: iGhost, mining: this.mine.active,
     }];
     const sNow = serverNow(); // 방어가 깨진 사람은 이름 옆에 💥
@@ -370,7 +370,7 @@ export class World implements WorldCtx {
         ready: !!(rp.st.r && this.rooms[rp.st.r]?.members?.[rp.uid]?.ready), pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
         hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null,
-        pet: this.pets.view(rp.uid, rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0),
+        pet: this.pets.view(rp.uid, rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0, !!rp.st.nr),
         ghost, mining: !!rp.st.mn,
       });
     }
@@ -832,6 +832,8 @@ export class World implements WorldCtx {
       { label: '🎨 외모 변경', onClick: () => this.changeAvatarFlow() },
       { label: '📖 도감 · 내 기록', onClick: () => this.openFishBook() },
       { label: '🛍 상점', onClick: () => this.openShop() },
+      // 만렙 펫: 타고 다닐지 내려서 데리고 다닐지 (2026-11-12 건의 반영). 모습만 바뀌고 펫 효과는 같다
+      ...(this.petRide.canRide() ? [{ label: this.wallet.rideOn() ? '🐾 펫에서 내리기 (데리고 다니기)' : '🏇 펫 타기', onClick: () => { const on = !this.wallet.rideOn(); void this.wallet.setRide(on); this.toast(on ? '🏇 펫을 탔습니다.' : '🐾 펫에서 내렸습니다. 뒤에서 따라옵니다.'); } }] : []),
       { label: this.wallet.rouletteDoneToday() ? '🎰 오늘의 룰렛 (돌렸음)' : '🎰 오늘의 룰렛', onClick: () => this.openRoulette() },
       { label: '🗺 오늘의 보물 지도', onClick: () => { if (this.mapId !== MAIN_MAP_ID) { this.toast('보물 지도는 광장 맵에서만 볼 수 있어요.', true); return; } openDigMap(this.mainMap, this.dig.spots, this.dig.dug, { x: this.me.x, y: this.me.y }); } },
       { label: '🏠 리스폰 (시작 지점으로)', onClick: () => this.respawnFlow() },
@@ -937,7 +939,7 @@ export class World implements WorldCtx {
     const rp = this.players.get(uid);
     const fish = await fishSummaryOf(uid);
     const pet = rp?.st.pt ? itemById(rp.st.pt) : null;
-    const petTxt = pet ? `펫: ${pet.icon} ${pet.name} Lv.${petLevel(rp?.st.pl || 0)}${petCanRide(rp?.st.pl || 0) ? ' (탑승 중)' : petGuard(rp?.st.pl || 0) ? ' (방어)' : ''}<br>` : '';
+    const petTxt = pet ? `펫: ${pet.icon} ${pet.name} Lv.${petLevel(rp?.st.pl || 0)}${petRiding(rp?.st.pl || 0, rp?.st.nr) ? ' (탑승 중)' : petGuard(rp?.st.pl || 0) ? ' (방어)' : ''}<br>` : '';
     const body = el('div', { html: `<p><b>${this.nickOf(uid)}</b></p><p class="muted">커피 내기 패배: ${losses}회<br>${petTxt}${fish}</p>` });
     modal('프로필', body, [{ label: '닫기', onClick: () => {} }]);
   }

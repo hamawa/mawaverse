@@ -55,6 +55,7 @@ export interface PlayerState {
   z?: boolean | null;   // 탭이 뒤에 있어 자리 비움 (💤 표시)
   v?: number;           // 클라이언트 버전 (CLIENT_VERSION). 규칙이 입장할 때 config/minVersion 이상인지 본다
   m?: string | null;    // 있는 맵 id (shared/maps.ts). 없으면 기본 맵 (옛 클라이언트와 같다)
+  nr?: boolean | null;  // 만렙 펫을 타지 않고 데리고 다닌다 (없으면 탄다)
   mn?: boolean | null;  // 금광에서 채광 중 (곡괭이질이 남에게 보이게. 곡괭이질마다 쓰지 않고 켜고 끌 때만)
   gb?: number | null;   // 빠따에 맞아 방어(갑옷·펫)가 깨진 상태: 풀리는 서버 시각. 이 시각까지는 누구의 밀치기·말랑이·끌기도 통한다
 }

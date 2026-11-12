@@ -3,7 +3,7 @@
 import type { Dir } from '../shared/types';
 import type { PetView } from './render';
 import { dirVec } from './area';
-import { petScale, petCanRide } from '../shared/shop';
+import { petScale, petRiding } from '../shared/shop';
 
 interface PetState { x: number; y: number; fromX: number; fromY: number; moveStart: number; moveDur: number; lastOwnerMove: number; hopAt: number; dir: Dir }
 export interface OwnerMotion { x: number; y: number; fromX: number; fromY: number; moveStart: number; moveDur: number; moving: boolean; dir: Dir }
@@ -13,10 +13,13 @@ export class Pets {
 
   // 주인의 지금 상태로 펫을 갱신하고 그릴 정보를 돌려준다. petId 가 없으면(안 데리고 다님) 상태를 지운다.
   // xp: 그 펫의 누적 먹이 (크기·탑승 여부). 탑승 중(Lv10)이면 따라오는 대신 주인 자리에 그려진다 (2026-11-10)
-  view(uid: string, petId: string | null | undefined, o: OwnerMotion, now: number, xp = 0): PetView | null {
+  // noRide: 만렙이어도 타지 않고 데리고 다니기를 골랐다 (2026-11-12)
+  view(uid: string, petId: string | null | undefined, o: OwnerMotion, now: number, xp = 0, noRide = false): PetView | null {
     if (!petId) { this.st.delete(uid); return null; }
-    if (petCanRide(xp)) {
+    if (petRiding(xp, noRide)) {
       const s0 = this.st.get(uid);
+      // 타는 동안 펫 자리를 주인 바로 뒤로 맞춰 둔다: 내리면 엉뚱한 옛 자리에서 달려오지 않고 뒤에서 바로 따라온다
+      if (s0) { const [bx, by] = dirVec(o.dir); s0.x = s0.fromX = o.x - bx; s0.y = s0.fromY = o.y - by; s0.moveStart = 0; s0.lastOwnerMove = o.moving ? o.moveStart : -1; s0.dir = o.dir; }
       return { id: petId, x: o.x, y: o.y, moving: o.moving, moveT: 0, hopAt: s0?.hopAt ?? -1e9, dir: o.dir, scale: petScale(xp), ride: true };
     }
     let s = this.st.get(uid);

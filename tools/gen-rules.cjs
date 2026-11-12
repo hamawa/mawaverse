@@ -165,6 +165,7 @@ function ownEqLines(pre, ind) {
     `${ind}  "pt": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "pa": { ".validate": ${q(armorEq(pre, 'pusharmor'))} },`,
     `${ind}  "ta": { ".validate": ${q(armorEq(pre, 'tossarmor'))} },`,
+    `${ind}  "nr": { ".validate": "newData.isBoolean()" },`, // 만렙 펫을 타지 않고 데리고 다닌다 (2026-11-12)
     `${ind}  "$other": { ".validate": false }`,
     `${ind}}`,
   ].join('\n');

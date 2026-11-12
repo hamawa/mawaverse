@@ -119,3 +119,18 @@ test('빠따: 방어 중인 사람에게만 한 개씩 쓰고, 모자라면 나�
   assert.deepEqual(assignBats([true, true], 0), [{ bat: false, blocked: true }, { bat: false, blocked: true }]); // 빠따가 없거나 자동 사용을 껐다
   assert.equal(assignBats([true, true, true], 99).filter((x) => x.bat).length, 3);
 });
+
+// ---- 만렙 펫: 타고 다닐지 데리고 다닐지 (2026-11-12 건의 반영) ----
+test('펫 탑승: 만렙(먹이 300)이고 내리기를 고르지 않았을 때만 탄다', async () => {
+  const { petRiding, petCanRide, petSpeedMul, petGuard } = await import('../src/shared/shop.ts');
+  assert.equal(petRiding(299), false);
+  assert.equal(petRiding(300), true);           // 기본은 지금까지처럼 탄다
+  assert.equal(petRiding(300, null), true);
+  assert.equal(petRiding(300, false), true);
+  assert.equal(petRiding(300, true), false);    // 내려서 데리고 다니기
+  assert.equal(petRiding(100, true), false);
+  // 내려도 탈 수 있는 레벨이라는 사실과 펫 효과(속도·방어)는 그대로다: 모습만 바뀐다
+  assert.equal(petCanRide(300), true);
+  assert.equal(petSpeedMul(300), 1.25);
+  assert.equal(petGuard(300), true);
+});

@@ -314,6 +314,14 @@ export class WalletMgr {
     this.listeners.forEach((f) => f());
   }
   // 갑옷 입기/벗기 (철벽 pa, 푹신 ta): 프로필과 presence 에 같이. 벗으면 키를 지운다
+  // 만렙 펫을 탈지(기본) 내려서 데리고 다닐지. 프로필과 presence 에 같이 쓴다 (타는 쪽이 기본이라 그때는 칸을 지운다)
+  rideOn(): boolean { return !this.w.profile.eq?.nr; }
+  async setRide(on: boolean): Promise<void> {
+    const p = this.w.profile;
+    p.eq = { ...(p.eq || {}), nr: on ? null : true };
+    await update(ref(db), { [`users/${this.w.uid}/eq/nr`]: on ? null : true, [`players/${this.w.uid}/nr`]: on ? null : true }).catch(() => {});
+    this.listeners.forEach((f) => f());
+  }
   armorOn(key: ArmorKey): boolean { return !!this.w.profile.eq?.[key]; }
   async setArmor(key: ArmorKey, on: boolean): Promise<void> {
     const p = this.w.profile;

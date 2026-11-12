@@ -81,6 +81,8 @@ export function petLevel(xp: number): number { let lv = 1; for (let i = 1; i < P
 export function petNextXp(xp: number): number | null { const lv = petLevel(xp); return lv >= PET_MAX_LEVEL ? null : PET_LEVEL_XP[lv]; }
 export function petScale(xp: number): number { return 1 + 0.08 * (petLevel(xp) - 1); } // 따라다닐 때 크기 (Lv10 1.72배). 탑승 모습은 cosmetics MOUNT_ART 가 따로
 export function petCanRide(xp: number): boolean { return xp >= PET_RIDE_XP; }
+// 실제로 타고 있나: 탈 수 있는 레벨이고, 내려서 데리고 다니기(nr)를 고르지 않았을 때
+export function petRiding(xp: number, noRide?: boolean | null): boolean { return petCanRide(xp) && !noRide; }
 export function petBugRange(xp: number): number { const lv = petLevel(xp); return lv >= PET_RANGE2_LEVEL ? 3 : lv >= PET_RANGE_LEVEL ? 2 : 1; }
 export function petCalm(xp: number): boolean { return petLevel(xp) >= PET_CALM_LEVEL; }
 export function petGuard(xp: number): boolean { return xp >= PET_GUARD_XP; }
@@ -226,7 +228,8 @@ export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?:
 export interface GiftMark { f: string; fn: string; i: string; m?: string; at: number }
 export const GIFT_MSG_MAX = 40;
 // users/{uid}/eq: 착용 중인 모자(h), 이름표 색(nc), 이동 이펙트(fx), 펫(pt), 철벽 갑옷(pa), 푹신 갑옷(ta). players/{uid} 에도 같은 키로 실린다
-export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null }
+export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null }
+// nr: 만렙(Lv10) 펫을 타지 않고 데리고 다닌다 (2026-11-12 건의 반영. 없으면 지금까지처럼 탄다). 걷기 속도 등 펫 효과는 타든 안 타든 같다: 모습만 바뀐다
 export const EQUIP_KEY: Record<CosmeticKind, keyof Equip> = { hat: 'h', name: 'nc', fx: 'fx', pet: 'pt' };
 
 export const fmtCoins = (n: number): string => `💰 ${Math.floor(n).toLocaleString('ko-KR')}`;

@@ -141,19 +141,20 @@ export function openShop(h: ShopHost): void {
     const eq = h.wallet.equipped(kind) === item.id;
     const card = el('div', { class: 'shop-card' + (eq ? ' eq' : '') });
     const xp = kind === 'pet' ? h.wallet.petXp(item.id) : 0;
+    const riding = kind === 'pet' && petCanRide(xp) && h.wallet.rideOn(); // 만렙이고 타기를 고른 상태 (내려서 데리고 다니면 보통 모습)
     if (kind === 'hat') card.append(hatPreview(h.profile.avatar, item.id));
     else if (kind === 'name') card.append(namePreview(h.profile.nick, item.id));
-    else if (kind === 'pet') card.append(petPreview(item.id, petScale(xp), petCanRide(xp)));
+    else if (kind === 'pet') card.append(petPreview(item.id, petScale(xp), riding));
     else card.append(el('div', { class: 'ic', text: item.icon }));
     const lv = petLevel(xp);
-    card.append(el('div', { class: 'nm', text: kind === 'pet' ? `${item.name} Lv.${lv}${petCanRide(xp) ? ' 🏇' : ''}` : item.name }));
+    card.append(el('div', { class: 'nm', text: kind === 'pet' ? `${item.name} Lv.${lv}${riding ? ' 🏇' : ''}` : item.name }));
     if (kind === 'pet') {
       // 레벨·경험치 바·먹이 주기 (2026-11-10). 먹이는 데리고 있는 펫에게만 (한 번에 1·10개)
       const next = petNextXp(xp);
       const bar = el('div', { class: 'pet-xp' });
       const prev = PET_LEVEL_XP[lv - 1] || 0;
       bar.append(el('div', { class: 'fill', style: `width:${next ? Math.round(((xp - prev) / (next - prev)) * 100) : 100}%` }));
-      card.append(bar, el('div', { class: 'ds', text: next ? `먹이 ${xp}/${next}개 → Lv.${lv + 1}` : `최고 레벨 · 타고 다니는 중` }));
+      card.append(bar, el('div', { class: 'ds', text: next ? `먹이 ${xp}/${next}개 → Lv.${lv + 1}` : `최고 레벨 · ${h.wallet.rideOn() ? '타고 다니는 중' : '데리고 다니는 중'}` }));
       // 효과는 펫 종류와 상관없이 같다 (2026-11-10 밤)
       card.append(el('div', { class: 'ds', text: `걷기 +${Math.round(PET_SPEED_PER_LEVEL * lv * 100)}% (레벨마다 +${PET_SPEED_PER_LEVEL * 100}%)` }));
       card.append(el('div', { class: 'ds', text: `${lv >= PET_RANGE_LEVEL ? '✅' : `Lv${PET_RANGE_LEVEL}`} 채집 2칸 · 달려도 벌레 안 도망` }));
@@ -199,6 +200,13 @@ export function openShop(h: ShopHost): void {
       render();
     };
     card.append(el('div', { class: 'row', style: 'gap:4px;justify-content:center' }, [btn, giftBtn(item, price)]));
+    // 만렙 펫을 데리고 있으면: 타고 다닐지 내려서 데리고 다닐지 고른다 (2026-11-12 건의 반영)
+    if (pet && owned && eq && petCanRide(xp)) {
+      const rb = el('button', { class: 'btn small', text: h.wallet.rideOn() ? '🐾 내려서 데리고 다니기' : '🏇 타고 다니기', style: 'margin-top:4px' });
+      rb.dataset.ride = item.id;
+      rb.onclick = async () => { rb.disabled = true; await h.wallet.setRide(!h.wallet.rideOn()); render(`[data-ride="${item.id}"]`); };
+      card.append(rb);
+    }
     return card;
   };
 

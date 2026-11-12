@@ -16,11 +16,11 @@ import { lastPosOf, mapSwitchUpdate } from './portal';
 
 // 착용 중인 꾸미기를 presence 에 싣는다 (짧은 키). 규칙이 "가진 것만" 허용하므로 보유 목록에 없는 건 뺀다 (어긋난 데이터로 입장이 막히지 않게)
 // pl: 데리고 있는 펫의 누적 먹이 (지갑 px 값. 규칙이 지갑과 대조). 펫이 없으면 싣지 않는다
-function cosmetics(p: _UP, petXp: (id: string) => number): Pick<PlayerState, 'h' | 'nc' | 'fx' | 'pt' | 'pl' | 'pa' | 'ta'> {
+function cosmetics(p: _UP, petXp: (id: string) => number): Pick<PlayerState, 'h' | 'nc' | 'fx' | 'pt' | 'pl' | 'pa' | 'ta' | 'nr'> {
   const own = p.own || {};
   const has = (id?: string | null) => (id && own[id] ? id : null);
   const pt = has(p.eq?.pt);
-  return { h: has(p.eq?.h), nc: has(p.eq?.nc), fx: has(p.eq?.fx), pt, ...(pt && petXp(pt) > 0 ? { pl: petXp(pt) } : {}), pa: p.eq?.pa && own.pusharmor ? true : null, ta: p.eq?.ta && own.tossarmor ? true : null };
+  return { h: has(p.eq?.h), nc: has(p.eq?.nc), fx: has(p.eq?.fx), pt, ...(pt && petXp(pt) > 0 ? { pl: petXp(pt) } : {}), pa: p.eq?.pa && own.pusharmor ? true : null, ta: p.eq?.ta && own.tossarmor ? true : null, nr: p.eq?.nr ? true : null };
 }
 
 export class Net {
