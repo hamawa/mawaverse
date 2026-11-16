@@ -52,6 +52,7 @@ export const PET_GOODS: ShopItem[] = [
   { id: 'petrabbit', kind: 'pet', name: '토끼', price: 5000, icon: '🐰', desc: PET_DESC },
   { id: 'petslime', kind: 'pet', name: '슬라임', price: 5000, icon: '🟢', desc: PET_DESC },
   { id: 'petturtle', kind: 'pet', name: '거북이', price: 5000, icon: '🐢', desc: PET_DESC },
+  { id: 'pethamster', kind: 'pet', name: '햄스터', price: 5000, icon: '🐹', desc: PET_DESC }, // 2026-11-16 건의 반영
 ];
 export const PET_IDS = PET_GOODS.map((p) => p.id); // 규칙 생성기(tools/gen-rules.cjs)의 PET_IDS 와 같아야 한다
 

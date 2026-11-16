@@ -335,3 +335,57 @@ test('겨울 물고기 풀: 일반 풀과 겹치지 않고 DB 목록에 영향�
   try { assert.ok(winterFishById(pickWinterFish().id)); } finally { setFishDefs(null); }
   assert.equal(pickWinterFish(() => 0, { noJunk: true, minRarity: 1 }).junk ?? false, false);
 });
+
+// ---- 2026-11-16 건의 반영: 붕어빵·햄스터 ----
+test('붕어빵: 전설 등급 100점이고, 겨울 낚시 기대값이 정해 둔 선을 넘지 않는다', async () => {
+  const { WINTER_FISH, winterFishById } = await import('../src/shared/winter.ts');
+  const { RARITY_POINTS, MYTHIC } = await import('../src/shared/collection.ts');
+  const { ROD_BOOST, ROD_JUNK, ICE_ROD_TIER, ICE_ROD_STARS, starFactor } = await import('../src/shared/shop.ts');
+  const b = winterFishById('ice-bungeoppang');
+  assert.ok(b && !b.junk && b.rarity === 3 && RARITY_POINTS[b.rarity] === 100);
+  // collection.ts pick 과 같은 확률 (신화는 따로 굴린 뒤 나머지에 배수)
+  const probs = (pool, opt) => {
+    const out = new Map(), total0 = pool.reduce((s, f) => s + f.w, 0);
+    let rest = 1;
+    for (const f of pool.filter((f) => !f.junk && f.rarity >= MYTHIC)) { out.set(f.id, f.w / total0); rest -= f.w / total0; }
+    let p = pool.filter((f) => f.junk || f.rarity < MYTHIC);
+    if (opt.noJunk) p = p.filter((f) => !f.junk && f.rarity >= 1);
+    const wOf = (f) => (f.junk ? f.w * opt.junkMul : f.w * (f.rarity >= 1 ? opt.boost * Math.pow(opt.tierMul, f.rarity) : 1));
+    const total = p.reduce((s, f) => s + wOf(f), 0);
+    for (const f of p) out.set(f.id, rest * wOf(f) / total);
+    return out;
+  };
+  const ev = (pool, opt) => { const pr = probs(pool, opt); return pool.reduce((s, f) => s + (pr.get(f.id) || 0) * (f.junk ? 0 : RARITY_POINTS[f.rarity]), 0); };
+  const rod = (tier, stars) => ({ boost: ROD_BOOST[tier], junkMul: ROD_JUNK[tier], tierMul: starFactor(stars) });
+  const ice = rod(ICE_ROD_TIER, ICE_ROD_STARS);
+  const p = probs(WINTER_FISH, ice).get('ice-bungeoppang'), pBait = probs(WINTER_FISH, { ...ice, noJunk: true }).get('ice-bungeoppang');
+  assert.ok(p > 1 / 40 && p < 1 / 20, `미끼 없이 ${(p * 100).toFixed(2)}%`);
+  assert.ok(pBait > p && pBait < 1 / 12, `미끼 ${(pBait * 100).toFixed(2)}%`);
+  // 한 번 낚을 때의 기대 점수(= 코인). 얼음 낚싯대는 1,000코인이라, 일반 맵에서 명품 낚싯대를 10성까지 올린 사람보다 많이 벌면 안 된다.
+  // 2026-11-16 라이브 물고기 목록 기준 일반 맵: 기본 4.7 · 명품 0성 9.8 · 명품 10성 17.1 · 명품 20성 25.3 (미끼를 쓰면 19.7 · 19.7 · 28.0 · 35.9). 겨울은 붕어빵 전 11.6(미끼 15.6) → 지금 14.9(미끼 19.8).
+  // 겨울 물고기의 가중치를 올리려면 이 선(미끼 없이 16, 미끼 21)을 넘지 않는지 볼 것
+  const e0 = ev(WINTER_FISH, ice), e1 = ev(WINTER_FISH, { ...ice, noJunk: true });
+  assert.ok(e0 > 13 && e0 < 16, `미끼 없이 ${e0.toFixed(2)}`);
+  assert.ok(e1 > 18 && e1 < 21, `미끼 ${e1.toFixed(2)}`);
+});
+
+test('펫 목록이 규칙 생성기와 같고, 햄스터 캐릭터는 기존 캐릭터 id 를 건드리지 않는다', async () => {
+  const { PET_IDS, PET_GOODS, itemById } = await import('../src/shared/shop.ts');
+  const { readFileSync } = await import('node:fs');
+  const gen = readFileSync(new URL('../tools/gen-rules.cjs', import.meta.url), 'utf8');
+  const m = /const PET_IDS = \[([^\]]+)\];/.exec(gen);
+  assert.ok(m, 'gen-rules.cjs 에서 PET_IDS 를 찾지 못함');
+  assert.deepEqual(m[1].split(',').map((s) => s.trim().replace(/'/g, '')), PET_IDS);
+  assert.ok(PET_IDS.includes('pethamster') && itemById('pethamster')?.kind === 'pet');
+  assert.equal(new Set(PET_GOODS.map((p) => p.price)).size, 1, '펫 값은 모두 같다');
+  const rules = readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8');
+  assert.ok(rules.includes("px/pethamster"), '규칙 원본에 새 펫이 들어 있어야 한다 (node tools/gen-rules.cjs final)');
+  const { PRESETS, presetById } = await import('../src/game/sprites/presets.ts');
+  assert.equal(PRESETS.length, 153);
+  assert.ok(PRESETS.slice(0, 150).every((p) => p.params.kind !== 'creature' || p.params.species !== 'hamster'), '앞 150종은 그대로');
+  assert.deepEqual(PRESETS.slice(150).map((p) => [p.id, p.params.species]), [['x51', 'hamster'], ['x52', 'hamster'], ['x53', 'hamster']]);
+  assert.equal(new Set(PRESETS.map((p) => p.id)).size, PRESETS.length);
+  // 종 목록에 끼워 넣지 않았는지: 맨 앞·맨 뒤 동물의 종이 그대로다
+  assert.equal(presetById('x01').params.species, 'cat');
+  assert.equal(presetById('x50').params.species, 'ghost');
+});

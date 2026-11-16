@@ -92,6 +92,11 @@ for (let i = 0; i < 50; i++) PRESETS.push({ id: `m${String(i + 1).padStart(2, '0
 for (let i = 0; i < 50; i++) PRESETS.push({ id: `f${String(i + 1).padStart(2, '0')}`, group: 'f', name: `여 ${i + 1}`, params: human(i, true) });
 for (let i = 0; i < 50; i++) { const c = creature(i); PRESETS.push({ id: `x${String(i + 1).padStart(2, '0')}`, group: 'x', name: c.label, params: c.params }); }
 
+// 햄스터 (2026-11-16 건의 반영). 위 50종의 id(x01~x50)는 종 목록 순서로 정해지므로, 종을 SPECIES 에 끼워 넣으면 이미 고른 사람들의 캐릭터가 바뀐다.
+// 그래서 새 종은 SPECIES 가 아니라 여기처럼 뒤에 새 id 로 붙인다
+const HAMSTERS: [string, [string, string, string]][] = [['골든', ['#e9a55a', '#fff4e0', '#f7a8b8']], ['흰색', ['#f1e9dc', '#ffffff', '#f7b2c6']], ['회색', ['#9a9a9a', '#f5f5f5', '#f2a6b4']]];
+HAMSTERS.forEach(([label, [c1, c2, c3]], i) => PRESETS.push({ id: `x${51 + i}`, group: 'x', name: `햄스터 ${label}`, params: { kind: 'creature', species: 'hamster', c1, c2, c3, eye: '#2b2b2b' } }));
+
 const byId = new Map(PRESETS.map((p) => [p.id, p]));
 export function presetById(id: string): Preset { return byId.get(id) || PRESETS[0]; }
 export const DEFAULT_AVATAR = 'm01';

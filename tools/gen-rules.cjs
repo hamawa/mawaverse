@@ -5,7 +5,8 @@
 const fs = require('fs');
 const FILE = require('path').join(__dirname, '..', 'database.rules.json');
 const mode = process.argv[2];
-let t = fs.readFileSync(FILE, 'utf8');
+// 줄 끝은 LF 로 맞춰 읽는다: 윈도우 작업 폴더(CRLF)에서 돌리면 블록을 잘라 낼 때마다 \r 이 한 글자씩 남아 쌓였다 (저장소의 파일은 LF)
+let t = fs.readFileSync(FILE, 'utf8').replace(/\r/g, '');
 
 // ---- 식 조립 ----
 const d = (k, def = '0') => `(data.child('${k}').exists() ? data.child('${k}').val() : ${def})`;
@@ -18,7 +19,7 @@ const priceB = `root.child('config/prices/' + newData.child('b').val()).val()`;
 const sameAr = `${n('ar')} == ${d('ar')}`, sameAb = `${n('ab')} == ${d('ab')}`, baitNoUp = `${n('bait')} <= ${d('bait')}`;
 const bIs = (id) => `newData.child('b').val() == '${id}'`;
 // 펫 종류 (shared/shop.ts 의 PET_IDS 와 같아야 한다). 먹이 쓰기에서 pp 에 적은 펫만 px 가 오르고 나머지는 그대로
-const PET_IDS = ['petdog', 'petcat', 'petchick', 'petrabbit', 'petslime', 'petturtle'];
+const PET_IDS = ['petdog', 'petcat', 'petchick', 'petrabbit', 'petslime', 'petturtle', 'pethamster'];
 const PET_FOOD_STEP = 4;  // 먹이 하나마다 다음 먹이 +4 코인 (shared/shop.ts 의 PET_FOOD_STEP 과 같아야 한다)
 const pxSame = PET_IDS.map((id) => `${n('px/' + id)} == ${d('px/' + id)}`).join(' && ');
 // 강화 주문서(es)·성(rs): 안 사면 es 는 늘 수 없고, rs 는 "es 가 1 줄어드는 쓰기"에서만 +1 또는 0 으로 바뀐다 (2026-11-10)

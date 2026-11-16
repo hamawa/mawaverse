@@ -248,6 +248,19 @@ export function drawCreature(p: CreatureParams, dir: Dir, frame: number, pose: P
       feet(shade(c1, -0.3));
       break;
     }
+    case 'hamster': {
+      // 2026-11-16 건의 반영. c1 털 · c2 볼주머니·배 · c3 귀 안쪽·발. 볼이 머리보다 살짝 넓어 통통해 보인다
+      headBody(); feet(c3);
+      b.circle(6, hy + 1, 2, c1); b.circle(18, hy + 1, 2, c1); b.px(6, hy + 1, c3); b.px(18, hy + 1, c3);
+      if (front) { b.ellipse(6, hy + 11, 3, 2.5, c2); b.ellipse(18, hy + 11, 3, 2.5, c2); b.ellipse(12, hy + 11, 3, 2, c2); }
+      if (side) b.ellipse(7, hy + 11, 4, 2.5, c2);
+      eyes(9, hy + 7, 14);
+      if (!back) { b.px(side ? 5 : 12, hy + 10, '#f29a9a'); mouth(11, hy + 12, c1d); }
+      if (front) b.ellipse(12, by + 8, 4, 3, c2);
+      if (side) b.circle(19, by + 9, 1.5, c2);
+      if (back) { b.rect(11, hy + 3, 2, 12, c1d); b.rect(11, by + 2, 2, 7, c1d); b.circle(12, by + 10, 1.5, c2); }
+      break;
+    }
     default: {
       headBody(); feet(c1); eyes(9, hy + 7, 14); mouth(11, hy + 11, c1d);
     }
