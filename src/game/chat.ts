@@ -10,6 +10,7 @@ import { MAIN_MAP_ID } from '../shared/maps';
 export class Chat {
   private unsubs: (() => void)[] = [];
   private lastSent = 0;
+  private lastText = ''; // 마지막으로 보낸 글의 본문 (send 의 "끝 글자 되풀이" 확인용)
   private lastWhisperFrom: string | null = null;
   private whisperTo: string | null = null; // 마지막으로 귓속말을 보낸 상대 uid. 일반 채팅을 보내면 풀린다 (2026-11-12)
   private trimTimer = 0;
@@ -77,7 +78,12 @@ export class Chat {
     let text = raw.trim();
     if (!text) return;
     const now = Date.now();
-    if (now - this.lastSent < MSG_MIN_INTERVAL_MS) { w.toast('너무 빠르게 보내고 있습니다.', true); return; }
+    if (now - this.lastSent < MSG_MIN_INTERVAL_MS) {
+      // 한글을 조합하던 중에 Enter 를 누르면 기기에 따라 입력창의 Enter 처리가 한 번 더 돈다: 처음엔 글 전체, 그다음엔 조합 중이던 끝 글자만.
+      // 그 끝 글자는 안내 없이 버린다 (2026-11-17)
+      if (text.length === 1 && this.lastText.endsWith(text)) return;
+      w.toast('너무 빠르게 보내고 있습니다.', true); return;
+    }
     let channel: 'near' | 'w' = 'near';
     let targetNick = '';
     const m = /^\/(w|all|r)\b\s*(.*)$/s.exec(text);
@@ -98,6 +104,9 @@ export class Chat {
     // 포탈로 맵을 옮기는 중: 공개 채팅의 m 이 presence 의 맵과 어긋날 수 있어(규칙이 거부) 보내지 않는다. 귓속말은 맵과 무관
     if (channel === 'near' && w.switching) { w.toast('맵을 옮기는 중이라 보내지 않았습니다. 잠시 후 다시 보내 주세요.', true); return; }
     if (text.length > CHAT_MAX_LEN) text = text.slice(0, CHAT_MAX_LEN);
+    // 보낸 시각은 기다리는 일(await) 앞에서 적는다. 귓속말은 아래에서 닉네임을 찾느라 서버를 한 번 다녀오는데, 그 뒤에 적던 때에는
+    // 그 사이에 들어온 두 번째 전송(위의 끝 글자)이 간격 제한에 안 걸리고 "/w" 없이 공개 채팅으로 나갔다 (2026-11-17, 채팅 로그에서 하루 6건)
+    this.lastSent = now; this.lastText = text;
     const base = { u: w.uid, n: w.profile.nick, ts: serverTimestamp() };
     const logKey = push(ref(db, 'logs/chat')).key!;
     const upd: Record<string, unknown> = {};
@@ -131,7 +140,6 @@ export class Chat {
       this.whisperTo = toUid;
       w.setBubble(w.uid, { text, kind: 'w', at: performance.now() });
     }
-    this.lastSent = now;
     try {
       await update(ref(db), upd);
     } catch (e) {
