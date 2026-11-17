@@ -382,6 +382,8 @@ export class WalletMgr {
     } finally { this.enhancing = false; }
   }
 
+  // 변경 요금 (외모·닉네임, 2026-11-17): 가격표의 값을 낸다. 보관함에 들어가는 품목이 아니다
+  payFee(itemId: string, price: number): Promise<boolean> { return this.spend(itemId, price); }
   // 꾸미기·장비 구매: 지갑에서 값을 빼며 무엇을 샀는지(b) 적고, 이어서 보관함에 넣는다 (규칙이 b 를 보고 보유 등록을 허용)
   async buyCosmetic(itemId: string, price: number): Promise<boolean> {
     if (!(await this.spend(itemId, price))) return false;

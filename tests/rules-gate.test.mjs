@@ -859,5 +859,88 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await root.ref().update({ winter: null, players: null, occ: null, 'config/hoursBlock': null });
 }
 
+// ---------- 내 집 (homes/{uid}, 집 맵 id h-{uid}. 2026-11-17, shared/home.ts) ----------
+// 나무 한 번에 2개·2.5초, 초가집 30 / 통나무집 300 + house2 / 벽돌집 1000 + house3, 창고 한 번에 20마리·30초·칸당 100마리, 든든함 300마리
+{
+  const SV = { '.sv': 'timestamp' };
+  const H = 'homes/OK';
+  await root.ref().update({ homes: null, players: null, occ: null, 'approved/OTHER': true, 'users/OK/own': null });
+  // 나무
+  await expect('집: 나무 2개 캐기 (처음)', 'allow', () => ok.ref(H).update({ w: 2, wa: SV }));
+  await expect('집: 바로 또 캐기 (간격 2.5초)', 'deny', () => ok.ref(H).update({ w: 4, wa: SV }));
+  await root.ref(H).set({ w: 10, wa: 1 });
+  await expect('집: 한 번에 3개', 'deny', () => ok.ref(H).update({ w: 13, wa: SV }));
+  await expect('집: 시각 없이 나무 늘리기', 'deny', () => ok.ref(H).update({ w: 11 }));
+  await expect('집: 남의 나무 늘리기', 'deny', () => other.ref(H).update({ w: 12, wa: SV }));
+  await expect('집: 대기 중인 계정이 나무 캐기', 'deny', () => pend.ref('homes/PEND').update({ w: 1, wa: SV }));
+  await expect('집: 나무 2001개', 'deny', () => root.ref(H).set({ w: 2000, wa: 1 }).then(() => ok.ref(H).update({ w: 2001, wa: SV })));
+  // 짓기
+  await root.ref(H).set({ w: 10, wa: 1 });
+  await expect('집: 나무 10개로 초가집', 'deny', () => ok.ref(H).update({ t: 1, w: 0 }));
+  await root.ref(H).set({ w: 400, wa: 1 });
+  await expect('집: 나무를 안 내고 초가집', 'deny', () => ok.ref(H).update({ t: 1 }));
+  await expect('집: 초가집 (나무 -30)', 'allow', () => ok.ref(H).update({ t: 1, w: 370 }));
+  await expect('집: 코인 값을 안 내고 통나무집', 'deny', () => ok.ref(H).update({ t: 2, w: 70 }));
+  await root.ref('users/OK/own/house2').set(true);
+  await expect('집: 나무를 덜 내고 통나무집', 'deny', () => ok.ref(H).update({ t: 2, w: 369 }));
+  await expect('집: 두 단계 한꺼번에', 'deny', () => ok.ref(H).update({ t: 3, w: 0 }));
+  await expect('집: 값을 낸 뒤 통나무집 (나무 -300)', 'allow', () => ok.ref(H).update({ t: 2, w: 70 }));
+  await expect('집: 단계 내리기', 'deny', () => ok.ref(H).update({ t: 1 }));
+  await expect('집: 단계 칸 지우기', 'deny', () => ok.ref(H + '/t').remove());
+  // 창고
+  await expect('집: 물고기 20마리 넣기', 'allow', () => ok.ref(H).update({ f: 20, fa: SV }));
+  await expect('집: 바로 또 넣기 (간격 30초)', 'deny', () => ok.ref(H).update({ f: 40, fa: SV }));
+  await root.ref(H).update({ f: 100, fa: 1 });
+  await expect('집: 한 번에 21마리', 'deny', () => ok.ref(H).update({ f: 121, fa: SV }));
+  await expect('집: 시각 없이 물고기 늘리기', 'deny', () => ok.ref(H).update({ f: 101 }));
+  await root.ref(H).update({ f: 395, fa: 1 });
+  await expect('집: 창고 한도(4칸 400마리)를 넘기기', 'deny', () => ok.ref(H).update({ f: 405, fa: SV }));
+  await expect('집: 한도까지 채우기', 'allow', () => ok.ref(H).update({ f: 400, fa: SV }));
+  await root.ref('homes/NOHOME').set({ w: 5, wa: 1 });
+  await root.ref('approved/NOHOME').set(true);
+  await expect('집: 집 없이 창고에 넣기', 'deny', () => as('NOHOME').ref('homes/NOHOME').update({ f: 1, fa: SV }));
+  // 칸
+  await expect('집: 값을 안 내고 칸 늘리기', 'deny', () => ok.ref(H).update({ s: 1 }));
+  await root.ref('users/OK/own/hslot1').set(true);
+  await expect('집: 한 번에 두 칸', 'deny', () => ok.ref(H).update({ s: 2 }));
+  await expect('집: 값을 낸 칸 늘리기', 'allow', () => ok.ref(H).update({ s: 1 }));
+  await root.ref(H).update({ fa: 1 });
+  await expect('집: 늘린 칸만큼 더 넣기', 'allow', () => ok.ref(H).update({ f: 420, fa: SV }));
+  await root.ref().update({ 'users/OK/own/hslot2': true, 'users/OK/own/hslot3': true, 'users/OK/own/hslot4': true, [H + '/s']: 3 });
+  await expect('집: 통나무집에서 4번째 칸 (상한 3)', 'deny', () => ok.ref(H).update({ s: 4 }));
+  // 묶음 판매(줄이기)·겨울잠
+  await expect('집: 물고기 줄이기 (묶음 판매)', 'allow', () => ok.ref(H).update({ f: 320 }));
+  await expect('집: 물고기를 안 먹고 든든함', 'deny', () => ok.ref(H).update({ sh: 1 }));
+  await expect('집: 덜 먹고 든든함', 'deny', () => ok.ref(H).update({ f: 21, sh: 1 }));
+  await expect('집: 300마리 먹고 든든함 +1', 'allow', () => ok.ref(H).update({ f: 20, sh: 1 }));
+  await root.ref(H).update({ f: 700 });
+  await expect('집: 든든함 한 번에 +2', 'deny', () => ok.ref(H).update({ f: 100, sh: 3 }));
+  await root.ref(H).update({ sh: 3 });
+  await expect('집: 든든함 4', 'deny', () => ok.ref(H).update({ f: 400, sh: 4 }));
+  await expect('집: 든든함 쓰기 (줄이기)', 'allow', () => ok.ref(H).update({ sh: 2 }));
+  // 문 잠금·모르는 칸
+  await expect('집: 통나무집 문 잠그기', 'allow', () => ok.ref(H).update({ lk: true }));
+  await root.ref('homes/OTHER').set({ t: 1, w: 0 });
+  await expect('집: 초가집 문 잠그기', 'deny', () => other.ref('homes/OTHER').update({ lk: true }));
+  await expect('집: 모르는 칸', 'deny', () => ok.ref(H).update({ zz: 1 }));
+  // 집 맵 id (players/{uid}/m): 내 집은 언제나, 남의 집은 초가집이거나 잠겨 있지 않을 때
+  await expect('집 맵: 내 집에 들어가기 (잠가 둔 채)', 'allow', () => ok.ref('players/OK').set({ ...presence, m: 'h-OK' }));
+  await expect('집 맵: 잠긴 남의 집', 'deny', () => other.ref('players/OTHER').set({ ...presence, m: 'h-OK' }));
+  await root.ref(H + '/lk').remove();
+  await expect('집 맵: 열린 남의 집', 'allow', () => other.ref('players/OTHER').set({ ...presence, m: 'h-OK' }));
+  await expect('집 맵: 집 안 자리 잡기', 'allow', () => other.ref('occ/h-OK~1_1').set('OTHER'));
+  await expect('집 맵: 내가 없는 집의 자리 잡기', 'deny', () => other.ref('occ/h-OTHER~1_1').set('OTHER'));
+  await expect('집 맵: 집이 없는 사람의 집', 'deny', () => ok.ref('players/OK').set({ ...presence, m: 'h-NOBODY' }));
+  await expect('집 맵: 나무만 있고 집은 없는 사람의 집', 'deny', () => ok.ref('players/OK').set({ ...presence, m: 'h-NOHOME' }));
+  await root.ref('homes/OTHER/lk').set(true); // 초가집에 잠금 표시가 들어가 있어도(규칙 밖에서 넣은 값) 누구나 들어간다
+  await expect('집 맵: 초가집은 누구나', 'allow', () => ok.ref('players/OK').set({ ...presence, m: 'h-OTHER' }));
+  await expect('집 맵: 이상한 id', 'deny', () => ok.ref('players/OK').set({ ...presence, m: 'h-OK/../x' }));
+  // 지우기
+  await expect('집: 남이 내 집 지우기', 'deny', () => other.ref(H).remove());
+  await expect('집: 관리자가 지우기 (거절·정리)', 'allow', () => admin.ref('homes/OTHER').remove());
+  await expect('집: 내가 지우기 (탈퇴)', 'allow', () => ok.ref(H).remove());
+  await root.ref().update({ homes: null, players: null, occ: null, 'approved/OTHER': null, 'approved/NOHOME': null, 'users/OK/own': null });
+}
+
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
 process.exit(fail ? 1 : 0);

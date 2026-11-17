@@ -248,6 +248,70 @@ export function drawCreature(p: CreatureParams, dir: Dir, frame: number, pose: P
       feet(shade(c1, -0.3));
       break;
     }
+    // ---- 음식 캐릭터 (2026-11-17 건의 반영). c1 몸 · c2 포인트 · c3 보조. 얼굴은 다른 캐릭터와 같은 높이에 둔다 ----
+    case 'shrimpfry': {
+      // 새우튀김: 바삭한 튀김옷 몸통 위로 빨간 꼬리가 부채처럼 펴진다
+      b.rect(10, hy + 2, 4, 6, c2); b.rect(7, hy - 1, 4, 5, c2); b.rect(13, hy - 1, 4, 5, c2); b.px(8, hy - 2, c2); b.px(15, hy - 2, c2); b.rect(11, hy + 1, 2, 4, shade(c2, -0.25));
+      b.rrect(6, hy + 6, 12, 23, 5, c1);
+      for (const [x, y] of [[7, hy + 9], [16, hy + 11], [8, hy + 19], [15, hy + 22], [10, hy + 26], [13, hy + 8]]) b.px(x, y, c1l);
+      for (const [x, y] of [[9, hy + 22], [15, hy + 17], [7, hy + 14], [14, hy + 26], [16, hy + 8]]) b.px(x, y, c1d);
+      b.px(5, hy + 12, c1); b.px(18, hy + 16, c1); b.px(5, hy + 21, c1); b.px(18, hy + 24, c1);
+      eyes(9, hy + 13, 14, '#222'); mouth(11, hy + 17, c1d); blush(hy + 15);
+      feet(c1d);
+      break;
+    }
+    case 'shrimp': {
+      // 새우: 마디가 있는 분홍 몸, 긴 더듬이, 밝은 배
+      b.rect(8, hy, 1, 6, c3); b.rect(15, hy, 1, 6, c3); b.px(7, hy - 1, c3); b.px(16, hy - 1, c3);
+      b.rrect(6, hy + 5, 12, 24, 6, c1);
+      if (front) b.rrect(9, hy + 13, 6, 14, 3, c2);
+      for (const y of [hy + 12, hy + 17, hy + 22, hy + 26]) { if (front) { b.hline(6, y, 3, c1d); b.hline(15, y, 3, c1d); } else b.hline(6, y, 12, c1d); }
+      if (back || side) { b.rect(back ? 9 : 17, hy + 27, back ? 6 : 4, 3, c3); }
+      eyes(9, hy + 9, 14, '#222'); mouth(11, hy + 12, c1d); blush(hy + 11);
+      feet(c3, 2);
+      break;
+    }
+    case 'bungeoppang': {
+      // 붕어빵: 노릇한 붕어 모양, 아래쪽에 비늘 무늬와 꼬리지느러미, 한쪽에 팥이 살짝 보인다
+      b.rect(4, hy + 24, 5, 5, c1); b.rect(15, hy + 24, 5, 5, c1); b.px(4, hy + 24, null); b.px(19, hy + 24, null);
+      b.ellipse(12, hy + 14, 8, 12, c1);
+      b.rect(11, hy, 2, 3, c1d);
+      for (const y of [hy + 17, hy + 20, hy + 23]) for (let x = 7; x <= 15; x += 3) b.hline(x + ((y - hy) % 2), y, 2, c1d);
+      b.ellipse(12, hy + 5, 5, 2, c3);
+      if (!back) { b.rect(16, hy + 6, 3, 3, c2); b.px(17, hy + 5, c2); }
+      eyes(9, hy + 9, 14, '#222'); mouth(11, hy + 13, c1d); blush(hy + 11);
+      feet(c1d);
+      break;
+    }
+    case 'onigiri': {
+      // 삼각김밥: 흰 밥 삼각형에 김 한 장
+      for (let j = 0; j < 23; j++) { const w = Math.min(20, 4 + j); b.hline(12 - Math.floor(w / 2), hy + 5 + j, w, c1); }
+      b.hline(4, hy + 28, 16, c1); b.px(2, hy + 27, null); b.px(21, hy + 27, null);
+      b.rect(8, hy + 20, 8, 9, c2); b.hline(9, hy + 21, 6, shade(c2, 0.2));
+      for (const [x, y] of [[6, hy + 22], [17, hy + 18], [11, hy + 8], [14, hy + 11]]) b.px(x, y, '#e6e3d8');
+      eyes(9, hy + 14, 14, '#222'); mouth(11, hy + 17, '#8a8478'); blush(hy + 16);
+      feet(c3);
+      break;
+    }
+    case 'mandu': {
+      // 만두: 통통한 반달 몸에 위쪽으로 주름이 잡혀 있다
+      b.ellipse(12, hy + 18, 10, 10, c1);
+      b.ellipse(12, hy + 9, 8, 3, c2);
+      for (let x = 5; x <= 18; x += 3) { b.rect(x, hy + 7, 2, 4, c3); b.px(x, hy + 6, c2); }
+      b.ellipse(12, hy + 24, 7, 3, c1l);
+      eyes(9, hy + 15, 14, '#222'); mouth(11, hy + 19, shade(c3, -0.25)); blush(hy + 17);
+      feet(c3);
+      break;
+    }
+    case 'eggfry': {
+      // 계란프라이: 울퉁불퉁한 흰자 한가운데 노른자가 얼굴
+      b.ellipse(12, hy + 16, 10, 11, c1); b.circle(5, hy + 10, 3, c1); b.circle(19, hy + 21, 3, c1); b.circle(18, hy + 8, 2.5, c1); b.circle(6, hy + 23, 2.5, c1);
+      for (const [x, y] of [[3, hy + 9], [21, hy + 22], [4, hy + 25]]) b.px(x, y, c3);
+      b.circle(12, hy + 14, 7, c2); b.px(8, hy + 10, '#fff3b0'); b.px(9, hy + 9, '#fff3b0'); b.px(8, hy + 11, '#fff3b0');
+      eyes(9, hy + 13, 14, '#222'); mouth(11, hy + 17, shade(c2, -0.35)); blush(hy + 15);
+      feet(c3);
+      break;
+    }
     case 'hamster': {
       // 2026-11-16 건의 반영. c1 털 · c2 볼주머니·배 · c3 귀 안쪽·발. 볼이 머리보다 살짝 넓어 통통해 보인다
       headBody(); feet(c3);

@@ -2,11 +2,12 @@
 import type { Dir } from '../shared/types';
 import type { MapData, PortalDest } from './map';
 import { isWalkable, isWater, roomAt, findFreeTile, sanitizeMap } from './map';
-import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, BUILTIN_MAP_IDS, isMapId, occupancyKey } from '../shared/maps';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, BUILTIN_MAP_IDS, isMapId, isHomeMapId, occupancyKey } from '../shared/maps';
 
 // 맵 id 를 어디서 읽나: main 은 기존 config/activeMap, 포탈 정원·금광은 코드에 든 맵, 그 밖의 올바른 id 는 저장된 maps/{id}
-export function mapSource(id: unknown): 'active' | 'builtin' | 'saved' | null {
+export function mapSource(id: unknown): 'active' | 'builtin' | 'home' | 'saved' | null {
   if (id === MAIN_MAP_ID) return 'active';
+  if (isHomeMapId(id)) return 'home'; // 누군가의 집 안 (shared/home.ts). 맵은 그 집의 단계로 만든다
   if (typeof id === 'string' && BUILTIN_MAP_IDS.includes(id)) return 'builtin';
   return isMapId(id) ? 'saved' : null;
 }
@@ -45,7 +46,7 @@ export function lastPosOf(mapId: string, x: number, y: number, d: Dir): { x: num
 }
 // 다시 들어올 때 돌아갈 맵 (m 이 없거나 이상하면 기본 맵)
 export function savedMapId(lp: { m?: unknown } | null | undefined): string {
-  return lp && isMapId(lp.m) ? lp.m : MAIN_MAP_ID;
+  return lp && (isMapId(lp.m) || isHomeMapId(lp.m)) ? lp.m : MAIN_MAP_ID;
 }
 
 // 맵을 옮기는 쓰기 한 번: 새 자리 점유 + 맵·위치·방향 + 옛 맵에 걸려 있던 찌·이모트·받을 밀치기/말랑이/끌기/관리자 이동 비우기.

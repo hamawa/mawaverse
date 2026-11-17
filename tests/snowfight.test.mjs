@@ -191,7 +191,7 @@ function setup(over = {}) {
     toast: (m) => spy.toasts.push(m), note: (t) => spy.notes.push(t), batNote: () => {},
     nickOf: (u) => (u === 'me' ? '나' : w.players.get(u)?.st.n || u),
     playerAt: (x, y) => finder([...w.players.values()])(x, y),
-    onMyMap: () => true, guardBroken: () => false, petGuard: () => false, petReflect: () => false,
+    onMyMap: () => true, guardBroken: () => false, petGuard: () => false, petReflect: () => false, homeSafe: () => false,
     breakGuard: (n) => spy.breaks.push(n),
     ...over,
   };

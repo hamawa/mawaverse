@@ -100,7 +100,7 @@ export interface WorldCtx {
   catchLog: CatchLog;
   note(text: string): void;              // 한 줄 알림만 (기록 없음)
   fishCaught(size: number): void;        // 물고기를 잡았다 (꽝 제외): 진행 중인 낚시 내기에 내 최고 크기를 적는다
-  batNote(used: number): void;           // 빠따를 썼으면 한 줄 알림
+  batNote(used: number, shielded?: number): void; // 빠따를 썼으면 한 줄 알림. shielded: 그중 상대의 든든함(겨울잠, presence sd)에 막혔을 수
   banner(title: string, sub?: string): void; // 화면 가운데 큰 배너 (신화 등급 소식)
   forceLogout(reason: string, replaced?: boolean): void;
   isTileVisible(x: number, y: number): boolean;
@@ -117,6 +117,8 @@ export interface WorldCtx {
   guardUntil: number;                    // 빠따에 맞아 방어가 깨져 있으면 풀리는 서버 시각 (아니면 0 또는 지난 시각)
   snowBrokenAt: number;                  // 눈사람을 부순 서버 시각 (0 = 없음). guardUntil(빠따)과 별개로 SNOW_PENALTY_MS 동안 방어가 깨진다
   guardBroken(): boolean;                // 지금 방어(갑옷·펫)가 깨져 있나 (빠따 또는 눈사람 벌칙)
+  homeSafe(): boolean;                   // 벽돌집 안에 있다: 밀치기·끌기·말랑이가 안 통한다 (2026-11-17, shared/home.ts)
+  homeMarks(): { sd?: number; hz?: boolean }; // presence 에 실을 든든함(sd)·겨울잠(hz) 표시
   breakGuard(byNick: string): void;      // 빠따에 맞았다: GUARD_BREAK_MS 동안 방어 없음
   petGuard(): boolean;                   // 펫 Lv8 이상: 밀치기·장풍·말랑이·끌기·갈고리를 갑옷처럼 막는다
   petReflect(): boolean;                 // 막은 보통 밀치기·말랑이를 되받아칠지 (80%)

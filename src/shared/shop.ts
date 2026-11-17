@@ -2,8 +2,8 @@
 // 가격은 config/prices/{id} 로 관리자가 덮어쓸 수 있다 (priceOf)
 import { snowActive } from './snowpenalty';
 
-export type ItemKind = 'hat' | 'name' | 'fx' | 'pet' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
-export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
+export type ItemKind = 'hat' | 'name' | 'fx' | 'pet' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
+export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
 export interface ShopItem { id: string; kind: ItemKind; name: string; price: number; icon: string; desc: string; color?: string }
 
 export const HATS: ShopItem[] = [
@@ -228,7 +228,17 @@ export function netTierOf(own?: Record<string, true> | null): number { return ow
 // 잠자리채 등급을 반영한 채집 성공 확률
 export function netChance(base: number, tier: number): number { return tier >= 2 ? 1 : tier === 1 ? 1 - (1 - base) / 2 : base; }
 
-export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS];
+// 내 집 (2026-11-17, shared/home.ts): 통나무집·벽돌집을 짓는 코인 값과 창고 칸. 상점에는 안 나오고 집 창(homeui.ts)에서 산다.
+// 보관함 품목이라 기존 구매 규칙(가격표의 값을 내면 own 등록)을 그대로 쓰고, homes 규칙이 "그 품목을 가졌는가"를 본다. 선물은 안 된다 (화면에 없다)
+export const HOME_GOODS: ShopItem[] = [
+  { id: 'house2', kind: 'home', name: '통나무집 짓는 값', price: 10000, icon: '🌲', desc: '통나무집으로 올릴 때 나무 300개와 함께 낸다.' },
+  { id: 'house3', kind: 'home', name: '벽돌집 짓는 값', price: 50000, icon: '🧱', desc: '벽돌집으로 올릴 때 나무 1,000개와 함께 낸다.' },
+  ...[1, 2, 3, 4, 5, 6].map((n): ShopItem => ({ id: `hslot${n}`, kind: 'home', name: `창고 ${4 + n}번째 칸`, price: 5000 * n, icon: '📦', desc: '창고 한 칸(물고기 100마리)을 늘린다.' })),
+];
+// 변경 요금 (2026-11-17, 사용자 요청): 외모·닉네임을 바꿀 때 낸다. 소모품이라 지갑에만 기록된다. 요금은 화면이 받는다: 규칙이 변경과 결제를 묶어 보지는 않는다
+export const AVATAR_FEE: ShopItem = { id: 'avatarfee', kind: 'use', name: '외모 변경 요금', price: 1000, icon: '🎨', desc: '외모를 바꿀 때마다 낸다.' };
+export const NICK_FEE: ShopItem = { id: 'nickfee', kind: 'use', name: '닉네임 변경 요금', price: 5000, icon: '✏', desc: '닉네임을 바꿀 때마다 낸다.' };
+export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }
 // 보관함(users/{uid}/own)에 들어가는 품목인가 (소모품인 자동 낚시·미끼·자동 채집·펫 먹이·강화 주문서는 지갑에만 기록된다)

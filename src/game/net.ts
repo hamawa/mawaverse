@@ -84,7 +84,7 @@ export class Net {
 
   private currentState(): PlayerState {
     const w = this.w;
-    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.snowField(), ...this.duelField() };
+    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.snowField(), ...this.duelField(), ...w.homeMarks(), ...w.homeMarks() };
   }
 
   // 월드 입장: 현재 접속자 스냅샷을 읽고 빈 타일을 잡은 뒤 presence 등록
@@ -294,6 +294,7 @@ export class Net {
       remove(ref(db, `players/${w.uid}/push`)).catch(() => {});
       if (serverNow() - p.t > 4000) return;
       if (w.me.roomId) return; // 카지노 안에 앉아 있는 동안은 아무도 못 건드린다 (2026-11-12. 빠따도 안 통한다)
+      if (w.homeSafe()) return; // 벽돌집 안: 밀치기가 안 통한다 (2026-11-17)
       const pusher = w.players.get(p.f);
       if (!pusher || !w.onMyMap(pusher.st)) return;
       const rx = Math.round(w.me.x - pusher.toX), ry = Math.round(w.me.y - pusher.toY);
@@ -332,6 +333,7 @@ export class Net {
       remove(ref(db, `players/${w.uid}/pull`)).catch(() => {});
       if (serverNow() - p.t > 4000 || typeof p.x !== 'number' || typeof p.y !== 'number') return;
       if (w.me.roomId) return; // 카지노 안: 끌기·갈고리도 안 통한다
+      if (w.homeSafe()) return; // 벽돌집 안: 끌기도 안 통한다
       const puller = w.players.get(p.f);
       if (!puller || !w.onMyMap(puller.st)) return;
       const me = w.me;
@@ -472,6 +474,10 @@ export class Net {
     set(ref(db, `players/${this.w.uid}/f`), t ? { ...t, ...(auto ? { a: 1 } : {}), ...(rod ? { r: rod } : {}), ...(stars ? { s: stars } : {}) } : null).catch(() => {});
   }
   // 채광 중 표시 (금광): 곡괭이질마다 쓰지 않고 처음 칠 때 켜고, 자리를 뜨거나 한동안 안 치면 끈다 (mine.ts). 맵을 옮길 때는 mapSwitchUpdate 가 같이 비운다
+  // 든든함(빠따 막기 횟수)과 겨울잠 표시 (shared/home.ts). 표시용이라 규칙이 값을 대조하지 않는다
+  setHomeMarks(sd: number, hz: boolean): void {
+    update(ref(db, `players/${this.w.uid}`), { sd: sd > 0 ? sd : null, hz: hz ? true : null }).catch(() => {});
+  }
   setMining(on: boolean): void {
     set(ref(db, `players/${this.w.uid}/mn`), on ? true : null).catch(() => {});
   }

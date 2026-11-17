@@ -1,5 +1,6 @@
 import { mulberry32 } from '../shared/hash';
 import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, isMapId } from '../shared/maps';
+import { HOME_TIERS, HOME_MAX_TIER } from '../shared/home';
 
 // 바닥 타일
 export const G = {
@@ -27,6 +28,10 @@ export const OBJECT_NAMES: Record<number, string> = {
   14: '분수(좌상)', 15: '분수(우상)', 16: '분수(좌하)', 17: '분수(우하)', 18: '표지판', 19: '창문 벽', 20: '출입 매트', 21: '책장', 22: '소파', 23: '자판기',
   24: '화단', 25: '생울타리', 26: '소나무', 27: '카운터', 28: '그루터기', 29: '옆 벽', 30: '원탁', 31: '화초', 32: '파라솔', 33: '오락기',
 };
+
+// 집 안에만 놓이는 가구 (2026-11-17, buildHomeMap). 관리자 편집기 팔레트(O 의 값들)에는 넣지 않는다
+export const O_BED = 34;    // 침대: 주인이 보고 F 로 겨울잠
+export const O_CHEST = 35;  // 창고 상자: 주인이 보고 F 로 집 창 열기
 
 export const WALKABLE_OBJECTS = new Set<number>([O.NONE, O.MAT]);
 // 들어갈 수 없는 바닥. 물은 수영으로 들어갈 수 있으므로 현재 비어 있음
@@ -477,6 +482,32 @@ export function buildWinterMap(): MapData {
   m.zones.push({ id: 'lbl-ice', kind: 'label', x: 28, y: 2, w: 10, h: 22, label: '얼음 낚시터 · 빙판 주의' });
   m.zones.push({ id: 'portal-garden', kind: 'portal', x: 19, y: 21, w: 2, h: 1, label: '포탈 정원', targetMap: GARDEN_MAP_ID });
   m.spawn = { x: 20, y: 19 };
+  return m;
+}
+
+// 집 안 (2026-11-17, shared/home.ts): 방 하나짜리 맵. 단계가 오르면 방이 커지고 바닥·가구가 달라진다. 맵 크기가 방 크기라 화면 가운데에 작게 뜬다.
+// 문(아래쪽 가운데 매트)이 밖으로 나가는 포탈이다. 행선지는 기본 맵으로 적어 두지만 world.ts 가 "들어오기 전에 있던 자리"로 바꿔서 보낸다
+export const HOME_EXIT_ZONE = 'home-exit';
+export function buildHomeMap(id: string, tierNo: number, label: string): MapData {
+  const t = HOME_TIERS[Math.max(1, Math.min(HOME_MAX_TIER, Math.floor(tierNo) || 1)) - 1];
+  const W = t.iw + 2, H = t.ih + 2;
+  const m = emptyMap(id, label, W, H);
+  const setG = (x: number, y: number, g: number) => { if (inBounds(m, x, y)) m.ground[y * W + x] = g; };
+  const setO = (x: number, y: number, o: number) => { if (inBounds(m, x, y)) m.objects[y * W + x] = o; };
+  m.ground.fill(t.tier === 1 ? G.SAND : t.tier === 2 ? G.WOOD : G.TILE_FLOOR);
+  for (let x = 0; x < W; x++) { setO(x, 0, x > 1 && x < W - 2 && x % 3 === 2 ? O.WALL_WINDOW : O.WALL); setO(x, H - 1, O.WALL); }
+  for (let y = 1; y < H - 1; y++) { setO(0, y, O.WALL_SIDE); setO(W - 1, y, O.WALL_SIDE); }
+  const door = Math.floor(W / 2);
+  setO(door, H - 1, O.MAT);
+  setO(1, 1, O_BED); setO(W - 2, 1, O_CHEST);
+  if (t.tier === 2) { setO(4, 2, O.TABLE); setO(5, 2, O.CHAIR); setO(1, H - 2, O.PLANT); }
+  if (t.tier === 3) {
+    for (let y = 2; y <= H - 3; y++) for (let x = 3; x <= W - 4; x++) setG(x, y, G.CARPET);
+    setO(4, 1, O.BOOKSHELF); setO(5, 3, O.TABLE_ROUND); setO(4, 3, O.CHAIR); setO(2, H - 2, O.SOFA); setO(W - 2, H - 2, O.PLANT);
+  }
+  m.zones.push({ id: 'lbl-home', kind: 'label', x: 1, y: 1, w: W - 2, h: H - 2, label });
+  m.zones.push({ id: HOME_EXIT_ZONE, kind: 'portal', x: door, y: H - 1, w: 1, h: 1, label: '밖으로', targetMap: MAIN_MAP_ID });
+  m.spawn = { x: door, y: H - 2 };
   return m;
 }
 

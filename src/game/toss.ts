@@ -61,6 +61,7 @@ export class TossMgr {
   throwAt(): boolean {
     const w = this.w, me = w.me, now = performance.now();
     if (me.roomId) return false;
+    if (w.homeSafe()) { w.toast('🧱 벽돌집 안에서는 말랑이를 던질 수 없습니다.', true); return false; }
     const left = this.cooldownLeft();
     if (left > 0) { w.toast(`말랑이는 ${Math.ceil(left / 1000)}초 후에 다시 던질 수 있어요.`, true); return false; }
     const bag = !!w.profile.own?.tossbag;
@@ -70,7 +71,7 @@ export class TossMgr {
     // 방어 중인 사람에게는 빠따가 있으면 한 개씩 써서 깨고 맞힌다 (b=1). 모자라면 그 사람은 막는다
     const plan = assignBats(targets.map((t) => guardedOf(t.st, 'toss', serverNow())), w.wallet.batsReady());
     const shots: Shot[] = targets.map((t, i) => ({ uid: t.uid, m: { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(t.x), ty: Math.round(t.y), ...(plan[i].bat ? { b: 1 } : {}) } }));
-    w.batNote(shots.filter((s) => s.m.b).length);
+    w.batNote(shots.filter((s) => s.m.b).length, targets.filter((t, i) => plan[i].bat && t.st.sd).length);
     for (const s of shots) this.flying.push({ fx: s.m.fx, fy: s.m.fy, tx: s.m.tx, ty: s.m.ty, start: now });
     if (shots.length === 1) this.net.toss(shots[0].uid, shots[0].m); else this.net.tossMany(shots);
     this.land(() => {
@@ -140,6 +141,7 @@ export class TossMgr {
   onHitMe(m: TossMsg): void {
     const w = this.w;
     if (w.me.roomId) return; // 카지노 안에 앉아 있는 동안은 말랑이도 안 맞는다
+    if (w.homeSafe()) return; // 벽돌집 안: 말랑이도 안 맞는다 (2026-11-17)
     if (m.s) { this.onSnowHitMe(m); return; }
     this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: performance.now() });
     this.land(() => {

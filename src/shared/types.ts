@@ -61,6 +61,8 @@ export interface PlayerState {
   mn?: boolean | null;  // 금광에서 채광 중 (곡괭이질이 남에게 보이게. 곡괭이질마다 쓰지 않고 켜고 끌 때만)
   nd?: boolean | null;  // 내기 신청을 받지 않는다 (2026-11-12. 신청하는 쪽이 보고 미리 막는다)
   sn?: number | null;   // 눈사람을 부순 서버 시각 (users/{uid}/snowBrokenAt 과 같은 값. SNOW_PENALTY_MS 동안은 갑옷·펫 방어가 없고, 벌칙 중에는 규칙이 이 칸을 빼지 못하게 한다)
+  sd?: number | null;   // 든든함: 겨울잠으로 쌓은 빠따 막기 횟수 1~3 (shared/home.ts. 표시용: 실제 판정은 맞는 쪽이 자기 homes 값으로 한다)
+  hz?: boolean | null;  // 집 침대에서 겨울잠 자는 중 (😴 표시)
   gb?: number | null;   // 빠따에 맞아 방어(갑옷·펫)가 깨진 상태: 풀리는 서버 시각. 이 시각까지는 누구의 밀치기·말랑이·끌기도 통한다
 }
 

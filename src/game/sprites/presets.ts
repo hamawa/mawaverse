@@ -96,6 +96,16 @@ for (let i = 0; i < 50; i++) { const c = creature(i); PRESETS.push({ id: `x${Str
 // 그래서 새 종은 SPECIES 가 아니라 여기처럼 뒤에 새 id 로 붙인다
 const HAMSTERS: [string, [string, string, string]][] = [['골든', ['#e9a55a', '#fff4e0', '#f7a8b8']], ['흰색', ['#f1e9dc', '#ffffff', '#f7b2c6']], ['회색', ['#9a9a9a', '#f5f5f5', '#f2a6b4']]];
 HAMSTERS.forEach(([label, [c1, c2, c3]], i) => PRESETS.push({ id: `x${51 + i}`, group: 'x', name: `햄스터 ${label}`, params: { kind: 'creature', species: 'hamster', c1, c2, c3, eye: '#2b2b2b' } }));
+// 음식 캐릭터 (2026-11-17 건의 반영: 새우튀김·새우, 그리고 같이 넣은 붕어빵·삼각김밥·만두·계란프라이). 햄스터와 같은 이유로 맨 뒤에 새 id(x54~x59)로 붙인다
+const FOODS: [string, string, [string, string, string]][] = [
+  ['shrimpfry', '새우튀김', ['#e2a548', '#e8552e', '#fff2c9']],
+  ['shrimp', '새우', ['#f58f76', '#ffd9cc', '#c9482b']],
+  ['bungeoppang', '붕어빵', ['#d99a45', '#6b3a2a', '#f3c98a']],
+  ['onigiri', '삼각김밥', ['#fbfaf5', '#2b332b', '#55504a']],
+  ['mandu', '만두', ['#f4e7c8', '#eadbb4', '#c9b07a']],
+  ['eggfry', '계란프라이', ['#fffdf5', '#f6b422', '#c98a3a']],
+];
+FOODS.forEach(([species, name, [c1, c2, c3]], i) => PRESETS.push({ id: `x${54 + i}`, group: 'x', name, params: { kind: 'creature', species, c1, c2, c3, eye: '#2b2b2b' } }));
 
 const byId = new Map(PRESETS.map((p) => [p.id, p]));
 export function presetById(id: string): Preset { return byId.get(id) || PRESETS[0]; }

@@ -11,6 +11,14 @@ export function isMapId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9_-]{1,20}$/i.test(value);
 }
 
+// 내 집(2026-11-17): 집 안은 사람마다 따로인 맵이고 id 는 h-{주인 uid}. 저장된 맵 id(20자 이하)와 겹치지 않게 따로 판정한다. 규칙의 players/$uid/m 검증에 같은 모양이 들어 있다
+export const HOME_MAP_PREFIX = 'h-';
+export function isHomeMapId(value: unknown): value is string {
+  return typeof value === 'string' && /^h-[A-Za-z0-9]{1,40}$/.test(value);
+}
+export function homeMapId(uid: string): string { return HOME_MAP_PREFIX + uid; }
+export function homeOwnerOf(mapId: string): string { return mapId.slice(HOME_MAP_PREFIX.length); }
+
 export function playerMapId(player: { m?: string | null }): string {
   return player.m || MAIN_MAP_ID;
 }

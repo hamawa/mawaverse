@@ -1,6 +1,6 @@
 // 바닥/오브젝트 타일을 코드로 그려 캐시한다.
 import { PixelBuf, shade } from './pixel';
-import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O } from './map';
+import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O, O_BED, O_CHEST } from './map';
 import { TILE } from '../shared/config';
 import { seededRandom } from '../shared/hash';
 
@@ -297,6 +297,17 @@ function drawObject(id: number): PixelBuf | null {
       return one.outline(P.outline);
     case O.ROCK:
       one.ellipse(16, 20, 11, 7, P.rock); one.ellipse(13, 17, 6, 4, shade(P.rock, 0.2)); one.ellipse(18, 23, 8, 3, P.rockDark);
+      return one.outline(P.outline);
+    case O_BED:
+      // 침대 (집 안): 나무 틀, 흰 베개, 붉은 이불
+      one.rect(3, 5, 26, 24, P.benchDark); one.rect(5, 7, 22, 20, '#f4ead2'); one.rect(8, 8, 16, 6, '#ffffff'); one.rect(8, 13, 16, 1, '#d8d0bc');
+      one.rect(5, 16, 22, 11, '#d9655a'); one.rect(5, 16, 22, 2, '#f0a59c'); one.rect(5, 24, 22, 3, '#b84d44');
+      return one.outline(P.outline);
+    case O_CHEST:
+      // 창고 상자 (집 안): 물고기 꼬리가 삐져나온 나무 궤짝
+      one.rect(10, 6, 5, 6, '#7fb7e6'); one.rect(8, 4, 3, 4, '#5a9bd4'); one.rect(13, 4, 3, 4, '#5a9bd4'); one.rect(18, 8, 4, 4, '#f2a35e');
+      one.rect(4, 11, 24, 17, P.benchWood); one.rect(4, 11, 24, 4, P.benchDark); one.rect(4, 20, 24, 2, P.benchDark); one.rect(4, 26, 24, 2, P.benchDark);
+      one.rect(14, 15, 4, 6, '#e8c15a'); one.px(15, 18, '#8a6a1e'); one.px(16, 18, '#8a6a1e');
       return one.outline(P.outline);
     case O.STUMP:
       one.ellipse(16, 14, 11, 6, P.stumpRing); one.rect(5, 14, 22, 10, P.stump); one.ellipse(16, 24, 11, 4, P.stumpDark); one.ellipse(16, 14, 11, 6, P.stumpRing);
