@@ -342,14 +342,14 @@ function tabChat(main: HTMLElement): void {
   main.append(el('h3', { text: '채팅 로그 (최근 500건, 귓속말 포함)' }));
   const filter = el('input', { placeholder: '닉네임/내용 필터' });
   const ch = el('select');
-  ch.innerHTML = '<option value="">모든 채널</option><option value="near">주변</option><option value="all">전체</option><option value="w">귓속말</option><option value="p">파티 (옛 기록)</option>';
+  ch.innerHTML = '<option value="">모든 채널</option><option value="near">주변</option><option value="all">전체</option><option value="w">귓속말</option><option value="d">어둠의 빠따</option><option value="p">파티 (옛 기록)</option>';
   const trim = el('button', { class: 'btn small', text: '보존 개수만 남기고 정리' });
   const clearPub = el('button', { class: 'btn small', text: '공개 채팅창 비우기' });
   const clear = el('button', { class: 'btn small danger', text: '로그 전체 삭제' });
   const box = el('div', { class: 'log' });
   main.append(el('div', { class: 'toolbar' }, [filter, ch, trim, clearPub, clear]), box);
   let rows: (ChatLog & { key: string })[] = [];
-  const chName: Record<string, string> = { near: '주변', all: '전체', w: '귓속말', p: '파티(옛)', g: '유령' };
+  const chName: Record<string, string> = { near: '주변', all: '전체', w: '귓속말', p: '파티(옛)', g: '유령', d: '어둠의 빠따' }; // d: 어둠의 빠따를 누가 누구에게 썼는지 (게임 안에서는 익명. 2026-11-17)
   const render = () => {
     const f = filter.value.trim(), c = ch.value;
     box.innerHTML = rows.filter((r) => (!c || r.c === c) && (!f || r.n.includes(f) || r.t.includes(f) || (r.toNick || '').includes(f))).slice().reverse()

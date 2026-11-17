@@ -14,7 +14,7 @@ import type { WorldCtx, RemotePlayer } from './state';
 import { MAIN_MAP_ID, occupancyKey, playerMapId } from '../shared/maps';
 import { lastPosOf, mapSwitchUpdate } from './portal';
 import { snowActive } from '../shared/snowpenalty';
-import { batGuardField } from '../shared/shop';
+import { batGuardField, ANON, type BatKind } from '../shared/shop';
 
 // 착용 중인 꾸미기를 presence 에 싣는다 (짧은 키). 규칙이 "가진 것만" 허용하므로 보유 목록에 없는 건 뺀다 (어긋난 데이터로 입장이 막히지 않게)
 // pl: 데리고 있는 펫의 누적 먹이 (지갑 px 값. 규칙이 지갑과 대조). 펫이 없으면 싣지 않는다
@@ -305,15 +305,16 @@ export class Net {
         w.events.emit('wave', pusher.toX, pusher.toY, w.me.x, w.me.y);
       } else if (Math.abs(rx) + Math.abs(ry) !== 1 || rx !== p.dx || ry !== p.dy) return; // 보통 밀치기: 바로 옆에서 나를 보고 있어야 함
       // 빠따(b=1): 방어를 깨고 그대로 민다. 이미 깨져 있는 동안에도 방어가 없다 (2026-11-11)
-      if (p.b === 1 && !this.snowOpen() && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(pusher.st.n); // 눈사람 벌칙 중이면 빠따가 와도 60초 방어 깨짐을 새로 걸지 않는다
+      const who = p.b === 2 ? ANON : pusher.st.n; // 어둠의 빠따(b=2): 누가 쳤는지 알리지 않는다. 아래 안내에도 이름 대신 이것을 쓴다
+      if ((p.b === 1 || p.b === 2) && !this.snowOpen() && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(who, p.b === 2); // 눈사람 벌칙 중이면 빠따가 와도 60초 방어 깨짐을 새로 걸지 않는다
       const open = this.guardOpen();
       // 철벽 갑옷: 안 밀린다 (🛡 표시만)
-      if (!open && w.profile.eq?.pa) { w.me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${pusher.st.n} 의 밀치기를 막았다.`); return; }
+      if (!open && w.profile.eq?.pa) { w.me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${who} 의 밀치기를 막았다.`); return; }
       if (!open && w.petGuard()) {
         // 펫 방어 (Lv8): 안 밀리고, 보통 밀치기는 80% 로 되받아친다 — 민 사람에게 반대 방향 밀치기를 쓴다 (그쪽에서 보면 내가 바로 옆에서 보고 민 것과 같은 모양이라 그대로 검증을 통과). 되받은 것(r)은 다시 되받지 않는다
         w.me.blockAt = performance.now();
-        if (p.n !== 2 && !p.r && w.petReflect()) { this.pushReflect(p.f, -p.dx, -p.dy); w.toast(`🛡 펫이 ${pusher.st.n} 의 밀치기를 되받아쳤다!`); }
-        else w.toast(`🛡 펫이 ${pusher.st.n} 의 밀치기를 막았다.`);
+        if (p.n !== 2 && !p.r && w.petReflect()) { this.pushReflect(p.f, -p.dx, -p.dy); w.toast(`🛡 펫이 ${who} 의 밀치기를 되받아쳤다!`); }
+        else w.toast(`🛡 펫이 ${who} 의 밀치기를 막았다.`);
         return;
       }
       w.settleIfStalled(); // 뒤쪽 탭이라 화면 갱신이 멈춰 있으면 이전 걸음부터 마무리 (안 그러면 moving 이 풀리지 않아 계속 못 민다)
@@ -348,10 +349,11 @@ export class Net {
         if (Math.abs(me.x - p.x) + Math.abs(me.y - p.y) !== 1) return;
         if (Math.abs(puller.toX - p.x) + Math.abs(puller.toY - p.y) !== 1) return;
       }
-      if (p.b === 1 && !this.snowOpen() && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(puller.st.n); // 빠따: 방어를 깨고 그대로 끈다
+      const who = p.b === 2 ? ANON : puller.st.n; // 어둠의 빠따: 이름을 알리지 않는다
+      if ((p.b === 1 || p.b === 2) && !this.snowOpen() && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(who, p.b === 2); // 빠따: 방어를 깨고 그대로 끈다
       const open = this.guardOpen();
-      if (!open && w.profile.eq?.pa) { me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${puller.st.n} 의 끌기를 막았다.`); return; }
-      if (!open && w.petGuard()) { me.blockAt = performance.now(); w.toast(`🛡 펫이 ${puller.st.n} 의 끌기를 막았다.`); return; }
+      if (!open && w.profile.eq?.pa) { me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${who} 의 끌기를 막았다.`); return; }
+      if (!open && w.petGuard()) { me.blockAt = performance.now(); w.toast(`🛡 펫이 ${who} 의 끌기를 막았다.`); return; }
       w.settleIfStalled();
       if (me.locked || me.moving) return;
       if (!w.canStep(p.x, p.y, true)) return;
@@ -434,32 +436,44 @@ export class Net {
   }
 
   // 빠따(b=1)가 붙은 타격은 지갑의 빠따를 같은 쓰기에서 줄인다 (규칙이 줄었는지 본다). n: 이번 쓰기에서 쓴 빠따 수
-  private batCost(n: number): Record<string, unknown> { return n > 0 ? { [`wallet/${this.w.uid}/bt`]: increment(-n) } : {}; }
+  // 빠따 값: 보통 빠따(b=1)는 지갑 bt, 어둠의 빠따(b=2)는 bd 를 같은 쓰기에서 줄인다 (규칙이 메시지마다 그 칸이 줄었는지 본다).
+  // 어둠의 빠따는 맞은 사람에게 이름이 안 남는 대신, 관리자만 읽는 채팅 로그에 누가 누구에게 썼는지 한 줄 남긴다 (c='d'. 같은 쓰기라 요청이 늘지 않는다)
+  private batCost(hits: { uid: string; kind: number | undefined }[], how: string): Record<string, unknown> {
+    const w = this.w, upd: Record<string, unknown> = {};
+    const n1 = hits.filter((h) => h.kind === 1).length, dark = hits.filter((h) => h.kind === 2);
+    if (n1 > 0) upd[`wallet/${w.uid}/bt`] = increment(-n1);
+    if (dark.length > 0) upd[`wallet/${w.uid}/bd`] = increment(-dark.length);
+    for (const h of dark) {
+      const key = push(ref(db, 'logs/chat')).key!;
+      upd[`logs/chat/${key}`] = { u: w.uid, n: w.profile.nick, c: 'd', to: h.uid, toNick: w.nickOf(h.uid), t: `🌑 어둠의 빠따 (${how})`, ts: serverTimestamp() };
+    }
+    return upd;
+  }
   toss(targetUid: string, m: Omit<TossMsg, 't'>): void {
-    update(ref(db), { [`players/${targetUid}/toss`]: { ...m, t: serverTimestamp() }, ...this.batCost(m.b ? 1 : 0) }).catch(() => {});
+    update(ref(db), { [`players/${targetUid}/toss`]: { ...m, t: serverTimestamp() }, ...this.batCost([{ uid: targetUid, kind: m.b }], '말랑이') }).catch(() => {});
   }
   // 말랑이 보따리: 여러 명에게 한 번에 (multi-path 쓰기)
   tossMany(shots: { uid: string; m: Omit<TossMsg, 't'> }[]): void {
-    update(ref(db), { ...Object.fromEntries(shots.map((s) => [`players/${s.uid}/toss`, { ...s.m, t: serverTimestamp() }])), ...this.batCost(shots.filter((s) => s.m.b).length) }).catch(() => {});
+    update(ref(db), { ...Object.fromEntries(shots.map((s) => [`players/${s.uid}/toss`, { ...s.m, t: serverTimestamp() }])), ...this.batCost(shots.map((s) => ({ uid: s.uid, kind: s.m.b })), '말랑이') }).catch(() => {});
   }
   // 끌기: 상대를 (x,y)로 당긴다. hook 이면 갈고리 (규칙이 보유 확인)
-  pull(targetUid: string, x: number, y: number, hook = false, bat = false): void {
-    update(ref(db), { [`players/${targetUid}/pull`]: { f: this.w.uid, x, y, t: serverTimestamp(), ...(hook ? { k: 'hook' } : {}), ...(bat ? { b: 1 } : {}) }, ...this.batCost(bat ? 1 : 0) }).catch(() => {});
+  pull(targetUid: string, x: number, y: number, hook = false, bat: BatKind = 0): void {
+    update(ref(db), { [`players/${targetUid}/pull`]: { f: this.w.uid, x, y, t: serverTimestamp(), ...(hook ? { k: 'hook' } : {}), ...(bat ? { b: bat } : {}) }, ...this.batCost([{ uid: targetUid, kind: bat }], hook ? '갈고리' : '끌기') }).catch(() => {});
   }
   // 관리자: 상대를 (x,y)로 보낸다 (광장으로 보내기). 규칙이 관리자만 허용
   sendTo(targetUid: string, x: number, y: number): Promise<void> {
     return set(ref(db, `players/${targetUid}/tp`), { f: this.w.uid, x, y, t: serverTimestamp() });
   }
-  push(targetUid: string, dx: number, dy: number, bat = false): void {
-    update(ref(db), { [`players/${targetUid}/push`]: { f: this.w.uid, dx, dy, t: serverTimestamp(), ...(bat ? { b: 1 } : {}) }, ...this.batCost(bat ? 1 : 0) }).catch(() => {});
+  push(targetUid: string, dx: number, dy: number, bat: BatKind = 0): void {
+    update(ref(db), { [`players/${targetUid}/push`]: { f: this.w.uid, dx, dy, t: serverTimestamp(), ...(bat ? { b: bat } : {}) }, ...this.batCost([{ uid: targetUid, kind: bat }], '밀치기') }).catch(() => {});
   }
   // 거북이 등껍질 되받아치기 (2026-11-10): r 표시가 있으면 받는 쪽이 다시 되받지 않는다
   pushReflect(targetUid: string, dx: number, dy: number): void {
     set(ref(db, `players/${targetUid}/push`), { f: this.w.uid, dx, dy, t: serverTimestamp(), r: true }).catch(() => {});
   }
   // 장풍: 범위 안의 여러 명에게 한 번에 (multi-path). n=2 는 규칙이 보유를 확인한다
-  pushMany(targets: { uid: string; bat: boolean }[], dx: number, dy: number): void {
-    update(ref(db), { ...Object.fromEntries(targets.map((x) => [`players/${x.uid}/push`, { f: this.w.uid, dx, dy, t: serverTimestamp(), n: 2, ...(x.bat ? { b: 1 } : {}) }])), ...this.batCost(targets.filter((x) => x.bat).length) }).catch(() => {});
+  pushMany(targets: { uid: string; bat: BatKind }[], dx: number, dy: number): void {
+    update(ref(db), { ...Object.fromEntries(targets.map((x) => [`players/${x.uid}/push`, { f: this.w.uid, dx, dy, t: serverTimestamp(), n: 2, ...(x.bat ? { b: x.bat } : {}) }])), ...this.batCost(targets.map((x) => ({ uid: x.uid, kind: x.bat })), '장풍') }).catch(() => {});
   }
   // 빠따에 맞아 방어가 깨졌다: 풀리는 시각을 presence 에 올려 남들이 막힌다고 보고 건너뛰지 않게 한다
   setGuardBroken(until: number): void {

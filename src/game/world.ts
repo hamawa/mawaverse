@@ -521,13 +521,15 @@ export class World implements WorldCtx {
   guardUntil = 0;
   snowPenaltyActive(): boolean { return snowActive(this.snowBrokenAt, serverNow()); }
   guardBroken(): boolean { return serverNow() < this.guardUntil || this.snowPenaltyActive(); }
-  breakGuard(byNick: string): void {
-    if (this.home.useShield(byNick)) return; // 겨울잠으로 쌓은 든든함: 빠따 한 번을 막는다 (방어가 안 깨지니 갑옷·펫이 그대로 막는다. 상대 빠따는 소모됐다)
+  breakGuard(byNick: string, dark = false): void {
+    if (this.home.useShield(byNick, dark)) return; // 겨울잠으로 쌓은 든든함: 빠따 한 번을 막는다 (방어가 안 깨지니 갑옷·펫이 그대로 막는다. 상대 빠따는 소모됐다)
     this.guardUntil = serverNow() + GUARD_BREAK_MS;
     try { localStorage.setItem(`mv-gb-${this.uid}`, String(this.guardUntil)); } catch { /* ignore */ }
     this.net.setGuardBroken(this.guardUntil);
-    this.toast(`🏏 ${byNick} 의 빠따에 방어가 깨졌다! ${GUARD_BREAK_MS / 1000}초 동안 갑옷·펫이 막아 주지 않는다.`, true);
-    this.events.emit('log', { channel: 'sys', from: '', text: `🏏 ${byNick} 의 빠따에 방어가 깨졌다 (${GUARD_BREAK_MS / 1000}초)`, ts: serverNow() });
+    // 어둠의 빠따(dark)는 byNick 이 "누군가"로 온다: 누가 쳤는지 알림에도 기록에도 남기지 않는다
+    const bat = dark ? `🌑 ${byNick}의 어둠의 빠따` : `🏏 ${byNick} 의 빠따`;
+    this.toast(`${bat}에 방어가 깨졌다! ${GUARD_BREAK_MS / 1000}초 동안 갑옷·펫이 막아 주지 않는다.`, true);
+    this.events.emit('log', { channel: 'sys', from: '', text: `${bat}에 방어가 깨졌다 (${GUARD_BREAK_MS / 1000}초)`, ts: serverNow() });
   }
   petReflect(): boolean { return !this.snowPenaltyActive() && this.petRide.rollReflect(); }
   // 순간이동 전 정리: 낚시 중이면 취소, 방에 있으면 나간다 (리스폰·관리자 이동 공용)
@@ -963,12 +965,12 @@ export class World implements WorldCtx {
         for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = this.playerAt(x, y); if (rp && !rp.st.r && !all.includes(rp)) all.push(rp); } // st.r: 카지노 안에 앉아 있는 사람은 건드릴 수 없다
         if (!all.length) { this.toast('앞 4칸 안에 아무도 없습니다. 상대 쪽을 바라보고 쓰세요.', true); return; }
         // 방어 중인 사람에게는 빠따가 있으면 한 개씩 써서 깨고 민다. 빠따가 모자라면 그 사람은 막힌다 (🛡 만)
-        const plan = assignBats(all.map((rp) => guardedOf(rp.st, 'push', serverNow())), this.wallet.batsReady());
-        const targets = all.filter((rp, i) => { if (plan[i].blocked) { rp.blockAt = now; return false; } return true; }).map((rp) => ({ rp, bat: plan[all.indexOf(rp)].bat }));
+        const plan = assignBats(all.map((rp) => guardedOf(rp.st, 'push', serverNow())), this.wallet.batsReady(), this.wallet.darksReady());
+        const targets = all.filter((rp, i) => { if (plan[i].blocked) { rp.blockAt = now; return false; } return true; }).map((rp) => ({ rp, bat: plan[all.indexOf(rp)].kind }));
         if (!targets.length) { this.toast('🛡 모두 방어 중이라 밀리지 않습니다. (상점의 빠따로 깰 수 있어요)', true); return; }
         me.lastPushAt = now;
         this.net.pushMany(targets.map((t) => ({ uid: t.rp.uid, bat: t.bat })), dx, dy);
-        this.batNote(targets.filter((t) => t.bat).length, targets.filter((t) => t.bat && t.rp.st.sd).length);
+        this.batNote(targets.filter((t) => t.bat).length, targets.filter((t) => t.bat && t.rp.st.sd).length, targets.filter((t) => t.bat === 2).length);
         for (const t of targets) this.toss.wave(me.x, me.y, Math.round(t.rp.x), Math.round(t.rp.y));
       } else {
         const target = this.playerAt(me.x + dx, me.y + dy);
@@ -977,11 +979,11 @@ export class World implements WorldCtx {
         // 철벽 갑옷을 입은 상대는 안 밀린다: 보내지 않고 🛡 만 (쿨타임도 안 씀)
         // 다만 빠따가 있으면 하나 써서 방어를 깨고 민다 (2026-11-11)
         const guarded = guardedOf(target.st, 'push', serverNow());
-        const bat = guarded && this.wallet.batsReady() > 0;
+        const bat = guarded ? this.wallet.nextBat() : 0; // 어둠의 빠따가 있으면 그것부터 (2)
         if (guarded && !bat) { target.blockAt = now; this.toast(`🛡 ${target.st.n} 은(는) ${target.st.pa ? '철벽 갑옷을 입고 있어' : '펫이 지켜 줘서'} 밀리지 않습니다. (상점의 빠따로 깰 수 있어요)`, true); return; }
         me.lastPushAt = now;
         this.net.push(target.uid, dx, dy, bat);
-        this.batNote(bat ? 1 : 0, bat && target.st.sd ? 1 : 0);
+        this.batNote(bat ? 1 : 0, bat && target.st.sd ? 1 : 0, bat === 2 ? 1 : 0);
       }
     }
     if (id === 14 && !this.pull(now)) return;
@@ -990,8 +992,14 @@ export class World implements WorldCtx {
   }
   // 빠따를 썼으면 한 줄 알림. 남은 개수는 지갑에 반영된 뒤에 읽는다
   // shielded: 그 빠따 가운데 상대의 든든함(겨울잠으로 쌓은 🐟, shared/home.ts)에 막혔을 수. 빠따는 그대로 소모되고 상대 든든함이 하나 준다
-  batNote(used: number, shielded = 0): void {
+  // dark: 그 가운데 어둠의 빠따 수. 전부 어둠의 빠따면 그쪽 문구와 남은 개수를 보여 준다
+  batNote(used: number, shielded = 0, dark = 0): void {
     if (used <= 0) return;
+    if (dark >= used) {
+      window.setTimeout(() => this.note(shielded >= used ? `🌑 어둠의 빠따를 썼지만 상대의 🐟 든든함에 막혔다! 든든함이 하나 줄었다. (남은 어둠의 빠따 ${this.wallet.darks}개)`
+        : `🌑 어둠의 빠따로 방어를 깼다! 누가 쳤는지는 남지 않는다. (남은 ${this.wallet.darks}개)`), 250);
+      return;
+    }
     window.setTimeout(() => this.note(shielded >= used ? `🏏 빠따를 썼지만 상대의 🐟 든든함에 막혔다! 든든함이 하나 줄었다. (남은 빠따 ${this.wallet.bats}개)`
       : shielded > 0 ? `🏏 빠따 ${used}개 사용: ${used - shielded}명은 방어가 깨지고 ${shielded}명은 🐟 든든함으로 버텼다. (남은 ${this.wallet.bats}개)`
       : `🏏 빠따${used > 1 ? ` ${used}개` : ''}로 방어를 깼다! (남은 ${this.wallet.bats}개)`), 250);
@@ -1010,7 +1018,7 @@ export class World implements WorldCtx {
     if (front) {
       if (front.st.r) { this.toast('🎰 카지노 안에 있는 사람은 건드릴 수 없습니다.', true); return false; }
       const guarded = guardedOf(front.st, 'push', serverNow());
-      const bat = guarded && this.wallet.batsReady() > 0; // 빠따가 있으면 하나 써서 방어를 깨고 끈다
+      const bat = guarded ? this.wallet.nextBat() : 0; // 빠따가 있으면 하나 써서 방어를 깨고 끈다 (어둠의 빠따가 먼저)
       if (guarded && !bat) { front.blockAt = now; this.toast(`🛡 ${front.st.n} 은(는) ${front.st.pa ? '철벽 갑옷을 입고 있어' : '펫이 지켜 줘서'} 끌리지 않습니다. (상점의 빠따로 깰 수 있어요)`, true); return false; }
       // 물러설 자리: 뒤 → 옆(두 방향). 방 안팎을 넘나들지는 않는다
       const back: [number, number][] = dx !== 0 ? [[me.x - dx, me.y], [me.x, me.y - 1], [me.x, me.y + 1]] : [[me.x, me.y - dy], [me.x - 1, me.y], [me.x + 1, me.y]];
@@ -1019,7 +1027,7 @@ export class World implements WorldCtx {
       me.lastPushAt = now;
       const ox = me.x, oy = me.y, uid = front.uid;
       // 내 걸음(점유 이동)이 서버에 반영된 뒤에 끌기를 보낸다: 상대가 내 옛 자리로 올 때 점유가 비어 있어야 한다
-      this.startStep(spot[0], spot[1], undefined, { onDone: (ok) => { if (ok) { this.net.pull(uid, ox, oy, false, bat); this.batNote(bat ? 1 : 0, bat && front.st.sd ? 1 : 0); } } });
+      this.startStep(spot[0], spot[1], undefined, { onDone: (ok) => { if (ok) { this.net.pull(uid, ox, oy, false, bat); this.batNote(bat ? 1 : 0, bat && front.st.sd ? 1 : 0, bat === 2 ? 1 : 0); } } });
       return true;
     }
     if (!this.profile.own?.hook) { this.toast('앞에 끌 사람이 없습니다. 상대를 바라보고 붙어서 사용하세요. (갈고리가 있으면 앞 4칸 안에서 끌어옵니다)', true); return false; }
@@ -1029,14 +1037,14 @@ export class World implements WorldCtx {
     for (const [x, y] of frontTiles(me.x, me.y, dx, dy)) { const rp = this.playerAt(x, y); if (rp && !rp.st.r && !all.includes(rp)) all.push(rp); }
     if (!all.length) { this.toast('앞 4칸 안에 끌어올 사람이 없습니다. 상대 쪽을 바라보고 쓰세요.', true); return false; }
     // 방어 중인 사람은 빠따가 있을 때만 후보에 든다 (걸리면 빠따 하나를 써서 깨고 끌어온다)
-    const hasBat = this.wallet.batsReady() > 0;
+    const hasBat = this.wallet.nextBat() > 0;
     const targets = all.filter((rp) => hasBat || !guardedOf(rp.st, 'push', serverNow()));
     if (!targets.length) { for (const rp of all) rp.blockAt = now; this.toast('🛡 모두 방어 중이라 끌리지 않습니다. (상점의 빠따로 깰 수 있어요)', true); return false; }
     const target = targets[Math.floor(Math.random() * targets.length)];
-    const hookBat = guardedOf(target.st, 'push', serverNow());
+    const hookBat = guardedOf(target.st, 'push', serverNow()) ? this.wallet.nextBat() : 0;
     me.lastPushAt = now;
     this.net.pull(target.uid, fx, fy, true, hookBat);
-    this.batNote(hookBat ? 1 : 0, hookBat && target.st.sd ? 1 : 0);
+    this.batNote(hookBat ? 1 : 0, hookBat && target.st.sd ? 1 : 0, hookBat === 2 ? 1 : 0);
     this.toss.hook(me.x, me.y, Math.round(target.x), Math.round(target.y));
     return true;
   }

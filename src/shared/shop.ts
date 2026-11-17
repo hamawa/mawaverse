@@ -156,6 +156,12 @@ export const TOGGLE_KEY: Partial<Record<string, ToggleKey>> = { ...ARMOR_KEY, [S
 // 규칙: b=1 이 붙은 메시지는 보낸 사람의 지갑 bt 가 같은 쓰기에서 줄어들 때만 받는다. 깨진 상태를 지키는 것은 받는 쪽 클라이언트다 (밀치기와 같은 신뢰 수준)
 export const BAT: ShopItem = { id: 'bat', kind: 'use', name: '빠따', price: 1000, icon: '🏏', desc: '밀치기·말랑이·끌기가 상대의 갑옷이나 펫 방어에 막힐 때 하나를 써서 방어를 깨고 그대로 맞힌다. 맞은 사람은 60초 동안 방어가 깨져 누구에게나 밀린다(갑옷이 없어지지는 않는다).' };
 export const GUARD_BREAK_MS = 60000;
+// 어둠의 빠따 (2026-11-17, 사용자 제안): 효과는 빠따와 같지만 맞은 사람의 알림·기록에 누가 쳤는지 남지 않는다 ("누군가"). 메시지에 b=2, 지갑 bd −1.
+// 가지고 있으면 보통 빠따보다 먼저 쓴다 (상점에서 끌 수 있다: 이 브라우저에만 적는다). 화면을 보고 있던 사람에게는 미는 동작이 그대로 보인다: 숨기는 것은 글자뿐이다.
+// 누가 누구에게 썼는지는 관리자만 보는 채팅 로그(logs/chat, c='d')에 남는다 (같은 쓰기에 실어 보낸다. 규칙이 강제하지는 않는다)
+export const DARK_BAT: ShopItem = { id: 'darkbat', kind: 'use', name: '어둠의 빠따', price: 3000, icon: '🌑', desc: '빠따와 같지만 맞은 사람에게 누가 쳤는지 알려지지 않는다("누군가"로만 남는다). 가지고 있으면 보통 빠따보다 먼저 쓴다.' };
+export type BatKind = 0 | 1 | 2; // 0 안 씀 · 1 빠따 · 2 어둠의 빠따 (메시지의 b 값)
+export const ANON = '누군가';
 type GuardState = { pa?: boolean | null; ta?: boolean | null; pt?: string | null; pl?: number | null; gb?: number | null; sn?: number | null } | undefined;
 // 방어가 깨져 있나: gb(풀리는 시각)가 지금(서버 시각)보다 뒤
 export function guardBrokenOf(st: GuardState, now: number): boolean { return typeof st?.gb === 'number' && st.gb > now; }
@@ -167,9 +173,15 @@ export function guardedOf(st: GuardState, kind: 'push' | 'toss', now: number): b
   return !!(kind === 'push' ? st.pa : st.ta) || petGuardOf(st);
 }
 // 겨냥한 사람들 가운데 누구에게 빠따를 쓸지: 방어 중인 사람에게 앞에서부터 한 개씩, 빠따가 모자라면 나머지는 막힌다
-export function assignBats(guarded: boolean[], bats: number): { bat: boolean; blocked: boolean }[] {
-  let left = Math.max(0, Math.floor(bats));
-  return guarded.map((g) => { if (!g) return { bat: false, blocked: false }; if (left > 0) { left--; return { bat: true, blocked: false }; } return { bat: false, blocked: true }; });
+// dark: 쓸 수 있는 어둠의 빠따 수. 있으면 그것부터 쓴다. kind 가 메시지에 실을 b 값
+export function assignBats(guarded: boolean[], bats: number, dark = 0): { bat: boolean; blocked: boolean; kind: BatKind }[] {
+  let left = Math.max(0, Math.floor(bats)), dleft = Math.max(0, Math.floor(dark));
+  return guarded.map((g) => {
+    if (!g) return { bat: false, blocked: false, kind: 0 };
+    if (dleft > 0) { dleft--; return { bat: true, blocked: false, kind: 2 }; }
+    if (left > 0) { left--; return { bat: true, blocked: false, kind: 1 }; }
+    return { bat: false, blocked: true, kind: 0 };
+  });
 }
 
 // 상위 낚싯대 2단계 (2단계는 1단계가 있어야). 희귀 이상 가중치 ROD_BOOST 배, 꽝 가중치 ROD_JUNK 배. 미끼 효과와 곱해진다 (2026-11-09)
@@ -238,7 +250,7 @@ export const HOME_GOODS: ShopItem[] = [
 // 변경 요금 (2026-11-17, 사용자 요청): 외모·닉네임을 바꿀 때 낸다. 소모품이라 지갑에만 기록된다. 요금은 화면이 받는다: 규칙이 변경과 결제를 묶어 보지는 않는다
 export const AVATAR_FEE: ShopItem = { id: 'avatarfee', kind: 'use', name: '외모 변경 요금', price: 1000, icon: '🎨', desc: '외모를 바꿀 때마다 낸다.' };
 export const NICK_FEE: ShopItem = { id: 'nickfee', kind: 'use', name: '닉네임 변경 요금', price: 5000, icon: '✏', desc: '닉네임을 바꿀 때마다 낸다.' };
-export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE];
+export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }
 // 보관함(users/{uid}/own)에 들어가는 품목인가 (소모품인 자동 낚시·미끼·자동 채집·펫 먹이·강화 주문서는 지갑에만 기록된다)
@@ -252,10 +264,11 @@ export function priceOf(item: ShopItem, prices?: Record<string, number> | null):
 // ab: 자동 채집 만료 시각, rd: 마지막으로 룰렛을 돌린 날짜(dayKey), ad/an/bn: 예전 하루 한도 카운트(2026-11-05 한도 해제로 안 씀. 기존 지갑에 남은 값은 다음 자동 구매 때 지워지고, 규칙은 숫자만 허용)
 // b: 마지막으로 산 품목 id (사용액이 그 품목 가격과 같아야 바뀔 수 있고, 보유 등록은 b 가 그 품목일 때만 허용). rd 는 KST 0시(ms), 예전 값은 'YYYYMMDD' 문자열
 // wt/we/md: 예전 코인 획득 속도 상한(10분 창)·신화 보상 날짜. 2026-11-10 상한을 없애며 더 쓰지 않는다 (옛 지갑에 남은 값은 규칙이 숫자로만 허용)
-export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?: number; bu?: boolean; rd?: number | string; ab?: number; b?: string; wt?: number; we?: number; gf?: { n: number; at: number }; gt?: string; cb?: string; ch?: number; ca?: number; cr?: string; md?: number; ad?: number; an?: number; bn?: number; px?: Record<string, number>; pp?: string; es?: number; rs?: number; gn?: number; ga?: number; ks?: number; pi?: number; bt?: number; bo?: boolean; ik?: 's' | 'o'; ib?: number; ip?: number; it?: number; ic?: number; dl?: string; dc?: string; pk?: string; ps?: 'a' | 'b'; pc?: string }
+export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?: number; bu?: boolean; rd?: number | string; ab?: number; b?: string; wt?: number; we?: number; gf?: { n: number; at: number }; gt?: string; cb?: string; ch?: number; ca?: number; cr?: string; md?: number; ad?: number; an?: number; bn?: number; px?: Record<string, number>; pp?: string; es?: number; rs?: number; gn?: number; ga?: number; ks?: number; pi?: number; bt?: number; bd?: number; bo?: boolean; ik?: 's' | 'o'; ib?: number; ip?: number; it?: number; ic?: number; dl?: string; dc?: string; pk?: string; ps?: 'a' | 'b'; pc?: string }
 // pk/ps/pc: 인디언 포커(2026-11-12, shared/poker.ts). pk = 내가 들어간 마지막 판 id, ps = 그 판의 내 자리 (b='poker' 결제에서만 바뀜), pc = 마지막으로 정산한 판 id. pk != pc 이면 아직 정산 안 한 판
 // dl/dc: 1:1 내기(2026-11-12, shared/duel.ts). dl = 내가 판돈을 낸 마지막 내기 id (b='duel' 결제에서만 바뀜), dc = 마지막으로 정산(승리·환불)한 내기 id
 // ik/ib/ip/it/ic: 슬롯 방의 즉석 게임(슬롯·홀짝. 2026-11-12, shared/slots.ts). 베팅하면 ik(게임)·ib(건 돈)·ip(홀짝에서 고른 쪽)·it(서버 시각)가 적히고, 정산하면 ic 가 그 it 가 된다. it != ic 이면 아직 정산 안 한 판
+// bd: 어둠의 빠따 개수 (2026-11-17. b='darkbat' 결제에서만 늘고, b=2 가 붙은 밀치기·말랑이·끌기 쓰기에서 준다)
 // bt: 빠따 개수 (2026-11-11. b='bat' 결제에서만 늘고, 방어를 깨는 밀치기·말랑이·끌기 쓰기에서 준다), bo: 빠따 자동 사용 (기본 true)
 // gn: 가진 금덩이 (2026-11-11. 금광 채광으로 늘고 킹 낚싯대 제작·강화로 준다), ga: 마지막 채광 시각(서버 시각. 규칙이 간격을 본다), ks: 킹 낚싯대 강화 성(0~30. 주문서 1장 + 금덩이 1개가 같이 줄 때만 +1 또는 0)
 // pi: 곡괭이 단계 (0~10, 없으면 0. b='pick' 결제에서만 +1, 값은 정확히 1000·단계² 코인. shared/mine.ts. 포커의 pk 와 이름이 겹쳐 pi).

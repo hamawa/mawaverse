@@ -388,6 +388,28 @@ await expect('allow', 'P231 빠따를 가진 채 미끼 구매 (빠따 그대로
 await seed({ c: 2000000, e: 2000000, bt: 995 });
 w = await cur();
 await expect('deny', 'P232 999개를 넘겨 구매', () => W({ ...w, c: w.c - BP * 5, sp: BP * 5, b: 'bat', bt: 1000 }));
+// P2. 어둠의 빠따 (2026-11-17): 개수(bd)는 b='darkbat' 결제에서만 늘고, 보통 빠따(bt)와 서로 끼워 넣을 수 없다
+if (!prices.darkbat) console.log('  (건너뜀) config/prices 에 darkbat 이 없어 P2 구간은 시험하지 않는다');
+else {
+  const DP = prices.darkbat;
+  await seed({ c: 50000, e: 50000, bt: 2 });
+  w = await cur();
+  await expect('deny', 'P240 돈 안 내고 어둠의 빠따 늘리기', () => W({ ...w, bd: 3 }));
+  await expect('deny', 'P241 어둠의 빠따 5개를 1개 값에', () => W({ ...w, c: w.c - DP, sp: DP, b: 'darkbat', bd: 5 }));
+  await expect('deny', 'P242 값만 내고 개수는 그대로 (일반 구매 분기로 빠져나가기)', () => W({ ...w, c: w.c - DP, sp: DP, b: 'darkbat' }));
+  await expect('deny', 'P243 어둠의 빠따를 사면서 보통 빠따 끼워 넣기', () => W({ ...w, c: w.c - DP, sp: DP, b: 'darkbat', bd: 1, bt: 9 }));
+  await expect('deny', 'P244 보통 빠따를 사면서 어둠의 빠따 끼워 넣기', () => W({ ...w, c: w.c - BP, sp: BP, b: 'bat', bt: 3, bd: 1 }));
+  await expect('allow', 'P245 어둠의 빠따 3개 구매', () => W({ ...w, c: w.c - DP * 3, sp: DP * 3, b: 'darkbat', bd: 3 }));
+  w = await cur();
+  await expect('deny', 'P246 미끼 사면서 어둠의 빠따 끼워 넣기', () => W({ ...w, c: w.c - prices.bait, sp: w.sp + prices.bait, b: 'bait', bait: 1, bd: 4 }));
+  await expect('deny', 'P247 획득하면서 어둠의 빠따 늘리기', () => W({ ...w, c: w.c + 10, e: w.e + 10, bd: 4 }));
+  await expect('allow', 'P248 어둠의 빠따 하나 쓰기 (개수만 −1)', () => W({ ...w, bd: 2 }));
+  w = await cur();
+  await expect('allow', 'P249 어둠의 빠따를 가진 채 보통 빠따 구매', () => W({ ...w, c: w.c - BP, sp: w.sp + BP, b: 'bat', bt: 3 }));
+  await seed({ c: 5000000, e: 5000000, bd: 998 });
+  w = await cur();
+  await expect('deny', 'P250 999개를 넘겨 구매', () => W({ ...w, c: w.c - DP * 2, sp: DP * 2, b: 'darkbat', bd: 1000 }));
+}
 // Q. 낚싯대 없이 성만 남은 지갑 (2026-11-11 실제 발생): 통째로 막히지 않고, 스스로 0 으로 되돌릴 수 있다. 부서지는 쓰기는 지갑과 보관함을 한 번에
 await rootDb.ref(`${UP}/own`).update({ rod2: null, rod3: null });
 await seed({ c: 1000, e: 1000, es: 3, rs: 1, ks: 2 });

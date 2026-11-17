@@ -6,7 +6,7 @@ import { drawHat, nameStyle, petCanvas, mountCanvas } from './cosmetics';
 import {
   HATS, NAME_COLORS, FX, PET_GOODS, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
-  BAT, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
+  BAT, DARK_BAT, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
 } from '../shared/shop';
 import { fmtGold, PICK_MAX, PICK_TOTAL_COST, pickAttempts, pickBonus } from '../shared/mine';
 import type { WalletMgr } from './wallet';
@@ -279,7 +279,25 @@ export function openShop(h: ShopHost): void {
     const tCb = el('input', { type: 'checkbox' }); tCb.checked = h.wallet.batOn;
     tCb.onchange = () => { void h.wallet.setBatUse(tCb.checked); };
     tUse.append(tCb, ' 빠따가 있으면 상대 방어에 막힐 때 자동으로 쓰기');
-    box.append(aRow, gRow, bRow, use, tRow, tUse);
+    // 어둠의 빠따 (2026-11-17): 빠따와 같지만 누가 쳤는지 남지 않는다. 묶음 구매 + 보통 빠따보다 먼저 쓰기 켜고 끄기
+    const dPrice = priceOf(DARK_BAT, prices);
+    const dRow = el('div', { class: 'shop-good' });
+    dRow.append(el('div', { class: 'ic', text: DARK_BAT.icon }), el('div', { class: 'txt' }, [el('div', { class: 'nm', text: `${DARK_BAT.name} · 보유 ${h.wallet.darks}개` }), el('div', { class: 'ds', text: DARK_BAT.desc })]));
+    const dBtns = el('div', { class: 'row', style: 'gap:6px' });
+    for (const n of [1, 5, 10]) {
+      const b = el('button', { class: 'btn small' + (n === 1 ? ' primary' : ''), text: `${n}개 ${fmtCoins(dPrice * n)}` });
+      b.dataset.dark = String(n);
+      if (h.wallet.balance < dPrice * n) { b.disabled = true; b.title = '코인이 모자랍니다'; }
+      else if (h.wallet.darks + n > 999) { b.disabled = true; b.title = '999개까지 가질 수 있습니다'; }
+      b.onclick = async () => { b.disabled = true; if (await h.wallet.buyDarks(dPrice, n)) h.toast(`${DARK_BAT.icon} 어둠의 빠따 ${n}개 구매`); else h.toast('코인이 모자랍니다.', true); render(`[data-dark="${n}"]`); };
+      dBtns.append(b);
+    }
+    dRow.append(dBtns);
+    const dUse = el('label', { class: 'shop-toggle' });
+    const dCb = el('input', { type: 'checkbox' }); dCb.checked = h.wallet.darkOn;
+    dCb.onchange = () => { h.wallet.setDarkUse(dCb.checked); };
+    dUse.append(dCb, ' 어둠의 빠따가 있으면 보통 빠따보다 먼저 쓰기');
+    box.append(aRow, gRow, bRow, use, tRow, tUse, dRow, dUse);
     return box;
   };
 

@@ -131,7 +131,7 @@ test('킹 사이즈: 확률 0성 1% → 30성 5%, 크기는 최대 크기 × 1.5
 });
 
 // ---- 빠따: 방어 깨기 (2026-11-11 밸런스 패치) ----
-const { BAT, GUARD_BREAK_MS, guardedOf, guardBrokenOf, assignBats } = await import('../src/shared/shop.ts');
+const { BAT, DARK_BAT, GUARD_BREAK_MS, guardedOf, guardBrokenOf, assignBats, isOwnItem: isOwnShopItem } = await import('../src/shared/shop.ts');
 
 test('빠따: 방어 판정은 갑옷 종류별·펫 Lv8 공통, 깨져 있는 동안은 방어가 없다', () => {
   const now = 1_000_000;
@@ -162,12 +162,32 @@ test('빠따: 방어 판정은 갑옷 종류별·펫 Lv8 공통, 깨져 있는 �
 
 test('빠따: 방어 중인 사람에게만 한 개씩 쓰고, 모자라면 나머지는 막힌다', () => {
   assert.deepEqual(assignBats([], 5), []);
-  assert.deepEqual(assignBats([false, false], 5), [{ bat: false, blocked: false }, { bat: false, blocked: false }]); // 방어가 없으면 안 쓴다
+  assert.deepEqual(assignBats([false, false], 5), [{ bat: false, blocked: false, kind: 0 }, { bat: false, blocked: false, kind: 0 }]); // 방어가 없으면 안 쓴다
   assert.deepEqual(assignBats([true, false, true, true], 2), [
-    { bat: true, blocked: false }, { bat: false, blocked: false }, { bat: true, blocked: false }, { bat: false, blocked: true },
+    { bat: true, blocked: false, kind: 1 }, { bat: false, blocked: false, kind: 0 }, { bat: true, blocked: false, kind: 1 }, { bat: false, blocked: true, kind: 0 },
   ]);
-  assert.deepEqual(assignBats([true, true], 0), [{ bat: false, blocked: true }, { bat: false, blocked: true }]); // 빠따가 없거나 자동 사용을 껐다
+  assert.deepEqual(assignBats([true, true], 0), [{ bat: false, blocked: true, kind: 0 }, { bat: false, blocked: true, kind: 0 }]); // 빠따가 없거나 자동 사용을 껐다
   assert.equal(assignBats([true, true, true], 99).filter((x) => x.bat).length, 3);
+});
+
+test('어둠의 빠따: 있으면 보통 빠따보다 먼저 쓰고, 다 쓰면 보통 빠따로 넘어간다', () => {
+  assert.deepEqual(assignBats([true, false, true, true, true], 1, 2).map((x) => x.kind), [2, 0, 2, 1, 0]);
+  assert.deepEqual(assignBats([true, true, true, true, true], 1, 2).map((x) => x.blocked), [false, false, false, true, true]);
+  assert.deepEqual(assignBats([true, true], 5, 0).map((x) => x.kind), [1, 1], '먼저 쓰기를 껐거나 없으면 보통 빠따만');
+  assert.deepEqual(assignBats([false], 0, 9).map((x) => x.kind), [0], '방어가 없는 사람에게는 안 쓴다');
+  // 값·품목: 소모품이고 보통 빠따보다 비싸다 (2026-11-17 사용자 결정: 3,000)
+  assert.equal(DARK_BAT.price, 3000);
+  assert.ok(DARK_BAT.price > BAT.price);
+  assert.equal(isOwnShopItem(DARK_BAT.id), false);
+  // 규칙: 생성기가 bd 를 빠따와 같은 식으로 다루고, 메시지의 b=2 는 bd 가 줄 때만 받는다
+  const gen = readFileSync(new URL('../tools/gen-rules.cjs', import.meta.url), 'utf8');
+  assert.ok(gen.includes("const bdNoUp = `${n('bd')} <= ${d('bd')}`;") && gen.includes('${buyDark}') && gen.includes("!= 'darkbat'"));
+  const rules = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules;
+  for (const k of ['push', 'pull', 'toss']) {
+    const v = rules.players.$uid[k]['.validate'];
+    assert.ok(v.includes("newData.child('b').val() == 2 && newData.parent().parent().parent().child('wallet/' + auth.uid + '/bd').val() < root.child('wallet/' + auth.uid + '/bd').val()"), k);
+  }
+  assert.ok(rules.wallet.$uid['.validate'].includes("'darkbat'"));
 });
 
 // ---- 만렙 펫: 타고 다닐지 데리고 다닐지 (2026-11-12 건의 반영) ----

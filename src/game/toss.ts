@@ -2,7 +2,7 @@ import { ref, get, update, serverTimestamp } from 'firebase/database';
 import { db } from '../firebase/app';
 import { weekKey } from '../shared/fish';
 import { dirVec, frontTiles } from './area';
-import { guardedOf, assignBats } from '../shared/shop';
+import { guardedOf, assignBats, ANON } from '../shared/shop';
 import { serverNow } from '../firebase/db';
 import { snowActive } from '../shared/snowpenalty';
 import { playerMapId } from '../shared/maps';
@@ -69,9 +69,9 @@ export class TossMgr {
     if (!targets.length) { w.toast(bag ? '앞 4칸 안에 아무도 없어요. 상대 쪽을 바라보고 던지세요.' : '앞 3칸 안에 아무도 없어요. 상대를 바라보고 던지세요.', true); return false; }
     this.lastThrow = now;
     // 방어 중인 사람에게는 빠따가 있으면 한 개씩 써서 깨고 맞힌다 (b=1). 모자라면 그 사람은 막는다
-    const plan = assignBats(targets.map((t) => guardedOf(t.st, 'toss', serverNow())), w.wallet.batsReady());
-    const shots: Shot[] = targets.map((t, i) => ({ uid: t.uid, m: { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(t.x), ty: Math.round(t.y), ...(plan[i].bat ? { b: 1 } : {}) } }));
-    w.batNote(shots.filter((s) => s.m.b).length, targets.filter((t, i) => plan[i].bat && t.st.sd).length);
+    const plan = assignBats(targets.map((t) => guardedOf(t.st, 'toss', serverNow())), w.wallet.batsReady(), w.wallet.darksReady());
+    const shots: Shot[] = targets.map((t, i) => ({ uid: t.uid, m: { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(t.x), ty: Math.round(t.y), ...(plan[i].bat ? { b: plan[i].kind } : {}) } }));
+    w.batNote(shots.filter((s) => s.m.b).length, targets.filter((t, i) => plan[i].bat && t.st.sd).length, plan.filter((x) => x.kind === 2).length);
     for (const s of shots) this.flying.push({ fx: s.m.fx, fy: s.m.fy, tx: s.m.tx, ty: s.m.ty, start: now });
     if (shots.length === 1) this.net.toss(shots[0].uid, shots[0].m); else this.net.tossMany(shots);
     this.land(() => {
@@ -148,9 +148,10 @@ export class TossMgr {
       const me = w.me, now = performance.now();
       if (me.x !== m.tx || me.y !== m.ty) { w.toast('🧸 휙! 피했다.'); return; }
       // 빠따(b=1): 방어를 깨고 그대로 맞는다. 이미 깨져 있는 동안에도 방어가 없다 (2026-11-11)
-      if (m.b === 1 && !snowActive(w.snowBrokenAt, serverNow()) && (w.profile.eq?.ta || w.petGuard())) w.breakGuard(w.nickOf(m.f));
+      const who = m.b === 2 ? ANON : w.nickOf(m.f); // 어둠의 빠따(b=2): 누가 던졌는지 알리지 않는다. 아래 안내에도 이름 대신 이것을 쓴다
+      if ((m.b === 1 || m.b === 2) && !snowActive(w.snowBrokenAt, serverNow()) && (w.profile.eq?.ta || w.petGuard())) w.breakGuard(who, m.b === 2);
       const open = w.guardBroken();
-      if (!open && w.profile.eq?.ta) { me.blockAt = now; w.toast(`🧥 푹신 갑옷이 ${w.nickOf(m.f)} 의 말랑이를 튕겨냈다.`); return; }
+      if (!open && w.profile.eq?.ta) { me.blockAt = now; w.toast(`🧥 푹신 갑옷이 ${who} 의 말랑이를 튕겨냈다.`); return; }
       if (!open && w.petGuard()) {
         // 펫 방어 (Lv8, 2026-11-10): 튕겨내고, 80% 확률로 던진 사람에게 되던진다 (r 표시: 되돌아온 건 다시 안 튕긴다)
         me.blockAt = now;
@@ -160,13 +161,13 @@ export class TossMgr {
           this.flying.push({ ...back, start: now });
           this.net.toss(m.f, back);
           this.land(() => { const rp = w.players.get(m.f); if (rp && Math.round(rp.x) === back.tx && Math.round(rp.y) === back.ty) { if (guardedOf(rp.st, 'toss', serverNow())) rp.blockAt = performance.now(); else rp.hitAt = performance.now(); } });
-          w.toast(`🛡 펫이 ${w.nickOf(m.f)} 의 말랑이를 되던졌다!`);
-        } else w.toast(`🛡 펫이 ${w.nickOf(m.f)} 의 말랑이를 튕겨냈다.`);
+          w.toast(`🛡 펫이 ${who} 의 말랑이를 되던졌다!`);
+        } else w.toast(`🛡 펫이 ${who} 의 말랑이를 튕겨냈다.`);
         return;
       }
       me.hitAt = now; me.stunUntil = now + TOSS_STUN_MS;
       this.hooks.cancelFishing();
-      w.toast(m.r ? `😵 ${w.nickOf(m.f)} 의 펫이 되던진 말랑이에 맞았다!` : `😵 ${w.nickOf(m.f)} 의 말랑이에 맞았다!`);
+      w.toast(m.r ? `😵 ${w.nickOf(m.f)} 의 펫이 되던진 말랑이에 맞았다!` : `😵 ${who} 의 말랑이에 맞았다!`);
     });
   }
 

@@ -1,7 +1,7 @@
 import { ref, get, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
+import { type BatKind, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
 import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
@@ -247,6 +247,20 @@ export class WalletMgr {
   }
   setBatUse(on: boolean): Promise<boolean> {
     return this.tx((c) => ({ ...c, bo: on }));
+  }
+  // ---- 어둠의 빠따 (2026-11-17): 지갑 bd. "먼저 쓰기"는 이 브라우저에만 적는다 (지갑 칸과 규칙을 더 늘리지 않으려고) ----
+  get darks(): number { return this.wallet.bd || 0; }
+  get darkOn(): boolean { try { return localStorage.getItem(`mv-dark-off-${this.w.uid}`) !== '1'; } catch { return true; } }
+  setDarkUse(on: boolean): void {
+    try { if (on) localStorage.removeItem(`mv-dark-off-${this.w.uid}`); else localStorage.setItem(`mv-dark-off-${this.w.uid}`, '1'); } catch { /* ignore */ }
+    this.listeners.forEach((f) => f());
+  }
+  // 지금 쓸 수 있는 어둠의 빠따 수 (빠따 자동 사용을 껐거나 먼저 쓰기를 껐으면 0)
+  darksReady(): number { return this.batOn && this.darkOn ? this.darks : 0; }
+  // 방어 중인 상대 한 명을 지금 치면 쓰게 될 빠따: 2 어둠의 빠따(있으면 먼저) · 1 빠따 · 0 없음
+  nextBat(): BatKind { return this.darksReady() > 0 ? 2 : this.batsReady() > 0 ? 1 : 0; }
+  buyDarks(price: number, n = 1): Promise<boolean> {
+    return this.spend('darkbat', price * n, (c) => ({ ...c, bd: (c.bd || 0) + n }));
   }
 
   // ---- 금광 채광 (2026-11-11) ----

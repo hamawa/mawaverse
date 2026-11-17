@@ -267,14 +267,15 @@ export class HomeMgr {
     else { this.wake(); w.note('😴 잘 잤다! 겨울잠에서 깼어요.'); }
   }
   // 빠따에 맞았다: 든든함이 있으면 하나 써서 막는다 (world.breakGuard 가 먼저 부른다)
-  useShield(byNick: string): boolean {
+  useShield(byNick: string, dark = false): boolean {
     const n = this.shield;
     if (n <= 0) return false;
     this.shieldLocal = n - 1;
     update(ref(db, `homes/${this.w.uid}`), { sh: n - 1 }).catch(() => {});
     this.syncMarks();
-    this.w.toast(`🐟 든든하게 먹어 둔 덕에 ${byNick} 의 빠따를 버텼다! (남은 ${n - 1}번)`);
-    this.w.events.emit('log', { channel: 'sys', from: '', text: `🐟 ${byNick} 의 빠따를 든든함으로 버텼다 (남은 ${n - 1}번)`, ts: serverNow() });
+    const bat = dark ? `${byNick}의 어둠의 빠따` : `${byNick} 의 빠따`;
+    this.w.toast(`🐟 든든하게 먹어 둔 덕에 ${bat}를 버텼다! (남은 ${n - 1}번)`);
+    this.w.events.emit('log', { channel: 'sys', from: '', text: `🐟 ${bat}를 든든함으로 버텼다 (남은 ${n - 1}번)`, ts: serverNow() });
     return true;
   }
 
