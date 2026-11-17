@@ -1,20 +1,22 @@
 import { ref, onValue, update, increment, serverTimestamp } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { O, O_BED, O_CHEST, objectAt } from './map';
+import { O, O_BED, O_CHEST, objectAt, homeCanPlace } from './map';
 import { dirVec } from './area';
 import { homeMapId, homeOwnerOf, isHomeMapId } from '../shared/maps';
 import {
-  type HomeData, type Bundle, HOME_TIERS, HOME_MAX_TIER, homeTier, tierOf, nextTier, woodOf, fishOf, slotsOf, capacityOf, extraSlotsOf, shieldOf,
+  type HomeData, type Bundle, HOME_MAX_TIER, homeTier, tierOf, nextTier, woodOf, fishOf, slotsOf, capacityOf, extraSlotsOf, shieldOf,
   CHOP_MS, CHOP_SWINGS, WOOD_MAX, rollWood, slotItem, STORE_FLUSH_MS, STORE_MAX, SLEEP_MS, SHIELD_FISH, SHIELD_MAX, fmtWood,
+  furnitureOf, FLOORS, FLOOR_WOOD, decoList, posKey,
 } from '../shared/home';
 import { itemById, priceOf } from '../shared/shop';
 import type { Net } from './net';
+import type { TreeMgr } from './trees';
 import type { WorldCtx } from './state';
 
 // 내 집 (2026-11-17, shared/home.ts 머리말에 설계). 이 클래스는 내 homes/{uid} 를 구독하고, 나무 캐기·짓기·창고·겨울잠과 "지금 들어와 있는 집"의 상태를 맡는다.
 // 맵 이동(들어가기·나가기)은 world.ts 가 포탈과 같은 길(usePortal)로 한다.
-interface Chop { x: number; y: number; mapId: string; left: number; done: number; gained: number; start: number; until: number; saving: boolean }
+interface Chop { x: number; y: number; tx: number; ty: number; mapId: string; left: number; done: number; gained: number; start: number; until: number; saving: boolean }
 export type BuildResult = 'ok' | 'wood' | 'coins' | 'max' | 'fail';
 
 export class HomeMgr {
@@ -38,8 +40,10 @@ export class HomeMgr {
   private marks = '0|0';                        // 마지막으로 presence 에 실은 표시 (든든함|겨울잠)
   private mustLeave: string | null = null;      // 남의 집에서 나가야 하는 이유 (잠김·철거·다시 지음). 나갈 때까지 되풀이해 시도한다
   private busy = false;                         // 짓기·칸 늘리기·팔기 쓰기가 진행 중 (또 누른 것을 무시)
+  private decoSig = '';                         // 지금 그려 둔 집의 꾸미기 값 (바뀌면 방을 다시 만든다)
+  decorating = false;                           // 꾸미기 모드: 내 집 안에서 빈 칸을 보고 F 로 가구를 놓고, 놓은 가구를 보고 F 로 치운다
 
-  constructor(private w: WorldCtx, private net: Net, private h: { leave: (why?: string) => Promise<void>; swing: () => void }) {}
+  constructor(private w: WorldCtx, private net: Net, private h: { leave: (why?: string) => Promise<void>; swing: () => void; refresh: () => void; trees: TreeMgr }) {}
 
   start(): void {
     this.unsub = onValue(ref(db, `homes/${this.w.uid}`), (s) => {
@@ -47,6 +51,7 @@ export class HomeMgr {
       this.shieldLocal = null;
       if (capacityOf(this.data) - fishOf(this.data) > 0) this.fullNoted = false;
       this.syncMarks();
+      if (this.inMine()) this.redraw(this.data);
       this.listeners.forEach((f) => f());
     }, () => {});
     this.timer = window.setInterval(() => this.slowTick(), 1000);
@@ -76,7 +81,8 @@ export class HomeMgr {
   safeHere(): boolean { return this.inHome() && (this.inMine() ? this.tier : tierOf(this.hereData)) >= HOME_MAX_TIER; }
   // 맵을 옮겼다 (world.enterMap). 집 안이면 그 집을 지켜본다: 남의 집이 잠기거나 다시 지어지면 밖으로 나온다
   entered(mapId: string): void {
-    this.chop = null; this.wake();
+    this.chop = null; this.wake(); this.decorating = false;
+    this.decoSig = mapId === homeMapId(this.w.uid) ? sigOf(this.data) : '';
     this.hereUnsub?.(); this.hereUnsub = null; this.hereData = null; this.hereTier = 0; this.mustLeave = null;
     if (!isHomeMapId(mapId)) { this.returnTo = null; return; }
     const owner = homeOwnerOf(mapId);
@@ -88,7 +94,18 @@ export class HomeMgr {
       if (!t) this.mustLeave = '집이 없어져서 밖으로 나왔습니다.';
       else if (t !== this.hereTier) this.mustLeave = '집을 새로 짓는 중이라 밖으로 나왔습니다.';
       else if (t >= 2 && hd?.lk === true) this.mustLeave = '🔒 집주인이 문을 잠가서 밖으로 나왔습니다.';
+      else this.redraw(hd); // 주인이 가구·바닥·박제를 바꿨으면 내 화면의 방도 다시 만든다
     }, () => { this.mustLeave = '집에 더 있을 수 없어 밖으로 나왔습니다.'; });
+  }
+
+  // 지금 들어와 있는 집의 값 (내 집이면 내 것). 방을 만들고 박제를 그리는 데 쓴다
+  here(): HomeData | null { return this.inMine() ? this.data : this.inHome() ? this.hereData : null; }
+  private redraw(hd: HomeData | null): void {
+    const sig = sigOf(hd);
+    if (!this.decoSig) { this.decoSig = sig; return; } // 들어올 때 이미 이 값으로 만들었다
+    if (sig === this.decoSig) return;
+    this.decoSig = sig;
+    this.h.refresh();
   }
 
   // ---- 남에게 보이는 표시 (presence sd·hz) ----
@@ -101,8 +118,8 @@ export class HomeMgr {
   }
 
   // ---- 나무 캐기 ----
-  // 아직 지을 집이 남아 있는 동안만: 남은 단계에 드는 나무를 다 모으면 더 캐지 않는다
-  private woodGoal(): number { let n = 0; for (const t of HOME_TIERS) if (t.tier > this.tier) n += t.wood; return Math.min(WOOD_MAX, n); }
+  // 나무는 집을 다 지은 뒤에도 가구·바닥에 쓴다: 들 수 있는 만큼(WOOD_MAX)까지 캘 수 있다
+  private woodGoal(): number { return WOOD_MAX; }
   get chopping(): boolean { return !!this.chop; }
   chopView(): { done: number; total: number } | null { return this.chop ? { done: this.chop.done, total: CHOP_SWINGS } : null; }
   chopTarget(): { x: number; y: number } | null {
@@ -110,13 +127,17 @@ export class HomeMgr {
     if (this.wood >= this.woodGoal() || w.switching || me.moving || me.locked || me.roomId) return null;
     const [dx, dy] = dirVec(me.dir);
     const tx = me.x + dx, ty = me.y + dy, o = objectAt(w.map, tx, ty);
-    return o === O.TREE || o === O.PINE ? { x: tx, y: ty } : null;
+    // 누가 베어 그루터기·덤불이 된 나무는 다 자랄 때까지 못 캔다 (2026-11-17 저녁)
+    return (o === O.TREE || o === O.PINE) && !this.h.trees.isCut(tx, ty) ? { x: tx, y: ty } : null;
   }
+  // 지금 베고 있는 그 나무를 여전히 보고 있나 (내가 벤 것으로 적힌 뒤에도 남은 도끼질은 이어진다)
+  private facingChopTree(c: Chop): boolean { const [dx, dy] = dirVec(this.w.me.dir); return this.w.me.x + dx === c.tx && this.w.me.y + dy === c.ty; }
   // F: 나무를 CHOP_SWINGS 번 이어서 친다. 치는 중이면 무시
   beginChop(): boolean {
-    if (this.chop || !this.chopTarget()) return false;
+    const t = this.chop ? null : this.chopTarget();
+    if (!t) return false;
     const me = this.w.me, now = performance.now();
-    this.chop = { x: me.x, y: me.y, mapId: this.w.mapId, left: CHOP_SWINGS, done: 0, gained: 0, start: now, until: now + CHOP_MS, saving: false };
+    this.chop = { x: me.x, y: me.y, tx: t.x, ty: t.y, mapId: this.w.mapId, left: CHOP_SWINGS, done: 0, gained: 0, start: now, until: now + CHOP_MS, saving: false };
     return true;
   }
   private stopChop(why: string): void {
@@ -129,20 +150,27 @@ export class HomeMgr {
     if (!c) return;
     if (w.mapId !== c.mapId || w.switching) this.chop = null;
     else if (me.moving || me.x !== c.x || me.y !== c.y) this.stopChop('자리를 떠서');
-    else if (!this.chopTarget() && !c.saving) this.stopChop(this.wood >= this.woodGoal() ? '나무를 다 모아서' : '나무를 보고 있지 않아서');
+    else if (!c.saving && this.wood >= this.woodGoal()) this.stopChop('나무를 더 들 수 없어서');
+    else if (!c.saving && !this.facingChopTree(c)) this.stopChop('나무를 보고 있지 않아서');
     else if (!c.saving && now >= c.until) { c.saving = true; void this.finishChop(c); }
   }
-  private async writeWood(n: number): Promise<boolean> {
-    try { await update(ref(db, `homes/${this.w.uid}`), { w: increment(n), wa: serverTimestamp() }); return true; } catch { return false; }
+  // mark: 이 나무의 첫 도끼질. 나무를 받으면서 그 나무를 벤 것으로 적는다 (한 번의 쓰기. 누가 먼저 벴으면 통째로 거부된다)
+  private async writeWood(n: number, mark?: { x: number; y: number }): Promise<boolean> {
+    const p = `homes/${this.w.uid}`;
+    if (!mark) { try { await update(ref(db, p), { w: increment(n), wa: serverTimestamp() }); return true; } catch { return false; } }
+    const before = this.h.trees.cutAt(mark.x, mark.y);
+    try { await update(ref(db), { [`${p}/w`]: increment(n), [`${p}/wa`]: serverTimestamp(), ...this.h.trees.markUpdate(mark.x, mark.y) }); return true; }
+    catch { this.h.trees.unmark(mark.x, mark.y, before); return false; }
   }
   private async finishChop(c: Chop): Promise<void> {
     const w = this.w;
     const n = Math.min(rollWood(), Math.max(1, this.woodGoal() - this.wood));
-    let ok = await this.writeWood(n);
+    const mark = c.done === 0 ? { x: c.tx, y: c.ty } : undefined;
+    let ok = await this.writeWood(n, mark);
     // 통신이 밀려 앞 쓰기와 간격이 좁게 도착하면 규칙이 거부한다: 한 번만 조금 뒤에 다시
-    if (!ok && this.chop === c) { await new Promise((r) => setTimeout(r, 700)); if (this.chop === c) ok = await this.writeWood(n); }
+    if (!ok && this.chop === c) { await new Promise((r) => setTimeout(r, 700)); if (this.chop === c) ok = await this.writeWood(n, mark); }
     if (ok) { c.done++; c.left--; c.gained += n; w.catchNote('etc', `🌳 나무 +${n} (${c.done}/${CHOP_SWINGS}번째 · 보유 ${fmtWood(this.wood)})`); }
-    else w.toast('나무를 받지 못했습니다. 잠시 후 다시 캐 보세요.', true);
+    else w.toast(mark ? '나무를 받지 못했습니다. 다른 사람이 먼저 벤 나무일 수 있어요.' : '나무를 받지 못했습니다. 잠시 후 다시 캐 보세요.', true);
     if (this.chop !== c) return;
     if (!ok || c.left <= 0) {
       this.chop = null;
@@ -193,6 +221,55 @@ export class HomeMgr {
   async setLock(on: boolean): Promise<boolean> {
     if (this.tier < 2) return false;
     try { await update(ref(db, `homes/${this.w.uid}`), { lk: on ? true : null }); return true; } catch { return false; }
+  }
+
+  // ---- 꾸미기: 가구·바닥·박제 (2026-11-17 저녁) ----
+  made(o: number): boolean { return this.data?.fu?.[String(o)] === true; }
+  get decoCount(): number { return decoList(this.data).length; }
+  get decoLimit(): number { return homeTier(this.data?.t)?.deco ?? 0; }
+  // 가구 만들기: 그 종류를 나무로 한 번 만들면 몇 개든 놓을 수 있다
+  async craft(o: number): Promise<'ok' | 'wood' | 'fail'> {
+    const f = furnitureOf(o);
+    if (!f || !this.tier || this.made(o) || this.busy) return 'fail';
+    if (this.wood < f.wood) return 'wood';
+    this.busy = true;
+    try { await update(ref(db, `homes/${this.w.uid}`), { [`fu/${o}`]: true, w: increment(-f.wood) }); return 'ok'; }
+    catch (e) { console.warn('가구 만들기 실패', e); return 'fail'; }
+    finally { this.busy = false; }
+  }
+  // 꾸미기 모드에서 내 앞 칸: 내가 놓은 가구면 치우기, 놓을 수 있는 빈 칸이면 놓기
+  facingDeco(): { kind: 'place' | 'remove'; x: number; y: number; o: number } | null {
+    const w = this.w, me = w.me;
+    if (!this.decorating || !this.inMine() || w.switching || me.moving || me.locked) return null;
+    const [dx, dy] = dirVec(me.dir);
+    const x = me.x + dx, y = me.y + dy;
+    const mine = this.data?.d?.[posKey(x, y)];
+    if (typeof mine === 'number' && objectAt(w.map, x, y) === mine) return { kind: 'remove', x, y, o: mine };
+    if (homeCanPlace(this.tier, x, y) && objectAt(w.map, x, y) === O.NONE && !w.occupied(x, y)) return { kind: 'place', x, y, o: 0 };
+    return null;
+  }
+  async place(o: number): Promise<'ok' | 'limit' | 'spot' | 'fail'> {
+    const f = this.facingDeco();
+    if (!f || f.kind !== 'place' || !this.made(o)) return 'spot';
+    if (this.decoCount >= this.decoLimit) return 'limit';
+    try { await update(ref(db, `homes/${this.w.uid}/d`), { [posKey(f.x, f.y)]: o }); return 'ok'; } catch (e) { console.warn('가구 놓기 실패', e); return 'fail'; }
+  }
+  async removeFront(): Promise<boolean> {
+    const f = this.facingDeco();
+    if (!f || f.kind !== 'remove') return false;
+    try { await update(ref(db, `homes/${this.w.uid}/d`), { [posKey(f.x, f.y)]: null }); return true; } catch { return false; }
+  }
+  async setFloor(g: number): Promise<'ok' | 'wood' | 'fail'> {
+    if (!this.tier || !FLOORS.some((f) => f.g === g) || this.data?.fl === g || this.busy) return 'fail';
+    if (this.wood < FLOOR_WOOD) return 'wood';
+    this.busy = true;
+    try { await update(ref(db, `homes/${this.w.uid}`), { fl: g, w: increment(-FLOOR_WOOD) }); return 'ok'; } catch { return 'fail'; } finally { this.busy = false; }
+  }
+  // 박제: slot 번째 자리에 물고기를 건다 (id 가 없으면 내린다). 규칙이 내 도감에 그 물고기가 있는지 본다
+  async setTrophy(slot: number, id: string | null, size = 0): Promise<boolean> {
+    const n = homeTier(this.data?.t)?.trophyX.length ?? 0;
+    if (slot < 0 || slot >= n) return false;
+    try { await update(ref(db, `homes/${this.w.uid}/tr`), { [String(slot)]: id ? { id, s: size } : null }); return true; } catch (e) { console.warn('박제 실패', e); return false; }
   }
 
   // ---- 창고 ----
@@ -297,3 +374,6 @@ export function homeOpen(h: HomeData | null | undefined): 'ok' | 'none' | 'locke
   const t = tierOf(h);
   return !t ? 'none' : t >= 2 && h?.lk === true ? 'locked' : 'ok';
 }
+
+// 방 모양에 영향을 주는 값만 뽑은 글자 (나무·물고기 수가 바뀔 때마다 방을 다시 만들지 않으려고)
+function sigOf(h: HomeData | null): string { return JSON.stringify([h?.t ?? 0, h?.d ?? null, h?.fl ?? null, h?.tr ?? null]); }

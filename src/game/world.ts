@@ -40,8 +40,11 @@ import { openMole } from './moleui';
 import { DigMgr } from './dig';
 import { MineMgr } from './mine';
 import { HomeMgr, homeOpen } from './home';
-import { openHome } from './homeui';
-import { type HomeData, homeTier, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
+import { openHome, openFurniturePicker } from './homeui';
+import { TreeMgr } from './trees';
+import { type HomeData, homeTier, furnitureOf, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
+import { fishById, fmtSize } from '../shared/fish';
+import { winterFishById } from '../shared/winter';
 import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
@@ -136,7 +139,8 @@ export class World implements WorldCtx {
   toss = new TossMgr(this, this.net, { cancelFishing: () => this.fishing.cancel() });
   dig = new DigMgr(this, this.net);
   mine = new MineMgr(this, this.net);
-  home = new HomeMgr(this, this.net, { leave: (why) => this.leaveHome(why), swing: () => this.doEmote(13) }); // 내 집: 나무·창고·겨울잠 (shared/home.ts)
+  trees = new TreeMgr(); // 벤 나무 (그루터기 → 덤불 → 5분 뒤 다시 나무. shared/home.ts)
+  home = new HomeMgr(this, this.net, { leave: (why) => this.leaveHome(why), swing: () => this.doEmote(13), refresh: () => this.refreshHome(), trees: this.trees }); // 내 집: 나무·창고·겨울잠 (shared/home.ts)
   winter = new WinterPlay(this.map); // 겨울 맵의 빙판 관성·눈덩이 (눈덩이는 이 브라우저에만 있는 장난감. 맵에 들어올 때마다 새로: resetWinter)
   private lastCoinTick = 0;
   private lastMafiaHud = 0;
@@ -224,7 +228,7 @@ export class World implements WorldCtx {
     this.wallet.listen(() => this.hud.setCoins(this.coinText()));
     this.wallet.listen(() => this.petRide.sync());
     this.wallet.start();
-    this.home.start(); this.home.entered(this.mapId);
+    this.home.start(); this.home.entered(this.mapId); this.trees.watch(this.mapId);
     // 그날 첫 접속이면 2초 뒤 룰렛 창. 지갑이 한 번 읽힌 뒤에 판단한다
     const offW = this.wallet.listen(() => { if (!this.wallet.loaded) return; offW(); if (!this.wallet.rouletteDoneToday()) window.setTimeout(() => { if (!this.stopped) this.openRoulette(); }, 2000); });
     this.rouletteUnsub = watchRouletteFeed(this);
@@ -391,7 +395,7 @@ export class World implements WorldCtx {
     this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
     this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.canvasHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now) });
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.canvasHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques() });
   }
 
   // 마피아 미션 자리 표시 (2026-11-10): 시민·유령은 내 미완료 미션(금색 테두리 + 화면 밖 화살표), 마피아는 모든 자리(흐린 테두리)
@@ -734,7 +738,7 @@ export class World implements WorldCtx {
       const h = mine && this.home.data ? this.home.data : ((await get(ref(db, `homes/${owner}`))).val() as HomeData | null);
       const t = homeTier(h?.t);
       if (!t) throw new Error('no home');
-      return buildHomeMap(id, t.tier, `${mine ? this.profile.nick : this.nickOf(owner)}의 ${t.name}`);
+      return buildHomeMap(id, t.tier, `${mine ? this.profile.nick : this.nickOf(owner)}의 ${t.name}`, h);
     }
     if (src === 'saved') return loadSavedMap(id);
     throw new Error(`invalid map id ${String(id)}`);
@@ -815,6 +819,27 @@ export class World implements WorldCtx {
     const r = this.home.returnTo;
     await this.usePortal(r && !isHomeMapId(r.map) && mapSource(r.map) ? { map: r.map, spawn: { x: r.x, y: r.y }, label: '밖' } : { map: MAIN_MAP_ID });
   }
+  // 집 안에 있는 동안 그 집의 가구·바닥·박제가 바뀌었다: 같은 크기의 방을 다시 만들어 바꿔 끼운다 (서 있는 자리는 그대로)
+  private refreshHome(): void {
+    if (!isHomeMapId(this.mapId) || this.switching) return;
+    const h = this.home.here(), t = homeTier(h?.t);
+    if (!t) return;
+    const m = buildHomeMap(this.mapId, t.tier, this.map.name, h);
+    if (m.w !== this.map.w || m.h !== this.map.h) return; // 단계가 바뀐 것은 밖으로 나가는 쪽이 처리한다
+    this.setMap(m);
+  }
+  // 집 벽에 건 물고기 박제 (그리기용)
+  private homePlaques(): { x: number; y: number; icon: string; text: string }[] | undefined {
+    if (!isHomeMapId(this.mapId)) return undefined;
+    const h = this.home.here(), t = homeTier(h?.t);
+    if (!t || !h?.tr) return undefined;
+    const out: { x: number; y: number; icon: string; text: string }[] = [];
+    t.trophyX.forEach((x, i) => {
+      const tr = h.tr?.[String(i)], f = tr ? (fishById(tr.id) ?? winterFishById(tr.id)) : undefined;
+      if (tr && f) out.push({ x, y: 0, icon: f.icon, text: `${f.name}${tr.s ? ` ${fmtSize(tr.s)}` : ''}` });
+    });
+    return out;
+  }
   // 벽돌집 안: 밀치기·끌기·말랑이가 안 통한다
   homeSafe(): boolean { return this.home.safeHere(); }
   homeMarks(): { sd?: number; hz?: boolean } { return this.home.marksNow(); }
@@ -829,7 +854,7 @@ export class World implements WorldCtx {
     this.waterHoldUntil = 0;
     this.resetWinter(); // 눈덩이·눈사람·관성은 맵을 나가면 사라지고 들어올 때 새로 놓인다
     this.fishing.cancel(); // 맵을 읽는 사이 자동 낚시가 옛 맵 물에 다시 던졌을 수 있다
-    this.bugs.clear(); this.toss.clear(); this.pets.forget(this.uid); this.mine.left(); this.home.entered(id);
+    this.bugs.clear(); this.toss.clear(); this.pets.forget(this.uid); this.mine.left(); this.home.entered(id); this.trees.watch(id);
     for (const rp of this.players.values()) rp.bubble = null;
     // lastHint 는 그대로 둔다: 여기서 비우면 화면의 '이동 중…' 안내와 어긋나, 도착한 칸에 안내가 없을 때 그 문구가 지워지지 않는다. 다음 프레임의 updateHint 가 새 맵 기준으로 맞춘다
     this.events.emit('players');
@@ -847,7 +872,7 @@ export class World implements WorldCtx {
 
   // ---------- 상호작용 ----------
   // F 로 할 수 있는 것과 그 안내 위치. 우선순위: 게시판 → 낚시 중 → 물가(낚시 시작) → 낚시 표지판
-  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' } | null {
+  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' | 'decoPlace' | 'decoRemove' } | null {
     const me = this.me;
     if (me.roomId) return null;
     if (this.switching) return { x: me.x, y: me.y - 1, text: '🌀 이동 중…', kind: 'portal' };
@@ -870,6 +895,9 @@ export class World implements WorldCtx {
     const hf = this.home.facing();
     if (hf === 'bed') return { x: me.x, y: me.y - 1, text: `F 겨울잠 (${SLEEP_MS / 60000}분)`, kind: 'bed' };
     if (hf === 'chest') return { x: me.x, y: me.y - 1, text: 'F 창고 열기', kind: 'chest' };
+    // 꾸미기 모드: 놓은 가구를 보면 치우기, 놓을 수 있는 빈 칸을 보면 놓기 (문 옆에서도 포탈보다 먼저)
+    const fd = this.home.facingDeco();
+    if (fd) return fd.kind === 'remove' ? { x: fd.x, y: fd.y, text: `F ${furnitureOf(fd.o)?.name ?? '가구'} 치우기`, kind: 'decoRemove' } : { x: fd.x, y: fd.y, text: `F 가구 놓기 (${this.home.decoCount}/${this.home.decoLimit})`, kind: 'decoPlace' };
     const fv = this.fishing.view();
     const bug = this.bugs.targetView();
     // 포탈 옆이라도 하던 낚시·바로 옆 벌레·삽질·발밑 보물 자리가 먼저다 (2026-11-11: 포탈 옆에 잡힌 보물 자리를 팔 수 없던 문제). 그 일이 끝나면 다시 포탈 안내가 뜬다
@@ -936,6 +964,8 @@ export class World implements WorldCtx {
     else if (ch.kind === 'chop') { if (!this.input.interactRepeat && this.home.beginChop()) this.doEmote(13); } // 도끼질은 삽질 동작으로 남에게도 보인다
     else if (ch.kind === 'bed') this.home.beginSleep();
     else if (ch.kind === 'chest') { this.input.releaseAll(); openHome(this); }
+    else if (ch.kind === 'decoPlace') { this.input.releaseAll(); openFurniturePicker(this); }
+    else if (ch.kind === 'decoRemove') void this.home.removeFront().then((ok) => { if (!ok) this.toast('치우지 못했습니다.', true); });
     else if (ch.kind === 'snowman') this.smashStep(ch);
     else if (ch.kind === 'snowfight') this.snowfightF();
     else if (ch.kind === 'arcade') { this.input.releaseAll(); openMole({ uid: this.uid, nick: this.profile.nick, wallet: this.wallet, input: this.input, toast: (m, e) => this.toast(m, e), stat: (k) => this.net.stat(k) }); }
@@ -1216,7 +1246,7 @@ export class World implements WorldCtx {
     this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
-    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.wallet.stop(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
+    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.wallet.stop(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});
     await this.net.leave(replaced);
     document.body.classList.remove('mobile');

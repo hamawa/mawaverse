@@ -1,6 +1,6 @@
 import { mulberry32 } from '../shared/hash';
 import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, isMapId } from '../shared/maps';
-import { HOME_TIERS, HOME_MAX_TIER } from '../shared/home';
+import { HOME_TIERS, HOME_MAX_TIER, FLOORS, decoList, type HomeData } from '../shared/home';
 
 // 바닥 타일
 export const G = {
@@ -488,23 +488,33 @@ export function buildWinterMap(): MapData {
 // 집 안 (2026-11-17, shared/home.ts): 방 하나짜리 맵. 단계가 오르면 방이 커지고 바닥·가구가 달라진다. 맵 크기가 방 크기라 화면 가운데에 작게 뜬다.
 // 문(아래쪽 가운데 매트)이 밖으로 나가는 포탈이다. 행선지는 기본 맵으로 적어 두지만 world.ts 가 "들어오기 전에 있던 자리"로 바꿔서 보낸다
 export const HOME_EXIT_ZONE = 'home-exit';
-export function buildHomeMap(id: string, tierNo: number, label: string): MapData {
+// 가구를 놓을 수 있는 칸인가: 방 안이고, 침대·창고 상자와 그 앞 칸, 문 앞(들어오는 자리)이 아니어야 한다 (주인이 침대·상자·문을 못 쓰게 막지 않도록)
+export function homeCanPlace(tierNo: number, x: number, y: number): boolean {
+  const t = HOME_TIERS[Math.max(1, Math.min(HOME_MAX_TIER, Math.floor(tierNo) || 1)) - 1];
+  const W = t.iw + 2, H = t.ih + 2, door = Math.floor(W / 2);
+  if (x < 1 || y < 1 || x > W - 2 || y > H - 2) return false;
+  if ((x === 1 || x === W - 2) && (y === 1 || y === 2)) return false;
+  return !(x === door && y === H - 2);
+}
+// deco: 그 집의 꾸미기 값(homes/{uid} 의 d·fl). 가구를 하나라도 놓았으면 단계별 기본 가구는 치우고 놓은 것만 보여 준다. 바닥재를 골랐으면 방 전체를 그것으로 깐다
+export function buildHomeMap(id: string, tierNo: number, label: string, deco?: HomeData | null): MapData {
   const t = HOME_TIERS[Math.max(1, Math.min(HOME_MAX_TIER, Math.floor(tierNo) || 1)) - 1];
   const W = t.iw + 2, H = t.ih + 2;
   const m = emptyMap(id, label, W, H);
   const setG = (x: number, y: number, g: number) => { if (inBounds(m, x, y)) m.ground[y * W + x] = g; };
   const setO = (x: number, y: number, o: number) => { if (inBounds(m, x, y)) m.objects[y * W + x] = o; };
-  m.ground.fill(t.tier === 1 ? G.SAND : t.tier === 2 ? G.WOOD : G.TILE_FLOOR);
+  const floor = FLOORS.some((f) => f.g === deco?.fl) ? deco!.fl! : null;
+  const placed = decoList(deco).filter((p) => homeCanPlace(t.tier, p.x, p.y));
+  m.ground.fill(floor ?? (t.tier === 1 ? G.SAND : t.tier === 2 ? G.WOOD : G.TILE_FLOOR));
   for (let x = 0; x < W; x++) { setO(x, 0, x > 1 && x < W - 2 && x % 3 === 2 ? O.WALL_WINDOW : O.WALL); setO(x, H - 1, O.WALL); }
   for (let y = 1; y < H - 1; y++) { setO(0, y, O.WALL_SIDE); setO(W - 1, y, O.WALL_SIDE); }
   const door = Math.floor(W / 2);
   setO(door, H - 1, O.MAT);
   setO(1, 1, O_BED); setO(W - 2, 1, O_CHEST);
-  if (t.tier === 2) { setO(4, 2, O.TABLE); setO(5, 2, O.CHAIR); setO(1, H - 2, O.PLANT); }
-  if (t.tier === 3) {
-    for (let y = 2; y <= H - 3; y++) for (let x = 3; x <= W - 4; x++) setG(x, y, G.CARPET);
-    setO(4, 1, O.BOOKSHELF); setO(5, 3, O.TABLE_ROUND); setO(4, 3, O.CHAIR); setO(2, H - 2, O.SOFA); setO(W - 2, H - 2, O.PLANT);
-  }
+  if (t.tier === 3 && floor === null) for (let y = 2; y <= H - 3; y++) for (let x = 3; x <= W - 4; x++) setG(x, y, G.CARPET);
+  if (placed.length) for (const p of placed) setO(p.x, p.y, p.o);
+  else if (t.tier === 2) { setO(4, 2, O.TABLE); setO(5, 2, O.CHAIR); setO(1, H - 2, O.PLANT); }
+  else if (t.tier === 3) { setO(4, 1, O.BOOKSHELF); setO(5, 3, O.TABLE_ROUND); setO(4, 3, O.CHAIR); setO(2, H - 2, O.SOFA); setO(W - 2, H - 2, O.PLANT); }
   m.zones.push({ id: 'lbl-home', kind: 'label', x: 1, y: 1, w: W - 2, h: H - 2, label });
   m.zones.push({ id: HOME_EXIT_ZONE, kind: 'portal', x: door, y: H - 1, w: 1, h: 1, label: '밖으로', targetMap: MAIN_MAP_ID });
   m.spawn = { x: door, y: H - 2 };

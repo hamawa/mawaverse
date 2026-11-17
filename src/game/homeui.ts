@@ -1,6 +1,10 @@
+import { ref, get } from 'firebase/database';
+import { db } from '../firebase/app';
 import { el } from '../shared/util';
 import { modal, withCloseX, confirmModal } from './ui';
-import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood } from '../shared/home';
+import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, TROPHY_MIN_RARITY } from '../shared/home';
+import { fishById, fmtSize, RARITY_NAME, type FishBookEntry } from '../shared/fish';
+import { winterFishById } from '../shared/winter';
 import { itemById, priceOf, fmtCoins } from '../shared/shop';
 import type { World } from './world';
 
@@ -80,10 +84,111 @@ export function openHome(w: World): void {
     body.append(title('😴 겨울잠'));
     body.append(line(`든든함 🐟 ${h.shield}/${SHIELD_MAX}`));
     body.append(line(`집 안 침대를 보고 F. ${SLEEP_MS / 60000}분을 자면 창고 물고기 ${SHIELD_FISH}마리를 먹고 든든함이 1 쌓여요. 든든함 하나가 빠따 한 번을 막아 줘요(갑옷·펫 방어가 안 깨져요).`, true));
+
+    // 꾸미기 (2026-11-17 저녁): 가구는 나무로 종류마다 한 번 만들고, 꾸미기 모드에서 F 로 놓고 치운다
+    body.append(title('🛋 꾸미기'));
+    body.append(line(`놓은 가구 ${h.decoCount}/${h.decoLimit}개`));
+    body.append(row(btn(h.decorating ? '꾸미기 모드 끄기' : '꾸미기 모드 켜기', () => {
+      h.decorating = !h.decorating;
+      if (h.decorating) { closeModal?.(); w.toast('🛋 꾸미기 모드: 빈 칸을 보고 F 로 가구를 놓고, 놓은 가구를 보고 F 로 치워요.'); }
+    }, h.inMine()), line(h.inMine() ? '빈 칸을 보고 F 로 놓고, 놓은 가구를 보고 F 로 치워요' : '집 안에서 켤 수 있어요', true)));
+    body.append(line('가구는 종류마다 나무로 한 번 만들면 몇 개든 놓을 수 있어요. 하나라도 놓으면 기본 가구는 치워져요.', true));
+    const fbox = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;margin:6px 0' });
+    for (const f of FURNITURE) fbox.append(craftButton(w, f.o, btn));
+    body.append(fbox);
+
+    body.append(title('바닥'));
+    body.append(row(...FLOORS.map((f) => btn(h.data?.fl === f.g ? `✔ ${f.name}` : f.name, async () => {
+      const r = await h.setFloor(f.g);
+      if (r !== 'ok') w.toast(r === 'wood' ? '나무가 모자랍니다.' : '바꾸지 못했습니다.', true);
+    }, h.data?.fl !== f.g && h.wood >= FLOOR_WOOD))));
+    body.append(line(`바꿀 때마다 나무 ${FLOOR_WOOD}개가 들어요.`, true));
+
+    body.append(title('🏆 물고기 박제'));
+    body.append(line('내가 잡은 적 있는 전설·신화 물고기를 벽에 걸 수 있어요.', true));
+    t.trophyX.forEach((_x, i) => {
+      const tr = h.data?.tr?.[String(i)], f = tr ? (fishById(tr.id) ?? winterFishById(tr.id)) : undefined;
+      body.append(row(
+        line(`${i + 1}번 자리: ${tr && f ? `${f.icon} ${f.name}${tr.s ? ` ${fmtSize(tr.s)}` : ''}` : '비어 있음'}`),
+        btn('고르기', () => pickTrophy(w, i)),
+        ...(tr ? [btn('내리기', async () => { if (!(await h.setTrophy(i, null))) w.toast('내리지 못했습니다.', true); })] : []),
+      ));
+    });
   };
   const offs = [h.listen(render), w.wallet.listen(render)];
   render();
   const m = modal('🏠 내 집', body, [{ label: '닫기', onClick: () => {} }], false, () => { offs.forEach((f) => f()); opened = null; closeModal = null; });
   withCloseX(m);
   opened = m; closeModal = m.close;
+}
+
+type Btn = (label: string, onClick: () => unknown, enabled?: boolean, primary?: boolean) => HTMLButtonElement;
+// 가구 하나: 만들었으면 표시만, 아니면 나무로 만드는 단추
+function craftButton(w: World, o: number, btn: Btn): HTMLElement {
+  const f = FURNITURE.find((x) => x.o === o)!;
+  if (w.home.made(o)) return el('span', { style: 'font-size:12px;opacity:.8;padding:4px 6px', text: `✔ ${f.name}` });
+  return btn(`${f.name} 만들기 ${fmtWood(f.wood)}`, async () => {
+    const r = await w.home.craft(o);
+    if (r === 'ok') w.toast(`🛋 ${f.name}을(를) 만들었어요. 꾸미기 모드에서 놓을 수 있어요.`);
+    else w.toast(r === 'wood' ? '나무가 모자랍니다.' : '만들지 못했습니다.', true);
+  }, w.home.wood >= f.wood);
+}
+
+// 꾸미기 모드에서 빈 칸을 보고 F: 내 앞 칸에 놓을 가구를 고른다
+let picker: { close: () => void } | null = null;
+export function openFurniturePicker(w: World): void {
+  if (picker) return;
+  const h = w.home;
+  const body = el('div', { style: 'min-width:240px;max-width:380px;line-height:1.5' });
+  let close: (() => void) | null = null;
+  const btn: Btn = (label, onClick, enabled = true, primary = false) => {
+    const b = el('button', { class: 'btn small' + (primary ? ' primary' : ''), text: label });
+    b.disabled = !enabled || h.working;
+    b.onclick = () => { void Promise.resolve(onClick()).then(render); };
+    return b;
+  };
+  const render = (): void => {
+    body.innerHTML = '';
+    body.append(el('div', { text: `놓은 가구 ${h.decoCount}/${h.decoLimit}개 · ${fmtWood(h.wood)}` }));
+    if (h.decoCount >= h.decoLimit) { body.append(el('div', { style: 'opacity:.75;font-size:12px', text: '더 놓을 수 없어요. 놓은 가구를 치우거나 집을 올리면 더 놓을 수 있어요.' })); return; }
+    const made = FURNITURE.filter((f) => h.made(f.o));
+    const box = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;margin:8px 0' });
+    for (const f of made) box.append(btn(f.name, async () => {
+      const r = await h.place(f.o);
+      if (r === 'ok') close?.();
+      else w.toast(r === 'limit' ? '더 놓을 수 없어요.' : r === 'spot' ? '여기에는 놓을 수 없어요.' : '놓지 못했습니다.', true);
+    }, true, true));
+    body.append(made.length ? box : el('div', { style: 'opacity:.75;font-size:12px;margin:6px 0', text: '아직 만든 가구가 없어요. 아래에서 나무로 만들 수 있어요.' }));
+    const rest = FURNITURE.filter((f) => !h.made(f.o));
+    if (rest.length) {
+      body.append(el('div', { style: 'font-weight:700;margin:10px 0 4px', text: '가구 만들기' }));
+      const cbox = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' });
+      for (const f of rest) cbox.append(craftButton(w, f.o, btn));
+      body.append(cbox);
+    }
+  };
+  const off = h.listen(render);
+  render();
+  const m = modal('🛋 가구 놓기', body, [{ label: '닫기', onClick: () => {} }], false, () => { off(); picker = null; close = null; });
+  withCloseX(m);
+  picker = m; close = m.close;
+}
+
+// 박제할 물고기 고르기: 내 도감에서 전설·신화만
+async function pickTrophy(w: World, slot: number): Promise<void> {
+  let book: Record<string, FishBookEntry> = {};
+  try { book = ((await get(ref(db, `fish/book/${w.uid}`))).val() as Record<string, FishBookEntry> | null) || {}; } catch { /* 못 읽으면 빈 목록 */ }
+  const list = Object.entries(book).map(([id, e]) => ({ id, e, f: fishById(id) ?? winterFishById(id) })).filter((x) => x.f && !x.f.junk && x.f.rarity >= TROPHY_MIN_RARITY)
+    .sort((a, b) => b.f!.rarity - a.f!.rarity || b.e.m - a.e.m);
+  const body = el('div', { style: 'min-width:240px;max-width:380px;line-height:1.5;display:flex;flex-direction:column;gap:6px' });
+  let close: (() => void) | null = null;
+  if (!list.length) body.append(el('div', { text: '아직 전설·신화 물고기를 잡은 적이 없어요.' }));
+  for (const x of list) {
+    const b = el('button', { class: 'btn small', text: `${x.f!.icon} ${x.f!.name} · ${RARITY_NAME[x.f!.rarity]} · 최대 ${fmtSize(x.e.m)}` });
+    b.onclick = async () => { b.disabled = true; if (await w.home.setTrophy(slot, x.id, x.e.m)) close?.(); else { w.toast('걸지 못했습니다.', true); b.disabled = false; } };
+    body.append(b);
+  }
+  const m = modal(`🏆 ${slot + 1}번 자리에 걸 물고기`, body, [{ label: '닫기', onClick: () => {} }]);
+  withCloseX(m);
+  close = m.close;
 }

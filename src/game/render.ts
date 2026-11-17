@@ -63,6 +63,8 @@ export interface RenderState {
   bodies?: BodyView[]; // 마피아 시체
   marks?: { spots: TaskMark[]; mine: boolean } | null; // 마피아 미션 자리
   snow?: SnowView[];  // 겨울 맵의 눈덩이·눈사람 (내 화면에만 있는 장난감, 클라이언트 로컬)
+  objAt?: (x: number, y: number, id: number) => number; // 그 칸에 실제로 그릴 오브젝트 (벤 나무는 그루터기·덤불로. 맵 데이터는 그대로라 길은 계속 막힌다)
+  plaques?: { x: number; y: number; icon: string; text: string }[]; // 집 벽에 건 물고기 박제 (타일 좌표)
 }
 
 const EMOTE_ICON: Record<number, string> = { 1: '👋', 2: '', 3: '😆', 4: '💧', 5: '💤', 6: '🥱', 7: '💢', 8: '❤', 9: '♪', 10: '💥', 11: '🥅', 12: '🧸', 13: '⛏', 14: '🧲', 15: '🐤' }; // 15: 삐약 (예전 병아리 스킬. 이모트 자리는 남겨 둔다)
@@ -132,13 +134,23 @@ export function render(eng: Engine, st: RenderState): void {
   // ---- 오브젝트 + 캐릭터 (y 정렬) ----
   const items: Drawable[] = [];
   for (let y = Math.max(0, vis.y0 - 1); y <= Math.min(map.h - 1, vis.y1 + 1); y++) for (let x = vis.x0; x <= vis.x1; x++) {
-    const id = map.objects[y * map.w + x];
-    if (!id) continue;
+    const raw = map.objects[y * map.w + x];
+    if (!raw) continue;
+    const id = st.objAt ? st.objAt(x, y, raw) : raw;
     const spr = objectSprite(id);
     if (!spr) continue;
     const tall = TALL_OBJECTS.has(id);
     items.push({ sortY: y + 0.9, order: 0, draw: () => ctx.drawImage(spr.cv, x * TILE, y * TILE - (tall ? TILE : 0)) });
   }
+  // 집 벽의 물고기 박제: 나무 판에 물고기 그림, 아래에 이름과 크기
+  for (const p of st.plaques ?? []) items.push({ sortY: p.y + 0.95, order: 1, draw: () => {
+    const px = p.x * TILE, py = p.y * TILE;
+    ctx.fillStyle = '#6e4620'; roundRect(ctx, px + 3, py + 3, TILE - 6, TILE - 8, 4); ctx.fill();
+    ctx.fillStyle = '#f4ead2'; roundRect(ctx, px + 5, py + 5, TILE - 10, TILE - 12, 3); ctx.fill();
+    ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#222';
+    ctx.fillText(p.icon, px + TILE / 2, py + TILE / 2 - 1);
+    drawLabel(ctx, p.text, px + TILE / 2, py + TILE + 10, '#fff', 'rgba(0,0,0,0.5)', 9);
+  } });
   // 금광의 거대한 금덩어리: 큰 그림 한 장. 아랫줄 기준으로 정렬해 위쪽에 선 사람은 뒤에, 아래쪽에 선 사람은 앞에 온다
   for (const z of map.zones) if (z.kind === 'mine') {
     if (!eng.isTileVisible(z.x + z.w / 2 - 0.5, z.y + z.h / 2 - 0.5, TILE * Math.max(z.w, z.h))) continue;

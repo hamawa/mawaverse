@@ -942,6 +942,42 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await root.ref('homes/OTHER').set({ t: 1, w: 0 });
   await expect('집: 초가집 문 잠그기', 'deny', () => other.ref('homes/OTHER').update({ lk: true }));
   await expect('집: 모르는 칸', 'deny', () => ok.ref(H).update({ zz: 1 }));
+  // ---- 꾸미기 (fu 가구 만들기 · d 놓기 · fl 바닥 · tr 박제. 2026-11-17 저녁) ----
+  await root.ref().update({ [H]: { t: 2, w: 200, wa: 1 }, 'fish/book/OK': { dragonking: { c: 1, m: 150, f: 1 } } });
+  await expect('꾸미기: 나무를 안 내고 가구 만들기', 'deny', () => ok.ref(H).update({ 'fu/22': true }));
+  await expect('꾸미기: 값을 덜 내고 소파 만들기 (60)', 'deny', () => ok.ref(H).update({ 'fu/22': true, w: 150 }));
+  await expect('꾸미기: 목록에 없는 가구', 'deny', () => ok.ref(H).update({ 'fu/2': true, w: 180 }));
+  await expect('꾸미기: 소파 만들기 (나무 -60)', 'allow', () => ok.ref(H).update({ 'fu/22': true, w: 140 }));
+  await expect('꾸미기: 의자 만들기 (나무 -20)', 'allow', () => ok.ref(H).update({ 'fu/6': true, w: 120 }));
+  await expect('꾸미기: 만든 가구 놓기', 'allow', () => ok.ref(H + '/d').update({ '3_3': 22 }));
+  await expect('꾸미기: 안 만든 가구 놓기', 'deny', () => ok.ref(H + '/d').update({ '4_3': 23 }));
+  await expect('꾸미기: 이상한 자리 이름', 'deny', () => ok.ref(H + '/d').update({ 'abc': 22 }));
+  await expect('꾸미기: 놓은 가구 치우기', 'allow', () => ok.ref(H + '/d/3_3').remove());
+  await expect('꾸미기: 남의 집에 가구 놓기', 'deny', () => other.ref(H + '/d').update({ '3_3': 22 }));
+  await expect('꾸미기: 나무를 안 내고 바닥 바꾸기', 'deny', () => ok.ref(H).update({ fl: 8 }));
+  await expect('꾸미기: 모르는 바닥', 'deny', () => ok.ref(H).update({ fl: 2, w: 90 }));
+  await expect('꾸미기: 바닥 바꾸기 (나무 -30)', 'allow', () => ok.ref(H).update({ fl: 8, w: 90 }));
+  await expect('꾸미기: 잡은 물고기 박제', 'allow', () => ok.ref(H + '/tr').update({ 0: { id: 'dragonking', s: 150 } }));
+  await expect('꾸미기: 안 잡은 물고기 박제', 'deny', () => ok.ref(H + '/tr').update({ 1: { id: 'nothing', s: 10 } }));
+  await expect('꾸미기: 통나무집의 3번째 박제 자리', 'deny', () => ok.ref(H + '/tr').update({ 2: { id: 'dragonking', s: 150 } }));
+  await expect('꾸미기: 박제 내리기', 'allow', () => ok.ref(H + '/tr/0').remove());
+  // ---- 벤 나무 (trees/{맵}/{x_y}): 나무를 받는 쓰기와 함께, 다 자란 뒤에만 다시 ----
+  await root.ref().update({ trees: null, [H + '/wa']: 1, [H + '/w']: 10 });
+  await expect('나무: 나무를 받지 않고 벤 표시만', 'deny', () => ok.ref('trees/main/5_7').set(SV));
+  await expect('나무: 받으면서 벤 표시', 'allow', () => ok.ref().update({ [H + '/w']: 12, [H + '/wa']: SV, 'trees/main/5_7': SV }));
+  await root.ref(H + '/wa').set(1);
+  await expect('나무: 방금 베인 나무를 또 베기', 'deny', () => ok.ref().update({ [H + '/w']: 14, [H + '/wa']: SV, 'trees/main/5_7': SV }));
+  await expect('나무: 다 자라지 않은 기록 지우기', 'deny', () => ok.ref('trees/main/5_7').remove());
+  await root.ref('trees/main/5_7').set(Date.now() - 301000);
+  await expect('나무: 다 자란 나무 다시 베기', 'allow', () => ok.ref().update({ [H + '/w']: 14, [H + '/wa']: SV, 'trees/main/5_7': SV }));
+  await root.ref('trees/main/9_9').set(Date.now() - 400000);
+  await expect('나무: 다 자란 기록 치우기', 'allow', () => ok.ref('trees/main/9_9').remove());
+  await expect('나무: 과거 시각으로 벤 표시', 'deny', () => root.ref(H + '/wa').set(1).then(() => ok.ref().update({ [H + '/w']: 16, [H + '/wa']: SV, 'trees/main/6_7': 1 })));
+  await expect('나무: 이상한 자리 이름', 'deny', () => ok.ref().update({ [H + '/w']: 16, [H + '/wa']: SV, 'trees/main/zz': SV }));
+  await expect('나무: 대기 중인 계정은 못 읽는다', 'deny', () => pend.ref('trees/main').get());
+  await expect('나무: 승인된 계정은 읽는다', 'allow', () => ok.ref('trees/main').get());
+  await root.ref().update({ trees: null, 'fish/book/OK': null });
+  await root.ref(H).set({ t: 2, w: 70, wa: 1, f: 20, s: 3, sh: 2, lk: true });
   // 집 맵 id (players/{uid}/m): 내 집은 언제나, 남의 집은 초가집이거나 잠겨 있지 않을 때
   await expect('집 맵: 내 집에 들어가기 (잠가 둔 채)', 'allow', () => ok.ref('players/OK').set({ ...presence, m: 'h-OK' }));
   await expect('집 맵: 잠긴 남의 집', 'deny', () => other.ref('players/OTHER').set({ ...presence, m: 'h-OK' }));

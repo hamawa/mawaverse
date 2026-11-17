@@ -9,7 +9,8 @@
 // - 묶음 판매: 큰 묶음일수록 한 마리 값이 높고, 큰 묶음을 팔려면 칸이 그만큼 있어야 한다 (BUNDLES). 값은 일부러 낮게 잡았다: 하루 한 사람이 2,000마리쯤 낚는다
 // - 겨울잠: 내 집 침대에서 SLEEP_MS 를 자면 물고기 SHIELD_FISH 마리를 먹고 든든함 +1 (최대 SHIELD_MAX). 든든함 하나가 빠따 한 번을 막는다 (상대 빠따는 그대로 소모)
 //   "하루 동안 빠따 면역"은 넣지 않았다: 갑옷·펫 방어를 대부분 갖춰 빠따가 유일한 공격 수단이라, 집 있는 사람이 전부 면역이 되면 빠따가 쓸모없어진다
-export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number }
+// 꾸미기 (2026-11-17 저녁, 사용자 요청): fu 만든 가구 종류(오브젝트 id → true. 한 번 만들면 몇 개든 놓는다), d 놓은 가구("x_y" → 오브젝트 id), fl 바닥재(바닥 id), tr 박제(자리 번호 → { id 물고기, s 크기 })
+export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number; fu?: Record<string, true>; d?: Record<string, number>; fl?: number; tr?: Record<string, { id: string; s?: number }> }
 
 export interface HomeTier {
   tier: number; name: string; icon: string;
@@ -19,11 +20,13 @@ export interface HomeTier {
   extraSlots: number;    // 코인으로 늘릴 수 있는 칸의 상한
   iw: number; ih: number; // 방 안 크기 (칸)
   perk: string;
+  deco: number;          // 놓을 수 있는 가구 수
+  trophyX: readonly number[]; // 박제를 거는 위쪽 벽의 x 좌표들 (개수 = 걸 수 있는 박제 수. 창문 자리는 피했다)
 }
 export const HOME_TIERS: readonly HomeTier[] = [
-  { tier: 1, name: '초가집', icon: '🌾', wood: 30, item: null, coins: 0, extraSlots: 0, iw: 5, ih: 4, perk: '누구나 들어올 수 있고 밀치기도 통한다' },
-  { tier: 2, name: '통나무집', icon: '🌲', wood: 300, item: 'house2', coins: 10000, extraSlots: 3, iw: 7, ih: 5, perk: '문을 잠글 수 있다' },
-  { tier: 3, name: '벽돌집', icon: '🧱', wood: 1000, item: 'house3', coins: 50000, extraSlots: 6, iw: 10, ih: 6, perk: '문을 잠글 수 있고, 집 안에서는 밀치기·끌기·말랑이가 안 통한다' },
+  { tier: 1, name: '초가집', icon: '🌾', wood: 30, item: null, coins: 0, extraSlots: 0, iw: 5, ih: 4, perk: '누구나 들어올 수 있고 밀치기도 통한다', deco: 4, trophyX: [4] },
+  { tier: 2, name: '통나무집', icon: '🌲', wood: 300, item: 'house2', coins: 10000, extraSlots: 3, iw: 7, ih: 5, perk: '문을 잠글 수 있다', deco: 10, trophyX: [3, 6] },
+  { tier: 3, name: '벽돌집', icon: '🧱', wood: 1000, item: 'house3', coins: 50000, extraSlots: 6, iw: 10, ih: 6, perk: '문을 잠글 수 있고, 집 안에서는 밀치기·끌기·말랑이가 안 통한다', deco: 24, trophyX: [3, 6, 7, 9] },
 ];
 export const HOME_MAX_TIER = 3;
 export function homeTier(t: unknown): HomeTier | null { return typeof t === 'number' && t >= 1 && t <= HOME_MAX_TIER ? HOME_TIERS[Math.floor(t) - 1] : null; }
@@ -70,5 +73,43 @@ export function nextTier(h: HomeData | null | undefined): HomeTier | null { cons
 export function woodOf(h: HomeData | null | undefined): number { const w = h?.w; return typeof w === 'number' && w > 0 ? Math.floor(w) : 0; }
 // 나무를 더 캘 이유가 있나: 다음 단계가 있고, 그 값만큼 아직 못 모았을 때
 export function needsWood(h: HomeData | null | undefined): boolean { const n = nextTier(h); return !!n && woodOf(h) < n.wood; }
+
+// ---- 꾸미기: 가구·바닥·박제 ----
+// 가구는 나무로 종류마다 한 번 만들면(fu) 집 단계의 개수(deco)까지 몇 개든 놓는다. o 는 맵 오브젝트 id (map.ts O). 값은 규칙의 fu 검증에 같은 숫자로 들어 있다
+export interface Furniture { o: number; name: string; wood: number }
+export const FURNITURE: readonly Furniture[] = [
+  { o: 6, name: '의자', wood: 20 }, { o: 12, name: '화분', wood: 20 }, { o: 31, name: '화초', wood: 20 },
+  { o: 5, name: '테이블', wood: 30 }, { o: 30, name: '원탁', wood: 30 }, { o: 4, name: '벤치', wood: 30 },
+  { o: 10, name: '가로등', wood: 40 }, { o: 27, name: '카운터', wood: 40 }, { o: 32, name: '파라솔', wood: 50 },
+  { o: 21, name: '책장', wood: 60 }, { o: 22, name: '소파', wood: 60 }, { o: 23, name: '자판기', wood: 100 }, { o: 33, name: '오락기', wood: 100 },
+];
+export function furnitureOf(o: unknown): Furniture | undefined { return FURNITURE.find((f) => f.o === o); }
+// 바닥재 (g 는 맵 바닥 id, map.ts G). 바꿀 때마다 나무 FLOOR_WOOD 개
+export const FLOORS: readonly { g: number; name: string }[] = [{ g: 7, name: '모래' }, { g: 4, name: '나무 바닥' }, { g: 5, name: '타일' }, { g: 8, name: '카펫' }];
+export const FLOOR_WOOD = 30;
+export const posKey = (x: number, y: number): string => `${x}_${y}`;
+// 놓은 가구 목록 (알 수 없는 값은 버린다)
+export function decoList(h: HomeData | null | undefined): { x: number; y: number; o: number }[] {
+  const out: { x: number; y: number; o: number }[] = [];
+  for (const [k, o] of Object.entries(h?.d || {})) { const m = /^(\d{1,2})_(\d{1,2})$/.exec(k); if (m && furnitureOf(o)) out.push({ x: +m[1], y: +m[2], o }); }
+  return out;
+}
+// 박제: 내가 잡은 적 있는 전설(3)·신화(4) 물고기만 건다. 자리 수는 집 단계의 trophyX 개수
+export const TROPHY_MIN_RARITY = 3;
+
+// ---- 나무가 베이고 다시 자라기 (2026-11-17 저녁, 건의 반영) ----
+// 한 그루 = F 한 번(CHOP_SWINGS 번). 첫 도끼질의 나무를 받을 때 trees/{맵}/{x_y} 에 벤 시각을 적는다: 그때부터 남은 못 캔다.
+// 베는 동안(TREE_HIDE_MS)은 서 있는 나무로 그리고, 그 뒤 그루터기 → 덤불(새싹) → TREE_REGROW_MS 뒤 다시 나무. 그루터기·덤불도 길은 막는다 (맵 테두리가 나무라 뚫리면 안 된다)
+export const TREE_REGROW_MS = 300000;
+export const TREE_HIDE_MS = (CHOP_SWINGS - 1) * CHOP_MS;
+export type TreeStage = 'tree' | 'stump' | 'bush';
+export function treeStage(cutAt: number | undefined, now: number): TreeStage {
+  if (typeof cutAt !== 'number') return 'tree';
+  const dt = now - cutAt;
+  if (dt < TREE_HIDE_MS || dt >= TREE_REGROW_MS) return 'tree';
+  return dt < TREE_REGROW_MS * 0.6 ? 'stump' : 'bush';
+}
+// 지금 벨 수 없는 나무인가 (누가 벴고 아직 다 자라지 않았다)
+export function treeCut(cutAt: number | undefined, now: number): boolean { return typeof cutAt === 'number' && now - cutAt < TREE_REGROW_MS; }
 
 export const fmtWood = (n: number): string => `🌳 ${Math.floor(n).toLocaleString('ko-KR')}`;
