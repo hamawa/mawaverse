@@ -398,6 +398,15 @@ export class WalletMgr {
 
   // 변경 요금 (외모·닉네임, 2026-11-17): 가격표의 값을 낸다. 보관함에 들어가는 품목이 아니다
   payFee(itemId: string, price: number): Promise<boolean> { return this.spend(itemId, price); }
+  // 교환권을 썼다 (2026-11-17): 보관함에서 지운다. 내 프로필 아래라 주인이 지울 수 있다 (부서진 낚싯대를 지우는 것과 같은 길)
+  async useTicket(itemId: string): Promise<boolean> {
+    try { await update(ref(db), { [`users/${this.w.uid}/own/${itemId}`]: null }); } catch (e) { console.warn('교환권 사용 처리 실패', e); return false; }
+    const own = { ...(this.w.profile.own || {}) };
+    delete own[itemId];
+    this.w.profile.own = own;
+    this.listeners.forEach((f) => f());
+    return true;
+  }
   // 꾸미기·장비 구매: 지갑에서 값을 빼며 무엇을 샀는지(b) 적고, 이어서 보관함에 넣는다 (규칙이 b 를 보고 보유 등록을 허용)
   async buyCosmetic(itemId: string, price: number): Promise<boolean> {
     if (!(await this.spend(itemId, price))) return false;

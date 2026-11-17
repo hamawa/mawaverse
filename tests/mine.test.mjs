@@ -401,11 +401,11 @@ test('펫 목록이 규칙 생성기와 같고, 햄스터 캐릭터는 기존 �
   const rules = readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8');
   assert.ok(rules.includes("px/pethamster"), '규칙 원본에 새 펫이 들어 있어야 한다 (node tools/gen-rules.cjs final)');
   const { PRESETS, presetById } = await import('../src/game/sprites/presets.ts');
-  assert.equal(PRESETS.length, 159);
+  assert.equal(PRESETS.length, 161);
   assert.ok(PRESETS.slice(0, 150).every((p) => p.params.kind !== 'creature' || p.params.species !== 'hamster'), '앞 150종은 그대로');
   assert.deepEqual(PRESETS.slice(150, 153).map((p) => [p.id, p.params.species]), [['x51', 'hamster'], ['x52', 'hamster'], ['x53', 'hamster']]);
   // 음식 캐릭터 (2026-11-17): 햄스터 뒤에 x54~x59
-  assert.deepEqual(PRESETS.slice(153).map((p) => [p.id, p.params.species]), [['x54', 'shrimpfry'], ['x55', 'shrimp'], ['x56', 'bungeoppang'], ['x57', 'onigiri'], ['x58', 'mandu'], ['x59', 'eggfry']]);
+  assert.deepEqual(PRESETS.slice(153).map((p) => [p.id, p.params.species]), [['x54', 'shrimpfry'], ['x55', 'shrimp'], ['x56', 'bungeoppang'], ['x57', 'onigiri'], ['x58', 'mandu'], ['x59', 'eggfry'], ['x60', 'boiledegg'], ['x61', 'smokedegg']]);
   assert.equal(new Set(PRESETS.map((p) => p.id)).size, PRESETS.length);
   // 종 목록에 끼워 넣지 않았는지: 맨 앞·맨 뒤 동물의 종이 그대로다
   assert.equal(presetById('x01').params.species, 'cat');

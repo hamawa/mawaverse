@@ -6,7 +6,7 @@ import { drawHat, nameStyle, petCanvas, mountCanvas } from './cosmetics';
 import {
   HATS, NAME_COLORS, FX, PET_GOODS, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
-  BAT, DARK_BAT, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
+  BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
 } from '../shared/shop';
 import { fmtGold, PICK_MAX, PICK_TOTAL_COST, pickAttempts, pickBonus } from '../shared/mine';
 import type { WalletMgr } from './wallet';
@@ -297,7 +297,13 @@ export function openShop(h: ShopHost): void {
     const dCb = el('input', { type: 'checkbox' }); dCb.checked = h.wallet.darkOn;
     dCb.onchange = () => { h.wallet.setDarkUse(dCb.checked); };
     dUse.append(dCb, ' 어둠의 빠따가 있으면 보통 빠따보다 먼저 쓰기');
-    box.append(aRow, gRow, bRow, use, tRow, tUse, dRow, dUse);
+    // 교환권 (2026-11-17): 외모·닉네임 변경을 남에게 선물한다. 내가 살 수는 없다 (내 변경은 요금을 바로 낸다)
+    const ticketRows = [AVATAR_TICKET, NICK_TICKET].map((it) => {
+      const row = el('div', { class: 'shop-good' });
+      row.append(el('div', { class: 'ic', text: it.icon }), el('div', { class: 'txt' }, [el('div', { class: 'nm', text: `${it.name}${h.wallet.owns(it.id) ? ' · 한 장 있음' : ''}` }), el('div', { class: 'ds', text: it.desc })]), giftBtn(it, priceOf(it, prices)));
+      return row;
+    });
+    box.append(aRow, gRow, bRow, use, tRow, tUse, dRow, dUse, ...ticketRows);
     return box;
   };
 

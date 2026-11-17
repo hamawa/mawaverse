@@ -131,6 +131,15 @@ test('집 안 맵: 단계마다 커지고, 문 앞에 서며, 침대와 창고 �
   }
 });
 
+test('교환권: 선물할 수 있게 보관함 품목이고, 값은 변경 요금과 같다', async () => {
+  const { AVATAR_TICKET, NICK_TICKET, ALL_ITEMS } = await import('../src/shared/shop.ts');
+  assert.equal(isOwnItem(AVATAR_TICKET.id), true);
+  assert.equal(isOwnItem(NICK_TICKET.id), true);
+  assert.equal(AVATAR_TICKET.price, AVATAR_FEE.price);
+  assert.equal(NICK_TICKET.price, NICK_FEE.price);
+  for (const t of [AVATAR_TICKET, NICK_TICKET]) assert.equal(ALL_ITEMS.filter((i) => i.id === t.id).length, 1, `${t.id} 가 다른 품목 id 와 겹치지 않는다`);
+});
+
 test('변경 요금: 소모품이라 보관함에 들어가지 않는다', () => {
   assert.equal(isOwnItem(AVATAR_FEE.id), false);
   assert.equal(isOwnItem(NICK_FEE.id), false);

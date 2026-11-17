@@ -49,7 +49,7 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { fmtCoins, AVATAR_FEE, NICK_FEE, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
+import { fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
 import { SnowfightState, snowGateAt, snowfightAction, SNOW_PACK_HINT, SNOW_THROW_HINT, type SnowGate } from './snowfight';
 import { TASK_FOOTPRINT } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
@@ -1111,8 +1111,8 @@ export class World implements WorldCtx {
   }
   openMyMenu(x: number, y: number): void {
     const items: MenuItem[] = [
-      { label: '✏ 닉네임 변경', onClick: () => this.changeNickFlow() },
-      { label: '🎨 외모 변경', onClick: () => this.changeAvatarFlow() },
+      { label: `✏ 닉네임 변경${this.wallet.owns(NICK_TICKET.id) ? ' (🎟 교환권 있음)' : ''}`, onClick: () => this.changeNickFlow() },
+      { label: `🎨 외모 변경${this.wallet.owns(AVATAR_TICKET.id) ? ' (🎟 교환권 있음)' : ''}`, onClick: () => this.changeAvatarFlow() },
       { label: '📖 도감 · 내 기록', onClick: () => this.openFishBook() },
       { label: '🛍 상점', onClick: () => this.openShop() },
       { label: this.home.tier ? `🏠 내 집 (${homeTier(this.home.tier)?.name})` : '🏠 내 집 짓기', onClick: () => openHome(this) },
@@ -1140,15 +1140,17 @@ export class World implements WorldCtx {
   }
   private async changeNickFlow(): Promise<void> {
     // 변경 요금 (2026-11-17): 바뀐 뒤에 낸다 (이미 있는 닉네임이라 실패했을 때 돈만 나가지 않게). 모자라면 시작하지 않는다
-    const fee = priceOf(NICK_FEE, this.config.prices);
-    const n = await promptModal(fee > 0 ? `닉네임 변경 (${fmtCoins(fee)})` : '닉네임 변경', '새 닉네임 (2~12자, 공백 없이)', this.profile.nick, 12);
+    // 선물받은 교환권이 있으면 요금 대신 그것을 쓴다 (2026-11-17)
+    const ticket = this.wallet.owns(NICK_TICKET.id);
+    const fee = ticket ? 0 : priceOf(NICK_FEE, this.config.prices);
+    const n = await promptModal(ticket ? '닉네임 변경 (🎟 교환권 사용)' : fee > 0 ? `닉네임 변경 (${fmtCoins(fee)})` : '닉네임 변경', '새 닉네임 (2~12자, 공백 없이)', this.profile.nick, 12);
     if (n === null || n.trim() === this.profile.nick) return;
     if (this.wallet.balance < fee) { this.toast(`코인이 모자랍니다. 닉네임 변경은 ${fmtCoins(fee)} 입니다.`, true); return; }
     try {
       const nn = await changeNick(this.uid, this.profile.nick, n, true);
       this.profile.nick = nn;
-      if (fee > 0) await this.wallet.payFee(NICK_FEE.id, fee);
-      this.toast(`닉네임이 '${nn}'(으)로 바뀌었습니다.${fee > 0 ? ` (-${fmtCoins(fee)})` : ''}`);
+      if (ticket) await this.wallet.useTicket(NICK_TICKET.id); else if (fee > 0) await this.wallet.payFee(NICK_FEE.id, fee);
+      this.toast(`닉네임이 '${nn}'(으)로 바뀌었습니다.${ticket ? ' (🎟 교환권 사용)' : fee > 0 ? ` (-${fmtCoins(fee)})` : ''}`);
     } catch (e) { this.toast((e as Error).message, true); }
   }
   // T / 모바일 🧸: 말랑이 던지기 (던지는 동작은 이모트 12 로 남들에게도 보인다)
@@ -1164,7 +1166,7 @@ export class World implements WorldCtx {
     this.giftSeen = g.at;
     try { localStorage.setItem(key, String(g.at)); } catch { /* ignore */ }
     const it = itemById(g.i);
-    const text = `🎁 ${g.fn || '누군가'} 님이 ${it ? `${it.icon} ${it.name}` : g.i}을(를) 선물했어요!${g.m ? ` “${g.m}”` : ''} (상점에서 착용)`;
+    const text = `🎁 ${g.fn || '누군가'} 님이 ${it ? `${it.icon} ${it.name}` : g.i}을(를) 선물했어요!${g.m ? ` “${g.m}”` : ''} ${it?.kind === 'ticket' ? '(내 메뉴의 외모·닉네임 변경에서 쓸 수 있어요)' : '(상점에서 착용)'}`;
     this.toast(text);
     this.events.emit('log', { channel: 'notice', from: '', text, ts: g.at });
   }
@@ -1194,16 +1196,17 @@ export class World implements WorldCtx {
   }
   private changeAvatarFlow(): void {
     let sel = this.profile.avatar;
-    const fee = priceOf(AVATAR_FEE, this.config.prices); // 변경 요금 (2026-11-17). 같은 외모를 그대로 두면 안 낸다
+    const ticket = this.wallet.owns(AVATAR_TICKET.id); // 선물받은 교환권이 있으면 요금 대신 그것을 쓴다
+    const fee = ticket ? 0 : priceOf(AVATAR_FEE, this.config.prices); // 변경 요금 (2026-11-17). 같은 외모를 그대로 두면 안 낸다
     const body = avatarPicker(sel, (id) => { sel = id; });
-    modal(fee > 0 ? `외모 변경 (${fmtCoins(fee)})` : '외모 변경', body, [
+    modal(ticket ? '외모 변경 (🎟 교환권 사용)' : fee > 0 ? `외모 변경 (${fmtCoins(fee)})` : '외모 변경', body, [
       { label: '취소', onClick: () => {} },
       { label: '적용', primary: true, onClick: () => {
         if (sel === this.profile.avatar) return;
         if (this.wallet.balance < fee) { this.toast(`코인이 모자랍니다. 외모 변경은 ${fmtCoins(fee)} 입니다.`, true); return; }
         this.profile.avatar = sel; this.net.setAvatar(sel);
-        if (fee > 0) void this.wallet.payFee(AVATAR_FEE.id, fee);
-        this.toast(`외모를 바꿨습니다.${fee > 0 ? ` (-${fmtCoins(fee)})` : ''}`);
+        if (ticket) void this.wallet.useTicket(AVATAR_TICKET.id); else if (fee > 0) void this.wallet.payFee(AVATAR_FEE.id, fee);
+        this.toast(`외모를 바꿨습니다.${ticket ? ' (🎟 교환권 사용)' : fee > 0 ? ` (-${fmtCoins(fee)})` : ''}`);
       } },
     ]);
   }

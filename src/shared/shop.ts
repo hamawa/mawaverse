@@ -2,8 +2,8 @@
 // 가격은 config/prices/{id} 로 관리자가 덮어쓸 수 있다 (priceOf)
 import { snowActive } from './snowpenalty';
 
-export type ItemKind = 'hat' | 'name' | 'fx' | 'pet' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
-export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
+export type ItemKind = 'hat' | 'name' | 'fx' | 'pet' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
+export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
 export interface ShopItem { id: string; kind: ItemKind; name: string; price: number; icon: string; desc: string; color?: string }
 
 export const HATS: ShopItem[] = [
@@ -250,7 +250,11 @@ export const HOME_GOODS: ShopItem[] = [
 // 변경 요금 (2026-11-17, 사용자 요청): 외모·닉네임을 바꿀 때 낸다. 소모품이라 지갑에만 기록된다. 요금은 화면이 받는다: 규칙이 변경과 결제를 묶어 보지는 않는다
 export const AVATAR_FEE: ShopItem = { id: 'avatarfee', kind: 'use', name: '외모 변경 요금', price: 1000, icon: '🎨', desc: '외모를 바꿀 때마다 낸다.' };
 export const NICK_FEE: ShopItem = { id: 'nickfee', kind: 'use', name: '닉네임 변경 요금', price: 5000, icon: '✏', desc: '닉네임을 바꿀 때마다 낸다.' };
-export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT];
+// 교환권 (2026-11-17, 건의 반영): 남에게 선물하는 외모·닉네임 변경권. 보관함 품목이라 기존 선물 규칙을 그대로 쓴다 (값을 낸 사람이 받는 사람의 보관함에 등록).
+// 받은 사람은 변경할 때 요금 대신 교환권을 쓰고, 쓴 뒤에 보관함에서 지운다. 종류마다 한 장만 가질 수 있다 (이미 가진 사람에게는 선물이 안 된다). 값은 변경 요금과 같다
+export const AVATAR_TICKET: ShopItem = { id: 'avatarticket', kind: 'ticket', name: '외모 교환권', price: 1000, icon: '🎟', desc: '받은 사람이 외모를 한 번 무료로 바꿀 수 있다. 선물 전용.' };
+export const NICK_TICKET: ShopItem = { id: 'nickticket', kind: 'ticket', name: '닉네임 교환권', price: 5000, icon: '🎟', desc: '받은 사람이 닉네임을 한 번 무료로 바꿀 수 있다. 선물 전용.' };
+export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }
 // 보관함(users/{uid}/own)에 들어가는 품목인가 (소모품인 자동 낚시·미끼·자동 채집·펫 먹이·강화 주문서는 지갑에만 기록된다)

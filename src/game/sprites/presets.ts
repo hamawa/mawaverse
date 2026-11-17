@@ -104,6 +104,9 @@ const FOODS: [string, string, [string, string, string]][] = [
   ['onigiri', '삼각김밥', ['#fbfaf5', '#2b332b', '#55504a']],
   ['mandu', '만두', ['#f4e7c8', '#eadbb4', '#c9b07a']],
   ['eggfry', '계란프라이', ['#fffdf5', '#f6b422', '#c98a3a']],
+  // 2026-11-17 저녁 건의: 삶은 계란·훈제 계란 (x60·x61)
+  ['boiledegg', '삶은 계란', ['#fffaf0', '#f6b422', '#e6dcc8']],
+  ['smokedegg', '훈제 계란', ['#a8703c', '#cf9a62', '#7a4c24']],
 ];
 FOODS.forEach(([species, name, [c1, c2, c3]], i) => PRESETS.push({ id: `x${54 + i}`, group: 'x', name, params: { kind: 'creature', species, c1, c2, c3, eye: '#2b2b2b' } }));
 

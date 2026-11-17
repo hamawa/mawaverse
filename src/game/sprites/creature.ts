@@ -312,6 +312,26 @@ export function drawCreature(p: CreatureParams, dir: Dir, frame: number, pose: P
       feet(c3);
       break;
     }
+    case 'boiledegg': {
+      // 삶은 계란 (2026-11-17 건의 반영): 흰 달걀, 배에 노른자가 비쳐 보인다. c1 흰자 · c2 노른자 · c3 그늘
+      b.ellipse(12, hy + 18, 8, 10, c1); b.ellipse(12, hy + 11, 6.5, 7, c1);
+      b.ellipse(12, hy + 26, 6, 2, c3);
+      b.px(8, hy + 7, '#ffffff'); b.px(8, hy + 8, '#ffffff'); b.px(9, hy + 6, '#ffffff');
+      if (!back) { b.circle(12, hy + 23, 3.5, c2); b.px(11, hy + 22, '#ffe59a'); }
+      eyes(9, hy + 13, 14, '#222'); mouth(11, hy + 17, shade(c3, -0.25)); blush(hy + 15);
+      feet(shade(c3, -0.15));
+      break;
+    }
+    case 'smokedegg': {
+      // 훈제 계란: 갈색으로 익은 달걀, 윤기와 짙은 반점. c1 껍데기 · c2 윤기 · c3 반점·그늘
+      b.ellipse(12, hy + 18, 8, 10, c1); b.ellipse(12, hy + 11, 6.5, 7, c1);
+      b.ellipse(12, hy + 26, 6, 2, c3);
+      b.ellipse(8, hy + 9, 1.5, 2.5, c2);
+      for (const [x, y] of [[15, hy + 7], [17, hy + 14], [6, hy + 19], [15, hy + 24], [9, hy + 25], [18, hy + 21]]) b.px(x, y, c3);
+      eyes(9, hy + 13, 14, '#222'); mouth(11, hy + 17, c3); blush(hy + 15);
+      feet(c3);
+      break;
+    }
     case 'hamster': {
       // 2026-11-16 건의 반영. c1 털 · c2 볼주머니·배 · c3 귀 안쪽·발. 볼이 머리보다 살짝 넓어 통통해 보인다
       headBody(); feet(c3);
