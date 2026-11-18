@@ -344,6 +344,31 @@ export function sfx(name: Sfx, opt: { vol?: number; k?: number } = {}): void {
 // 남이 낸 소리: 나와의 거리(칸)로 크기를 줄인다. 열두 칸 밖은 안 들린다
 export function sfxAt(name: Sfx, dist: number, k = 0): void { sfx(name, { vol: Math.max(0, 1 - dist / 12) * 0.5, k }); }
 
+// ---------- 빗소리 (2026-11-18): 비가 오는 동안 잔잔한 잡음을 깔아 둔다. 세기(0~1)에 따라 커지고, 0 이면 멈춘다. 효과음 음량을 따른다 ----------
+let rain: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
+export function setRain(level: number): void {
+  const on = level > 0.01 && load().on && load().sfx > 0 && audible();
+  if (!on) {
+    const r = rain; rain = null;
+    if (r && live) { const t = live.ac.currentTime; r.gain.gain.setTargetAtTime(0.0001, t, 0.3); try { r.src.stop(t + 1.5); } catch { /* ignore */ } }
+    return;
+  }
+  const l = ensure();
+  if (!l || l.ac.state !== 'running') return;
+  if (!rain) {
+    const ac = l.ac, buf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const src = ac.createBufferSource(); src.buffer = buf; src.loop = true;
+    const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 700;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200;
+    const gain = ac.createGain(); gain.gain.value = 0.0001;
+    src.connect(hp); hp.connect(lp); lp.connect(gain); gain.connect(l.sfxBus);
+    src.start();
+    rain = { src, gain };
+  }
+  rain.gain.gain.setTargetAtTime(0.05 * Math.min(1, level), l.ac.currentTime, 0.5);
+}
+
 // ---------- 배경음악 ----------
 interface Playing { key: string; tune: Tune; dry: GainNode; wet: GainNode; next: number; bar: number; melody: (number | null)[][] }
 let want: { scene: Scene; night: boolean } | null = null;
@@ -401,4 +426,5 @@ export function stopSound(): void {
   want = null;
   if (pumpTimer) { clearInterval(pumpTimer); pumpTimer = 0; }
   dropTune(0.3);
+  setRain(0);
 }

@@ -572,7 +572,7 @@ function collDefsSection(main: HTMLElement, spec: CollSpec): void {
     const max = el('input', { type: 'number', min: '0', step: '0.1', value: String(f?.max ?? 20) });
     const w = el('input', { type: 'number', min: '0', step: 'any', value: String(f?.w ?? 5) }); // 신화는 0.001 같은 작은 값을 쓴다
     const time = el('select');
-    const times: [string, string][] = [['', '상시'], ['lunch', TIME_LABEL.lunch], ['night', TIME_LABEL.night]];
+    const times: [string, string][] = [['', '상시'], ['lunch', TIME_LABEL.lunch], ['night', TIME_LABEL.night], ['dawn', TIME_LABEL.dawn], ['rain', TIME_LABEL.rain]];
     if (spec.contestTime) times.push(['contest', TIME_LABEL.contest]);
     for (const [v, t] of times) time.append(el('option', { value: v, text: t }));
     time.value = f?.time || '';
@@ -621,7 +621,7 @@ function collDefsSection(main: HTMLElement, spec: CollSpec): void {
     bar.append(add, reset);
     box.innerHTML = '';
     const at = (h: number) => { const d = new Date(); d.setHours(h, 0, 0, 0); return d; };
-    const pools = { base: coll.pool(at(10)), lunch: coll.pool(at(12)), night: coll.pool(at(20)), contest: coll.pool(at(10), undefined, true) };
+    const pools = { base: coll.pool(at(10)), lunch: coll.pool(at(12)), night: coll.pool(at(20)), contest: coll.pool(at(10), undefined, true), dawn: coll.pool(at(6)), rain: coll.pool(at(10), undefined, false, true) };
     // 신화처럼 아주 작은 확률은 "1/N" 로 (2026-11-09). 신화는 장비·미끼 배수를 안 타므로 이 값이 그대로 실제 확률이다
     const pct = (f: CollDef, pool: CollDef[]) => { const c = coll.chance(f.id, pool); return c > 0 && c < 0.0005 ? `1/${Math.round(1 / c).toLocaleString('ko-KR')}` : (c * 100).toFixed(1) + '%'; };
     const t = el('table');
@@ -637,11 +637,13 @@ function collDefsSection(main: HTMLElement, spec: CollSpec): void {
         : f.time === 'lunch' ? `점심 ${pct(f, pools.lunch)}`
         : f.time === 'night' ? `야근 ${pct(f, pools.night)}`
         : f.time === 'contest' ? `대회 ${pct(f, pools.contest)}`
+        : f.time === 'dawn' ? `새벽 ${pct(f, pools.dawn)}`
+        : f.time === 'rain' ? `비 ${pct(f, pools.rain)}`
         : `${pct(f, pools.base)} (점심 ${pct(f, pools.lunch)} · 야근 ${pct(f, pools.night)})`;
       tr.append(
         el('td', {}, [on]), el('td', { text: f.icon }), el('td', { text: f.name + (f.junk ? ' (꽝)' : '') + (coll.isDefault(f.id) ? '' : ' ·추가') }),
         el('td', { text: f.junk ? '-' : RARITY_NAME[f.rarity] }), el('td', { text: f.junk ? '-' : `${f.min}~${f.max}${spec.unitName}` }),
-        el('td', { text: f.time ? (f.time === 'lunch' ? '점심' : f.time === 'night' ? '야근' : '대회') : '상시' }), el('td', {}, [w]), el('td', { text: chance }),
+        el('td', { text: f.time ? ({ lunch: '점심', night: '야근', contest: '대회', dawn: '새벽', rain: '비' } as Record<string, string>)[f.time] : '상시' }), el('td', {}, [w]), el('td', { text: chance }),
       );
       const td = el('td');
       const ed = el('button', { class: 'btn small', text: '수정' }); ed.onclick = () => editModal(f); td.append(ed, ' ');

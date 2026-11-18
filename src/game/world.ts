@@ -58,7 +58,8 @@ import { WinterPlay } from './winterplay';
 import { SnowPenaltyMgr } from './snowpenalty';
 import { snowActive, SNOW_BREAK_NOTICE } from '../shared/snowpenalty';
 import { Fishing } from './fishing';
-import { sfx, setScene, stopSound, soundOn, setSoundOn, soundPrefs, setVolume, type Scene } from './audio';
+import { sfx, setScene, setRain, stopSound, soundOn, setSoundOn, soundPrefs, setVolume, type Scene } from './audio';
+import { rainLevel } from '../shared/weather';
 import { dayTint, isNight, kstMinuteOfDay, type DayTint } from '../shared/daylight';
 import { HomePets, ownedPets, type RoamPet } from './homepets';
 import { wakeLockSupported, wakeLockOn, setWakeLock, startWakeLock } from './wakelock';
@@ -408,8 +409,8 @@ export class World implements WorldCtx {
     this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
     this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint() });
-    if (now - this.sceneAt > 1000) { this.sceneAt = now; setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow()))); } // 배경음악: 지금 상황에 맞는 곡 (1초에 한 번 본다)
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView() });
+    if (now - this.sceneAt > 1000) { this.sceneAt = now; setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow()))); this.weatherTick(); } // 배경음악: 지금 상황에 맞는 곡 (1초에 한 번 본다)
   }
 
   // 마피아 미션 자리 표시 (2026-11-10): 시민·유령은 내 미완료 미션(금색 테두리 + 화면 밖 화살표), 마피아는 모든 자리(흐린 테두리)
@@ -778,6 +779,20 @@ export class World implements WorldCtx {
   private bgTimer = 0;
   // 단추를 누를 때 딸깍 (소리 단추 자신은 켜짐 알림음이 난다)
   private onUiClick = (e: MouseEvent): void => { const b = (e.target as HTMLElement | null)?.closest?.('button'); if (b && !b.hasAttribute('data-quiet')) sfx('ui', { vol: 0.6 }); };
+  // ---- 날씨 (2026-11-18, shared/weather.ts): 바깥 맵에만 비가 온다. 집 안과 금광은 실내. 겨울 맵에서는 눈으로 보이고 비 한정 물고기는 없다 ----
+  private outdoors(): boolean { return !isHomeMapId(this.mapId) && this.mapId !== GOLD_MINE_MAP_ID; }
+  private rainHere(): number { return this.outdoors() ? rainLevel(serverNow()) : 0; }
+  raining(): boolean { return this.mapId !== WINTER_MAP_ID && this.rainHere() > 0; }
+  private rainView(): { level: number; snow: boolean } | null { const level = this.dayOff ? 0 : this.rainHere(); return level > 0 ? { level, snow: this.mapId === WINTER_MAP_ID } : null; }
+  private wasRaining: boolean | null = null;
+  // 1초에 한 번: 빗소리를 맞추고, 비가 시작하고 그칠 때 한 줄 알린다 (처음 들어왔을 때는 알리지 않는다)
+  private weatherTick(): void {
+    const level = this.rainHere(), snow = this.mapId === WINTER_MAP_ID;
+    setRain(snow ? 0 : level);
+    const now = rainLevel(serverNow()) > 0;
+    if (this.wasRaining !== null && now !== this.wasRaining && this.outdoors() && !snow) this.toast(now ? '🌧 비가 내리기 시작합니다. 비 오는 동안에만 낚이는 물고기가 있어요.' : '🌤 비가 그쳤습니다.');
+    this.wasRaining = now;
+  }
   // ---- 배경음악이 달라지는 상황 (audio.ts) ----
   private sceneAt = 0;
   private sceneNow(): Scene {

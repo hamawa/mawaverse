@@ -88,6 +88,42 @@ test('집 안 펫: 걸을 수 있는 칸에만 서고, 한 번에 한 칸씩만 
   }
 });
 
+test('날씨: 비는 30분 단위로 정해지고 전체의 15% 안팎이며, 시작과 끝은 서서히 굵어지고 가늘어진다', async () => {
+  const { rainLevel, rainBlock, isRaining, WEATHER_BLOCK_MS, RAIN_PERMILLE } = await import('../src/shared/weather.ts');
+  const base = Math.floor(1_800_000_000_000 / WEATHER_BLOCK_MS);
+  let wet = 0; const N = 20000;
+  for (let i = 0; i < N; i++) if (rainBlock(base + i)) wet++;
+  assert.ok(Math.abs(wet / N - RAIN_PERMILLE / 1000) < 0.02, `비 오는 구간 비율 ${wet / N}`);
+  // 맑은 구간 뒤에 오는 비 구간을 하나 찾아 처음·가운데를 본다
+  let i = base; while (!(rainBlock(i) && !rainBlock(i - 1))) i++;
+  const t0 = i * WEATHER_BLOCK_MS;
+  assert.equal(rainLevel(t0 - 1), 0);
+  assert.ok(rainLevel(t0 + 1000) > 0 && rainLevel(t0 + 1000) < 0.05, '막 시작했을 때는 가늘다');
+  assert.equal(rainLevel(t0 + 10 * 60 * 1000), 1, '한창일 때');
+  assert.equal(isRaining(t0 + 1000), true);
+  for (let t = t0 - 60000; t < t0 + 3 * WEATHER_BLOCK_MS; t += 7000) assert.ok(Math.abs(rainLevel(t + 7000) - rainLevel(t)) < 0.1, '세기가 튀지 않는다');
+});
+
+test('시간대 한정 종: 새벽은 5시~7시 반, 비는 비가 올 때만 풀에 들어온다', async () => {
+  const { timeActive, DEF_TIMES, TIME_LABEL } = await import('../src/shared/collection.ts');
+  const { DEFAULT_FISH, pickFish } = await import('../src/shared/fish.ts');
+  const at = (h, m = 0) => new Date(2026, 10, 18, h, m, 0);
+  assert.deepEqual([[4, 59], [5, 0], [7, 29], [7, 30]].map(([h, m]) => timeActive('dawn', at(h, m))), [false, true, true, false]);
+  assert.equal(timeActive('rain', at(12)), false);
+  assert.equal(timeActive('rain', at(12), false, true), true);
+  for (const t of DEF_TIMES) assert.ok(TIME_LABEL[t]);
+  const dawn = DEFAULT_FISH.filter((f) => f.time === 'dawn'), rain = DEFAULT_FISH.filter((f) => f.time === 'rain');
+  assert.deepEqual([dawn.length, rain.length], [3, 3]);
+  // 한정 종의 가중치: 처음 넣은 값(장비를 갖춘 사람 기준 기대 점수 +4% 안쪽)을 넘기지 않는다. 올리려면 라이브 목록으로 다시 계산할 것
+  assert.ok(dawn.reduce((s, f) => s + f.w, 0) <= 2.4 + 1e-9 && rain.reduce((s, f) => s + f.w, 0) <= 3.05 + 1e-9);
+  assert.ok(dawn.filter((f) => f.rarity >= 3).reduce((s, f) => s + f.w, 0) <= 0.4 + 1e-9 && rain.filter((f) => f.rarity >= 3).reduce((s, f) => s + f.w, 0) <= 0.45 + 1e-9);
+  // 비가 안 오는 낮에는 한정 종이 나오지 않는다
+  let seed = 1; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 3000; i++) { const f = pickFish(rnd, at(12), {}); assert.ok(f.time !== 'rain' && f.time !== 'dawn', f.name); }
+  let got = 0; for (let i = 0; i < 3000; i++) if (pickFish(rnd, at(12), { rain: true }).time === 'rain') got++;
+  assert.ok(got > 0, '비가 오면 비 한정 종이 나온다');
+});
+
 test('소리: 소리를 낼 수 없는 환경에서도 불러올 수 있고 조용히 넘어간다 (처음에는 꺼져 있다)', () => {
   assert.equal(audio.soundOn(), false);
   assert.doesNotThrow(() => { audio.sfx('catch', { k: 4 }); audio.sfxAt('push', 3); audio.setScene('main', true); audio.stopSound(); });

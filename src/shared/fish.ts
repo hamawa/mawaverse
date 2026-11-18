@@ -42,6 +42,13 @@ export const DEFAULT_FISH: FishDef[] = [
   // 전설
   { id: 'goldcarp', name: '황금잉어', icon: '✨', rarity: 3, min: 50, max: 120, w: 0.5, desc: '전설로만 전해지던 그 잉어. 소원을 들어준다는 소문이.' },
   { id: 'turtle', name: '용궁 거북', icon: '🐢', rarity: 3, min: 30, max: 60, w: 0.4, desc: '용궁에서 심부름 나온 길. 등에 토끼는 없다.' },
+  // 새벽·비 한정 (2026-11-18, 사용자 요청). 가중치는 라이브 목록으로 기대 점수를 계산해 잡았다: 장비를 다 갖춘 사람 기준 새벽 +4%, 비 +4% 안쪽 (둘이 겹치면 +8%)
+  { id: 'dawnsweet', name: '새벽 은어', icon: '🐟', rarity: 1, min: 12, max: 28, w: 1.5, time: 'dawn', desc: '해 뜨기 전에만 올라온다. 은빛이 물안개에 섞인다.' },
+  { id: 'mistcarp', name: '물안개 잉어', icon: '🌫', rarity: 2, min: 40, max: 95, w: 0.5, time: 'dawn', desc: '안개가 걷히면 사라진다. 본 사람이 드물다.' },
+  { id: 'sunrisegold', name: '해돋이 금붕어', icon: '🌅', rarity: 3, min: 20, max: 48, w: 0.4, time: 'dawn', desc: '첫 햇살을 삼켜 붉게 빛난다.' },
+  { id: 'rainloach', name: '빗방울 미꾸라지', icon: '💧', rarity: 1, min: 8, max: 20, w: 2, time: 'rain', desc: '비가 오면 신이 나서 물 위로 튄다.' },
+  { id: 'monsooncat', name: '장마 메기', icon: '☔', rarity: 2, min: 50, max: 120, w: 0.6, time: 'rain', desc: '빗소리가 들리면 깨어난다. 수염이 길다.' },
+  { id: 'rainbowtrout', name: '무지개 송어', icon: '🌈', rarity: 3, min: 35, max: 80, w: 0.45, time: 'rain', desc: '비가 그치기 전에만 낚인다. 등에 일곱 빛깔이 흐른다.' },
   // 신화 (2026-11-09): 장비·미끼와 무관하게 w/전체 ≈ 1/100,000 로만 뽑힌다 (collection.ts pick)
   { id: 'dragon', name: '용', icon: '🐉', rarity: 4, min: 300, max: 900, w: 0.001, desc: '용궁에서 올라왔다. 비늘 한 장이 월급. 낚은 사람은 회사 전설이 된다.' },
   // 대회 한정

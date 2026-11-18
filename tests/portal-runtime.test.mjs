@@ -140,7 +140,7 @@ function fishingRig() {
     me: { x: 1, y: 1, dir: 0, moving: false, locked: false, roomId: null },
     profile: { own: {} },
     wallet: { autoReelActive: () => true, bait: 0, baitOn: false, stars: 0, fishStars: 0, shownStars: 0, kingStars: 0, fishStarsFor: () => 0, shownStarsFor: () => 0, kingStarsFor: () => 0, takeBait: async () => {} },
-    contest: { active: () => null },
+    contest: { active: () => null }, raining: () => false,
     catchNote() {}, toast() {},
   };
   const writes = [];

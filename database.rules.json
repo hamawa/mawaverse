@@ -554,7 +554,7 @@
           "min": { ".validate": "newData.isNumber() && newData.val() >= 0" },
           "max": { ".validate": "newData.isNumber() && newData.val() >= 0" },
           "w": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-          "time": { ".validate": "newData.val() == 'lunch' || newData.val() == 'night' || newData.val() == 'contest'" },
+          "time": { ".validate": "newData.val() == 'lunch' || newData.val() == 'night' || newData.val() == 'contest' || newData.val() == 'dawn' || newData.val() == 'rain'" },
           "desc": { ".validate": "newData.isString() && newData.val().length <= 80" },
           "on": { ".validate": "newData.isBoolean()" },
           "ord": { ".validate": "newData.isNumber()" },

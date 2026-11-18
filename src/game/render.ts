@@ -70,6 +70,7 @@ export interface RenderState {
   plaques?: { x: number; y: number; icon: string; text: string }[]; // 집 벽에 건 물고기 박제 (타일 좌표)
   roamers?: PetView[]; // 집 안을 돌아다니는 펫 (homepets.ts)
   night?: DayTint | null; // 낮밤 덧칠 (바깥 맵만. shared/daylight.ts)
+  rain?: { level: number; snow: boolean } | null; // 비 (0~1. 겨울 맵에서는 눈으로 그린다. shared/weather.ts)
 }
 
 const EMOTE_ICON: Record<number, string> = { 1: '👋', 2: '', 3: '😆', 4: '💧', 5: '💤', 6: '🥱', 7: '💢', 8: '❤', 9: '♪', 10: '💥', 11: '🥅', 12: '🧸', 13: '⛏', 14: '🧲', 15: '🐤' }; // 15: 삐약 (예전 병아리 스킬. 이모트 자리는 남겨 둔다)
@@ -299,6 +300,7 @@ export function render(eng: Engine, st: RenderState): void {
   // ---- 화면 좌표 오버레이 ----
   eng.beginScreen();
   const s = eng.scale;
+  if (st.rain && st.rain.level > 0.01) drawRain(eng, st.now, st.rain.level, st.rain.snow); // 이름표·말풍선보다 먼저 (글자를 가리지 않게)
   // 방 간판
   for (const z of map.zones) if (z.kind === 'casino') drawRoomSign(eng, z, st.rooms[z.id]);
   // 포탈 간판/라벨
@@ -444,6 +446,40 @@ function drawPickaxe(ctx: CanvasRenderingContext2D, e: Entity, now: number): voi
     ctx.fillStyle = `rgba(255, 226, 110, ${a})`;
     for (let i = 0; i < 4; i++) { const d = (1 - a) * 7 + 2, th = ang + (i - 1.5) * 0.7; ctx.fillRect(Math.round(sx + Math.cos(th) * d), Math.round(sy + Math.sin(th) * d - (1 - a) * 3), 2, 2); }
   }
+}
+// 비 (2026-11-18): 화면에 비스듬한 빗줄기와 바닥에 튀는 물방울을 그리고 살짝 흐리게 덧칠한다. 겨울 맵에서는 천천히 내리는 눈.
+// 방울마다 상태를 두지 않는다: 번호와 시각으로 자리를 계산한다 (화면 크기가 바뀌어도 그대로 이어진다)
+function drawRain(eng: Engine, now: number, level: number, snow: boolean): void {
+  const { ctx } = eng, W = eng.w, H = eng.h;
+  const frac = (v: number) => v - Math.floor(v);
+  ctx.fillStyle = snow ? `rgba(220,230,245,${0.06 * level})` : `rgba(50,70,100,${0.12 * level})`;
+  ctx.fillRect(0, 0, W, H);
+  const n = Math.round((snow ? 70 : 110) * level * Math.max(1, (W * H) / 480000));
+  if (snow) {
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (let i = 0; i < n; i++) {
+      const sp = 0.03 + frac(i * 0.137) * 0.03;
+      const x = frac(i * 0.6180339 + Math.sin(now / 1700 + i) * 0.01) * W, y = frac(i * 0.3819 + (now * sp) / H) * H, r = 1 + frac(i * 0.71) * 1.5;
+      ctx.fillRect(Math.round(x), Math.round(y), r, r);
+    }
+    return;
+  }
+  ctx.strokeStyle = 'rgba(200,222,255,0.42)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const sp = 0.55 + frac(i * 0.137) * 0.35; // px/ms
+    const y = frac(i * 0.3819 + (now * sp) / H) * (H + 40) - 20, x = frac(i * 0.6180339) * (W + 80) - 40 - (y / H) * 30, len = 9 + frac(i * 0.29) * 9;
+    ctx.moveTo(x, y); ctx.lineTo(x - len * 0.28, y + len);
+  }
+  ctx.stroke();
+  // 바닥에 튀는 물방울: 0.4초짜리 작은 고리가 여기저기서 번갈아 생긴다
+  ctx.strokeStyle = 'rgba(220,235,255,0.35)';
+  const m = Math.round(n / 5), slot = Math.floor(now / 400), k = (now % 400) / 400;
+  for (let i = 0; i < m; i++) {
+    const x = frac((i + slot * 7) * 0.6180339) * W, y = frac((i * 3 + slot * 5) * 0.3819) * H;
+    ctx.globalAlpha = 1 - k; ctx.beginPath(); ctx.ellipse(x, y, 2 + k * 4, 1 + k * 1.5, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 // 낮과 밤 (2026-11-18): 화면 전체에 그 시각의 빛깔을 덧칠하고, 가로등·창문 둘레는 덜 어둡게 남긴 뒤 따뜻한 불빛을 살짝 더한다.
 // 불빛이 화면에 없으면 한 번 칠하는 것으로 끝난다. 있으면 따로 둔 캔버스에 어둠을 칠하고 불빛 자리를 도려내 얹는다
