@@ -1,7 +1,7 @@
 import '../styles.css';
 import { ref, get, set, update, remove, onValue, push, query, orderByKey, orderByChild, limitToLast, serverTimestamp, runTransaction } from 'firebase/database';
 import { isConfigured, db, app } from '../firebase/app';
-import { waitForAuth, login, logout } from '../firebase/auth';
+import { waitForAuth, login, logout, guestNotesOf } from '../firebase/auth';
 import { isAdmin, mergeConfig } from '../firebase/db';
 import { showLoginScreen, showMessageScreen, toast, modal, promptModal, confirmModal } from '../game/ui';
 import { el, escapeHtml, fmtDateTime, fmtBytes, dayKey, nickKey, safeKey, idKey, validateNick } from '../shared/util';
@@ -119,7 +119,7 @@ async function deleteUserData(uid: string, u: UserProfile, action = 'delete-user
   const upd: Record<string, null> = {
     [`signups/${uid}`]: null, [`approved/${uid}`]: null,
     [`users/${uid}`]: null, [`ids/${safeKey(idKey(u.id))}`]: null, [`nicknames/${nickKey(u.nick)}`]: null,
-    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`duelInv/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null, [`homes/${uid}`]: null, [`winter/events/${uid}`]: null,
+    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`duelInv/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null, [`homes/${uid}`]: null, ...(await guestNotesOf(uid)), [`winter/events/${uid}`]: null,
   };
   await update(ref(db), upd);
   adminLog(action, uid, action === 'reject' ? undefined : u.id);

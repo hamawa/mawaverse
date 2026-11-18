@@ -10,7 +10,10 @@
 // - 겨울잠: 내 집 침대에서 SLEEP_MS 를 자면 물고기 SHIELD_FISH 마리를 먹고 든든함 +1 (최대 SHIELD_MAX). 든든함 하나가 빠따 한 번을 막는다 (상대 빠따는 그대로 소모)
 //   "하루 동안 빠따 면역"은 넣지 않았다: 갑옷·펫 방어를 대부분 갖춰 빠따가 유일한 공격 수단이라, 집 있는 사람이 전부 면역이 되면 빠따가 쓸모없어진다
 // 꾸미기 (2026-11-17 저녁, 사용자 요청): fu 만든 가구 종류(오브젝트 id → true. 한 번 만들면 몇 개든 놓는다), d 놓은 가구("x_y" → 오브젝트 id), fl 바닥재(바닥 id), tr 박제(자리 번호 → { id 물고기, s 크기 })
-export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number; fu?: Record<string, true>; d?: Record<string, number>; fl?: number; wl?: number; tr?: Record<string, { id: string; s?: number }> }
+export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number; fu?: Record<string, true>; d?: Record<string, number>; fl?: number; wl?: number; tr?: Record<string, { id: string; s?: number }>; gb?: Record<string, GuestNote> }
+// 방명록 (2026-11-18): homes/{주인}/gb/{쓴 사람 uid} = 한 사람이 한 집에 한 줄 (다시 쓰면 바뀐다). 쓴 사람과 집주인이 지울 수 있다
+export interface GuestNote { n: string; t: string; at: number }
+export const GUEST_MAX = 60; // 한 줄의 글자 수 (규칙과 같아야 한다)
 
 export interface HomeTier {
   tier: number; name: string; icon: string;

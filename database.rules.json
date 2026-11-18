@@ -111,6 +111,7 @@
         "nc": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" },
         "fx": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" },
         "tt": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" },
+        "si": { ".validate": "newData.val() === true" },
         "pa": { ".validate": "newData.val() === true && root.child('users/' + $uid + '/own/pusharmor').val() === true" },
         "ta": { ".validate": "newData.val() === true && root.child('users/' + $uid + '/own/tossarmor').val() === true" },
         "z": { ".validate": "newData.isBoolean()" },
@@ -700,6 +701,7 @@
         "d": { "$pos": { ".validate": "newData.isNumber() && $pos.matches(/^[0-9]{1,2}_[0-9]{1,2}$/) && newData.parent().parent().child('fu/' + newData.val()).val() == true" } },
         "wl": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 3 && root.child('users/' + $uid + '/own/wall' + newData.val()).val() == true" },
         "fl": { ".validate": "(newData.val() == 4 || newData.val() == 5 || newData.val() == 7 || newData.val() == 8) && (newData.val() == data.val() || (newData.parent().child('w').exists() ? newData.parent().child('w').val() : 0) == (data.parent().child('w').exists() ? data.parent().child('w').val() : 0) - 30)" },
+        "gb": { "$v": { ".write": "auth != null && (auth.uid == $v || (auth.uid == $uid && !newData.exists()))", ".validate": "newData.hasChildren(['n', 't', 'at']) && data.parent().parent().child('t').isNumber()", "n": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12" }, "t": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 60" }, "at": { ".validate": "newData.val() == now" }, "$other": { ".validate": false } } },
         "tr": { "$slot": { ".validate": "newData.hasChildren(['id']) && newData.child('id').isString() && newData.child('id').val().length <= 40 && root.child('fish/book/' + $uid + '/' + newData.child('id').val()).exists() && ($slot == '0' || ($slot == '1' && newData.parent().parent().child('t').val() >= 2) || (($slot == '2' || $slot == '3') && newData.parent().parent().child('t').val() == 3))", "id": { ".validate": "newData.isString()" }, "s": { ".validate": "newData.isNumber() && newData.val() >= 0" }, "$other": { ".validate": false } } },
         "$other": { ".validate": false }
       }

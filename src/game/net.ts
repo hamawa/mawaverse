@@ -91,7 +91,7 @@ export class Net {
 
   private currentState(): PlayerState {
     const w = this.w;
-    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.snowField(), ...this.duelField(), ...w.homeMarks(), ...w.homeMarks() };
+    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.snowField(), ...this.duelField(), ...w.homeMarks(), ...(w.sitting() ? { si: true } : {}) };
   }
 
   // 월드 입장: 현재 접속자 스냅샷을 읽고 빈 타일을 잡은 뒤 presence 등록
@@ -503,6 +503,10 @@ export class Net {
   // 든든함(빠따 막기 횟수)과 겨울잠 표시 (shared/home.ts). 표시용이라 규칙이 값을 대조하지 않는다
   setHomeMarks(sd: number, hz: boolean): void {
     update(ref(db, `players/${this.w.uid}`), { sd: sd > 0 ? sd : null, hz: hz ? true : null }).catch(() => {});
+  }
+  // 앉기·일어나기 (2026-11-18): 남들이 가구 위에 앉은 모습으로 그리게 알린다. 맵을 옮길 때는 mapSwitchUpdate 가 같이 비운다
+  setSit(on: boolean): void {
+    set(ref(db, `players/${this.w.uid}/si`), on ? true : null).catch(() => {});
   }
   setMining(on: boolean): void {
     set(ref(db, `players/${this.w.uid}/mn`), on ? true : null).catch(() => {});

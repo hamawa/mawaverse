@@ -1,4 +1,4 @@
-import { ref, onValue, update, increment, serverTimestamp } from 'firebase/database';
+import { ref, onValue, update, increment, serverTimestamp, set, remove } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { O, O_BED, O_CHEST, objectAt, homeCanPlace } from './map';
@@ -15,7 +15,7 @@ import type { TreeMgr } from './trees';
 import type { WorldCtx } from './state';
 import { sfx } from './audio';
 import { GOLD_COST } from '../shared/shop';
-import { WALLS } from '../shared/home';
+import { WALLS, GUEST_MAX } from '../shared/home';
 
 // 내 집 (2026-11-17, shared/home.ts 머리말에 설계). 이 클래스는 내 homes/{uid} 를 구독하고, 나무 캐기·짓기·창고·겨울잠과 "지금 들어와 있는 집"의 상태를 맡는다.
 // 맵 이동(들어가기·나가기)은 world.ts 가 포탈과 같은 길(usePortal)로 한다.
@@ -279,6 +279,17 @@ export class HomeMgr {
     const f = this.facingDeco();
     if (!f || f.kind !== 'remove') return false;
     try { await update(ref(db, `homes/${this.w.uid}/d`), { [posKey(f.x, f.y)]: null }); return true; } catch { return false; }
+  }
+  // 방명록: 지금 있는 집(또는 내 집)에 한 줄 남긴다. 한 사람이 한 집에 한 줄이라 다시 쓰면 바뀐다
+  async signGuestbook(owner: string, text: string): Promise<boolean> {
+    const t = text.trim().slice(0, GUEST_MAX);
+    if (!t) return false;
+    try { await set(ref(db, `homes/${owner}/gb/${this.w.uid}`), { n: this.w.profile.nick, t, at: serverTimestamp() }); return true; }
+    catch (e) { console.warn('방명록 쓰기 실패', e); return false; }
+  }
+  // 방명록의 한 줄을 지운다 (내가 쓴 것, 또는 내 집에 남이 쓴 것)
+  async eraseGuestNote(owner: string, writer: string): Promise<boolean> {
+    try { await remove(ref(db, `homes/${owner}/gb/${writer}`)); return true; } catch { return false; }
   }
   // 벽지: 그 품목을 사 두었으면 값 없이 몇 번이든 바꿀 수 있다 (n = 0 이면 기본 벽으로)
   async setWall(n: number): Promise<'ok' | 'coins' | 'fail'> {

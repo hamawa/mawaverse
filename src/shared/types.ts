@@ -51,6 +51,7 @@ export interface PlayerState {
   nc?: string | null;   // 이름표 색
   fx?: string | null;   // 이동 이펙트
   tt?: string | null;   // 칭호 (2026-11-18. 닉네임 바로 위에 뜬다)
+  si?: boolean | null;  // 앉아 있다 (2026-11-18): 바라보는 쪽 옆 칸의 벤치·의자·소파 위에 그린다. 실제 자리(x, y)는 그대로
   pt?: string | null;   // 데리고 다니는 펫 (품목 id)
   pl?: number | null;   // 그 펫의 누적 먹이(경험치). 남들이 크기·탑승·방어(Lv8 이상이면 밀치기 무효)를 보는 데 쓴다 (규칙: 지갑 px 이하)
   pa?: boolean | null;  // 철벽 갑옷 입는 중 (밀치기 무효)

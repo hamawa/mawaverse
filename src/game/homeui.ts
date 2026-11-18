@@ -2,7 +2,7 @@ import { ref, get } from 'firebase/database';
 import { db } from '../firebase/app';
 import { el } from '../shared/util';
 import { modal, withCloseX, confirmModal } from './ui';
-import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, TROPHY_MIN_RARITY } from '../shared/home';
+import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, GUEST_MAX, TROPHY_MIN_RARITY } from '../shared/home';
 import { fishById, fmtSize, RARITY_NAME, type FishBookEntry } from '../shared/fish';
 import { winterFishById } from '../shared/winter';
 import { itemById, priceOf, fmtCoins, GOLD_COST } from '../shared/shop';
@@ -86,6 +86,10 @@ export function openHome(w: World): void {
     body.append(line(`든든함 🐟 ${h.shield}/${SHIELD_MAX}`));
     body.append(line(`집 안 침대를 보고 F. ${SLEEP_MS / 60000}분을 자면 창고 물고기 ${SHIELD_FISH}마리를 먹고 든든함이 1 쌓여요. 든든함 하나가 빠따 한 번을 막아 줘요(갑옷·펫 방어가 안 깨져요).`, true));
 
+    // 방명록 (2026-11-18): 놀러 온 사람이 남긴 글
+    body.append(title('📖 방명록'));
+    body.append(row(btn(`방명록 보기 (${Object.keys(h.data?.gb || {}).length}줄)`, () => { closeModal?.(); openGuestbook(w, w.uid); }, true), line('놀러 온 사람이 한 줄씩 남길 수 있어요', true)));
+
     // 꾸미기 (2026-11-17 저녁): 가구는 나무로 종류마다 한 번 만들고, 꾸미기 모드에서 F 로 놓고 치운다
     body.append(title('🛋 꾸미기'));
     body.append(line(`놓은 가구 ${h.decoCount}/${h.decoLimit}개`));
@@ -162,6 +166,38 @@ function craftButton(w: World, o: number, btn: Btn): HTMLElement {
     if (r === 'ok') w.toast(`🛋 ${f.name}을(를) 만들었어요. 꾸미기 모드에서 놓을 수 있어요.`);
     else w.toast(r === 'wood' ? '나무가 모자랍니다.' : '만들지 못했습니다.', true);
   }, w.home.wood >= f.wood);
+}
+
+// 방명록 (2026-11-18): owner 의 집에 남긴 글. 손님은 한 줄을 남기고(다시 쓰면 바뀐다), 주인은 읽고 지운다. 그 집 안에 있거나 내 집일 때 연다
+export function openGuestbook(w: World, owner: string): void {
+  const mine = owner === w.uid;
+  const body = el('div', { style: 'min-width:260px;max-width:420px;line-height:1.5' });
+  const draw = () => {
+    body.innerHTML = '';
+    const data = mine ? w.home.data : w.home.here();
+    const notes = Object.entries(data?.gb || {}).sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
+    if (!notes.length) body.append(el('p', { class: 'muted', text: mine ? '아직 아무도 글을 남기지 않았어요.' : '아직 글이 없어요. 첫 줄을 남겨 보세요.' }));
+    for (const [uid, n] of notes) {
+      const row = el('div', { style: 'display:flex;gap:8px;align-items:flex-start;margin:6px 0' });
+      row.append(el('div', { style: 'flex:1;word-break:break-all' }, [el('b', { text: n.n }), el('span', { text: ` ${n.t}` }), el('div', { class: 'muted', style: 'font-size:11px', text: n.at ? new Date(n.at).toLocaleDateString('ko-KR') : '' })]));
+      if (mine || uid === w.uid) { const del = el('button', { class: 'btn small', text: '지우기' }); del.onclick = async () => { del.disabled = true; if (await w.home.eraseGuestNote(owner, uid)) window.setTimeout(draw, 250); else w.toast('지우지 못했습니다.', true); }; row.append(del); }
+      body.append(row);
+    }
+    if (!mine) {
+      const my = data?.gb?.[w.uid];
+      const input = el('input', { type: 'text', maxlength: String(GUEST_MAX), placeholder: `한 줄 남기기 (${GUEST_MAX}자)`, value: my?.t || '', style: 'flex:1;min-width:0' }) as HTMLInputElement;
+      const send = el('button', { class: 'btn primary small', text: my ? '고쳐 쓰기' : '남기기' });
+      send.onclick = async () => {
+        if (!input.value.trim()) return;
+        send.disabled = true;
+        if (await w.home.signGuestbook(owner, input.value)) { w.toast('📖 방명록에 남겼어요.'); window.setTimeout(draw, 250); } else { w.toast('남기지 못했습니다.', true); send.disabled = false; }
+      };
+      body.append(el('div', { style: 'display:flex;gap:6px;margin-top:10px' }, [input, send]), el('p', { class: 'muted', style: 'font-size:11px', text: '한 집에 한 줄을 남길 수 있어요. 다시 쓰면 바뀝니다.' }));
+    }
+  };
+  draw();
+  w.input.releaseAll();
+  modal(mine ? '📖 내 집 방명록' : `📖 ${w.nickOf(owner)} 님 집 방명록`, body, [{ label: '닫기', onClick: () => {} }]);
 }
 
 // 꾸미기 모드에서 빈 칸을 보고 F: 내 앞 칸에 놓을 가구를 고른다

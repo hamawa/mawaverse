@@ -85,6 +85,9 @@ export async function withdraw(uid: string, profile: Pick<UserProfile, 'id' | 'n
     throw new Error('비밀번호가 올바르지 않습니다.');
   }
   if (beforeDelete) await beforeDelete();
+  // 남의 집 방명록에 남긴 내 글부터 지운다. 따로, 실패해도 넘어간다: 이게 막혀서 탈퇴 자체가 안 되면 안 된다
+  const notes = await guestNotesOf(uid);
+  if (Object.keys(notes).length) await update(ref(db), notes).catch(() => {});
   await update(ref(db), {
     [`signups/${uid}`]: null, [`approved/${uid}`]: null,
     [`users/${uid}`]: null, [`ids/${idPathKey(profile.id)}`]: null, [`nicknames/${nickKey(profile.nick)}`]: null,
@@ -158,4 +161,11 @@ export async function loadProfile(uid: string): Promise<UserProfile | null> {
 export async function uidByNick(nick: string): Promise<string | null> {
   const s = await get(ref(db, `nicknames/${nickKey(nick)}`));
   return s.exists() ? (s.val() as string) : null;
+}
+
+// 남의 집 방명록(homes/{주인}/gb/{uid})에 이 사람이 남긴 글을 지우는 쓰기 묶음 (탈퇴·거절·삭제 때 같이 쓴다. 2026-11-18)
+export async function guestNotesOf(uid: string): Promise<Record<string, null>> {
+  const out: Record<string, null> = {};
+  try { const homes = (await get(ref(db, 'homes'))).val() as Record<string, { gb?: Record<string, unknown> }> | null; for (const [owner, h] of Object.entries(homes || {})) if (owner !== uid && h?.gb?.[uid]) out[`homes/${owner}/gb/${uid}`] = null; } catch { /* 읽지 못하면 넘어간다 */ }
+  return out;
 }

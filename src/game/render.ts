@@ -40,6 +40,7 @@ export interface Entity {
   nameColor: string | null;
   fx: string | null;
   title?: string | null;       // 칭호 품목 id (닉네임 바로 위에 뜬다)
+  sit?: boolean;               // 앉아 있다: 다리를 가리고 조금 내려 그린다 (x, y 는 앉은 가구의 칸)
   pet: PetView | null;         // 데리고 다니는 펫 (한 칸 뒤)
   ghost?: boolean;             // 마피아 유령: 반투명 (유령에게만 보임. 산 사람 화면에는 아예 안 들어온다)
   mining?: boolean;            // 금광에서 곡괭이질 중 (곡괭이를 휘두르는 모습)
@@ -204,7 +205,8 @@ export function render(eng: Engine, st: RenderState): void {
       const mi = mountInfo(e.pet.id, e.dir);
       if (mi) { hide = Math.min(9, Math.round((FRAME_H - spriteTop(spr)) * 0.3)); lift = 2 + mi.h - mi.seat - hide; }
     }
-    posByUid.set(e.uid, { sink: sink - lift, feet: sink + visibleH - FRAME_H, above });
+    if (e.sit && depth <= 0 && !rideShown) { hide = 8; py += 5; } // 앉은 모습: 다리 8줄을 가리고 5px 내려 가구에 얹는다
+    posByUid.set(e.uid, { sink: sink - lift + (e.sit ? 5 : 0), feet: sink + visibleH - FRAME_H, above });
     // 찌는 물 타일 위에, 캐릭터보다 뒤에 그린다
     if (e.fishing) { const fv = e.fishing; items.push({ sortY: fv.y + 0.5, order: 1, draw: () => drawBobber(ctx, e, fv, st.now) }); }
     // 펫: 자기 타일의 y 순서로 (주인과 겹치면 주인보다 앞뒤가 자연스럽게)
