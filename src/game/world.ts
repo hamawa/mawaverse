@@ -49,7 +49,7 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
+import { fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petScale, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
 import { SnowfightState, snowGateAt, snowfightAction, SNOW_PACK_HINT, SNOW_THROW_HINT, type SnowGate } from './snowfight';
 import { TASK_FOOTPRINT } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
@@ -60,7 +60,7 @@ import { snowActive, SNOW_BREAK_NOTICE } from '../shared/snowpenalty';
 import { Fishing } from './fishing';
 import { sfx, setScene, stopSound, soundOn, setSoundOn, soundPrefs, setVolume, type Scene } from './audio';
 import { dayTint, isNight, kstMinuteOfDay, type DayTint } from '../shared/daylight';
-import { HomePets, ownedPets } from './homepets';
+import { HomePets, ownedPets, type RoamPet } from './homepets';
 import { wakeLockSupported, wakeLockOn, setWakeLock, startWakeLock } from './wakelock';
 import type { WorldCtx, WorldEvents, RemotePlayer, LocalPlayer } from './state';
 
@@ -424,13 +424,15 @@ export class World implements WorldCtx {
   private entities(now: number): Entity[] {
     const me = this.me;
     const iGhost = this.mafia.isGhost(this.uid);
+    const loose = isHomeMapId(this.mapId); // 집 안: 데리고 온 펫은 풀려나 돌아다닌다 (roamers). 따라다니지도 타지도 않는다
     const list: Entity[] = [{
       uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: me.dir, moving: me.moving,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: me.pose, poseAt: me.poseAt, emoteId: me.emoteId, bubble: me.bubble,
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null,
-      pet: this.pets.view(this.uid, this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
+      pet: this.pets.view(this.uid, loose ? null : this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
       ghost: iGhost, mining: this.mine.active, snowBrokenAt: this.snowBrokenAt, snowReady: this.snowfight.packed,
+      progress: this.home.chopProgress(now), // 나무 캐는 중: 머리 위 진행 막대 (2026-11-18)
     }];
     const sNow = serverNow(); // 방어가 깨진 사람은 이름 옆에 💥 (빠따 gb 또는 눈사람 벌칙 sn. 내 이름은 guardBroken() 이 둘 다 본다)
     for (const rp of this.players.values()) {
@@ -444,7 +446,7 @@ export class World implements WorldCtx {
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
         hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null,
-        pet: this.pets.view(rp.uid, rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0, !!rp.st.nr),
+        pet: this.pets.view(rp.uid, loose ? null : rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0, !!rp.st.nr),
         ghost, mining: !!rp.st.mn, snowBrokenAt: rp.st.sn || 0,
       });
     }
@@ -737,7 +739,7 @@ export class World implements WorldCtx {
     this.arcadeZone = map.zones.find((z) => z.kind === 'arcade');
   }
   private builtinMaps = new Map<string, MapData>(); // 코드에 든 맵은 한 번 만들어 두고 다시 쓴다
-  // ---- 집 안을 돌아다니는 펫 (2026-11-18, homepets.ts): 집 주인이 가진 펫 전부. 주인이 집에 있으면 데리고 다니는 한 마리는 주인을 따라다닌다 ----
+  // ---- 집 안을 돌아다니는 펫 (2026-11-18, homepets.ts): 집 주인이 가진 펫 전부 + 손님들이 데리고 온 펫. 집 안에서는 아무도 펫을 달고 다니지 않는다 (entities 가 따라다니는 펫을 그리지 않는다) ----
   private homePets = new HomePets();
   private guestPets: string[] = []; // 남의 집: 들어갈 때 한 번 읽어 온 그 집 주인의 펫
   private loadGuestPets(): void {
@@ -752,9 +754,17 @@ export class World implements WorldCtx {
     if (!isHomeMapId(this.mapId)) return undefined;
     const owner = homeOwnerOf(this.mapId), mine = owner === this.uid;
     const rp = mine ? null : this.players.get(owner);
-    const led = mine ? this.myPet() : rp && this.onMyMap(rp.st) ? rp.st.pt : null; // 주인을 따라다니는 중인 펫
-    const ids = (mine ? ownedPets(this.profile.own) : this.guestPets).filter((id) => id !== led);
-    return ids.length ? this.homePets.views(owner, ids, serverNow()) : undefined;
+    const here = rp && this.onMyMap(rp.st) ? rp : null;
+    // 주인이 데리고 온 펫은 레벨 크기 그대로 (나머지는 남의 지갑을 읽을 수 없어 기본 크기)
+    const led = mine ? this.myPet() : here?.st.pt ?? null, ledScale = petScale(mine ? this.petRide.xp() : here?.st.pl || 0);
+    const ids = mine ? ownedPets(this.profile.own) : this.guestPets;
+    const pets: RoamPet[] = ids.map((id) => ({ key: `${owner}|${id}`, id, scale: id === led ? ledScale : 1 }));
+    if (led && !ids.includes(led)) pets.push({ key: `${owner}|${led}`, id: led, scale: ledScale }); // 주인의 펫 목록을 아직 못 읽었어도 데리고 온 펫은 보인다
+    // 손님이 데리고 온 펫 (나 포함). 손님마다 열쇠가 달라 같은 종류라도 따로 돌아다닌다
+    const myPet = mine ? null : this.myPet();
+    if (myPet) pets.push({ key: `${owner}|${this.uid}|${myPet}`, id: myPet, scale: petScale(this.petRide.xp()) });
+    for (const g of this.players.values()) if (g.uid !== owner && g.st.pt && this.onMyMap(g.st)) pets.push({ key: `${owner}|${g.uid}|${g.st.pt}`, id: g.st.pt, scale: petScale(g.st.pl || 0) });
+    return pets.length ? this.homePets.views(pets, serverNow()) : undefined;
   }
   // ---- 낮과 밤 (2026-11-18, shared/daylight.ts): 바깥 맵만. 집 안과 금광은 실내라 그대로. 내 메뉴에서 끌 수 있다 (이 브라우저에만 적는다) ----
   private dayOff = ((): boolean => { try { return localStorage.getItem('mv-daylight-off') === '1'; } catch { return false; } })();

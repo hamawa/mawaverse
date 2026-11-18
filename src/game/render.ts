@@ -43,7 +43,8 @@ export interface Entity {
   ghost?: boolean;             // 마피아 유령: 반투명 (유령에게만 보임. 산 사람 화면에는 아예 안 들어온다)
   mining?: boolean;            // 금광에서 곡괭이질 중 (곡괭이를 휘두르는 모습)
   snowReady?: boolean;         // 스키 장갑으로 눈을 뭉쳐 손에 들고 있다 (내 캐릭터에만. 이 브라우저에만 있는 상태라 남에게는 안 보인다)
-  snowBrokenAt?: number;       // 눈사람을 부순 서버 시각. SNOW_PENALTY_MS 동안 머리 위에 빨간 칭호 (판단은 st.serverNow 로: 기기 시계·프레임 시계가 아니다)
+  progress?: { p: number; parts: number }; // 머리 위 진행 막대 (나무 캐는 중. p: 0~1, parts: 눈금 칸 수)
+  snowBrokenAt?: number;       // 눈사람을 부순 서버 시각. SNOW_PENALTY_MS 동안 닉네임 바로 위에 빨간 칭호 (판단은 st.serverNow 로: 기기 시계·프레임 시계가 아니다)
 }
 // 마피아 시체: 죽은 자리에 누운 아바타
 export interface BodyView { uid: string; avatar: string; nick: string; x: number; y: number }
@@ -322,13 +323,15 @@ export function render(eng: Engine, st: RenderState): void {
     const ns = nameStyle(e.nameColor);
     const nameColor = ns ? ns.color : e.isMe ? '#ffe9a8' : '#ffffff';
     const name = e.nick;
-    const under = syFeet + 2 + 18; // drawLabel 은 라벨의 아래쪽 y 를 받는다 (높이 = 글자 크기 + 6)
+    let under = syFeet + 2 + 18; // drawLabel 은 라벨의 아래쪽 y 를 받는다 (높이 = 글자 크기 + 6)
+    // 눈사람을 부순 벌칙 칭호: 닉네임 바로 위에 딱 붙인다 (2026-11-18 사용자 요청. 전에는 머리 위였다). 칭호가 이름표 자리에 오고 이름표는 그만큼 내려간다 (캐릭터를 가리지 않게)
+    if (snowActive(e.snowBrokenAt, st.serverNow)) { drawLabel(ctx, SNOW_PENALTY_TITLE, sx, syFeet + 2 + 17, '#ffffff', 'rgba(185, 28, 28, 0.92)', 11, '#fecaca'); under += 17; }
     drawLabel(ctx, name, sx, under, nameColor, ns?.bg ?? 'rgba(0,0,0,0.55)', 12, ns?.border);
     // 머리 위: 😵 · 입질 · 이모트 · 말풍선. 물속이면 가라앉은 만큼 내려가고, 모자가 프레임 위로 솟았으면 그만큼 올라간다
     const [, syTop] = eng.worldToScreen(e.x * TILE + TILE / 2, e.y * TILE + TILE - FRAME_H + pos.sink - pos.above);
     let top = syTop - 4;
-    // 눈사람을 부순 벌칙 칭호: 가장 아래, 머리 바로 위. 이모트·말풍선은 그 위로 올라간다
-    if (snowActive(e.snowBrokenAt, st.serverNow)) { drawLabel(ctx, SNOW_PENALTY_TITLE, sx, top, '#ffffff', 'rgba(185, 28, 28, 0.92)', 11, '#fecaca'); top -= 18; }
+    // 진행 막대 (나무 캐는 중): 머리 바로 위. 이모트·말풍선은 그 위로 올라간다
+    if (e.progress) { drawProgress(ctx, sx, top, e.progress.p, e.progress.parts, s); top -= Math.round(6 * s) + 6; }
     if (e.pose === 'jump' && st.now - e.poseAt < EMOTE_MS) top -= Math.sin(Math.min(1, (st.now - e.poseAt) / EMOTE_MS) * Math.PI) * 10 * s;
     // 말랑이에 맞음
     if (st.now - e.hitAt >= 0 && st.now - e.hitAt < 1000) { drawLabel(ctx, '😵', sx, top, '#fff', 'rgba(0,0,0,0.5)', 14); top -= 20; }
@@ -553,6 +556,17 @@ function drawEdgeArrow(eng: Engine, wx: number, wy: number, label: string, now: 
 }
 
 // color 가 'rainbow' 면 흐르는 무지개 그라데이션. border 가 있으면 테두리를 두른다 (금테)
+// 머리 위 진행 막대: 어두운 바탕에 왼쪽부터 차오르고, parts 칸마다 눈금을 긋는다 (bottom = 막대의 아래쪽 y)
+function drawProgress(ctx: CanvasRenderingContext2D, cx: number, bottom: number, p: number, parts: number, s: number): void {
+  const w = Math.round(34 * s), h = Math.round(5 * s), x = Math.round(cx - w / 2), y = Math.round(bottom - h);
+  ctx.fillStyle = 'rgba(0,0,0,0.72)'; roundRect(ctx, x - 2, y - 2, w + 4, h + 4, 4); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.16)'; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#a4e85c'; ctx.fillRect(x, y, Math.round(w * Math.max(0, Math.min(1, p))), h);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  for (let i = 1; i < parts; i++) ctx.fillRect(x + Math.round((w * i) / parts), y, 1, h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; roundRect(ctx, x - 1.5, y - 1.5, w + 3, h + 3, 4); ctx.stroke();
+}
+
 export function drawLabel(ctx: CanvasRenderingContext2D, text: string, cx: number, bottom: number, color: string, bg: string, size: number, border?: string): void {
   ctx.font = `bold ${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';

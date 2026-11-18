@@ -123,6 +123,13 @@ export class HomeMgr {
   private woodGoal(): number { return WOOD_MAX; }
   get chopping(): boolean { return !!this.chop; }
   chopView(): { done: number; total: number } | null { return this.chop ? { done: this.chop.done, total: CHOP_SWINGS } : null; }
+  // 지금 하는 도끼질 묶음(F 한 번 = CHOP_SWINGS 번)이 얼마나 됐나 (0~1). 머리 위 진행 막대용. 안 캐는 중이면 undefined
+  chopProgress(now: number): { p: number; parts: number } | undefined {
+    const c = this.chop;
+    if (!c) return undefined;
+    const cur = c.saving ? 1 : Math.max(0, Math.min(1, (now - c.start) / CHOP_MS)); // 저장을 기다리는 동안은 그 한 번이 다 찬 것으로
+    return { p: Math.min(1, (c.done + cur) / CHOP_SWINGS), parts: CHOP_SWINGS };
+  }
   chopTarget(): { x: number; y: number } | null {
     const w = this.w, me = w.me;
     if (this.wood >= this.woodGoal() || w.switching || me.moving || me.locked || me.roomId) return null;

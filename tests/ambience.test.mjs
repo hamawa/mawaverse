@@ -61,10 +61,14 @@ test('집 안 펫: 같은 집·같은 시각이면 누구 화면에서나 같은
   a.setMap(map); b.setMap(map);
   const t0 = 1_800_000_000_000;
   // a 는 처음부터 차례로 보고, b 는 중간에 들어와 한 번에 본다
-  for (let t = t0; t < t0 + 120_000; t += 700) a.views('owner', PET_IDS, t);
+  const pets = PET_IDS.map((id) => ({ key: `owner|${id}`, id }));
+  for (let t = t0; t < t0 + 120_000; t += 700) a.views(pets, t);
   const t = t0 + 120_000;
-  assert.deepEqual(a.views('owner', PET_IDS, t), b.views('owner', PET_IDS, t));
-  assert.notDeepEqual(a.views('owner', ['petdog'], t)[0], a.views('other', ['petdog'], t)[0], '집마다 다르게 돌아다닌다');
+  assert.deepEqual(a.views(pets, t), b.views(pets, t));
+  // 열쇠가 다르면(다른 집, 또는 같은 집의 손님이 데리고 온 같은 종류) 따로 돌아다닌다
+  const spots = ['owner|petdog', 'other|petdog', 'owner|guest|petdog'].map((key) => { const v = a.views([{ key, id: 'petdog' }], t)[0]; return `${v.x},${v.y}`; });
+  assert.ok(new Set(spots).size > 1, '열쇠마다 다르게 돌아다닌다');
+  assert.equal(a.views([{ key: 'owner|petdog', id: 'petdog', scale: 1.4 }], t)[0].scale, 1.4, '데리고 온 펫은 크기 그대로');
 });
 
 test('집 안 펫: 걸을 수 있는 칸에만 서고, 한 번에 한 칸씩만 옮긴다', () => {
@@ -76,7 +80,7 @@ test('집 안 펫: 걸을 수 있는 칸에만 서고, 한 번에 한 칸씩만 
     const epoch0 = Math.ceil(1_800_000_000_000 / ROAM_EPOCH_MS) * ROAM_EPOCH_MS;
     let prev = null;
     for (let i = 1; i < 150; i++) {
-      const v = hp.views('owner', ['petcat'], epoch0 + i * ROAM_SLOT_MS - 1)[0]; // 그 간격의 끝: 걸음이 끝난 자리
+      const v = hp.views([{ key: 'owner|petcat', id: 'petcat' }], epoch0 + i * ROAM_SLOT_MS - 1)[0]; // 그 간격의 끝: 걸음이 끝난 자리
       assert.ok(free.has(`${v.x},${v.y}`), `${tier}단계 집 ${i}번째: (${v.x},${v.y})`);
       if (prev) assert.ok(Math.abs(v.x - prev.x) + Math.abs(v.y - prev.y) <= 1);
       prev = v;
