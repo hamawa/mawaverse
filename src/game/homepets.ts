@@ -25,8 +25,8 @@ export function roamTiles(map: MapData): { x: number; y: number }[] {
 
 const rnd = (key: string): number => (cyrb53(key) % 100000) / 100000; // 0 ~ 1
 
-// 돌아다니는 펫 하나. key: 자리를 정하는 열쇠(같은 열쇠면 누구 화면에서나 같은 자리), scale: 크기(데리고 온 펫은 레벨 크기 그대로)
-export interface RoamPet { key: string; id: string; scale?: number }
+// 돌아다니는 펫 하나. key: 자리를 정하는 열쇠(같은 열쇠면 누구 화면에서나 같은 자리). 크기는 레벨과 상관없이 전부 기본 크기다
+export interface RoamPet { key: string; id: string }
 interface Walk { key: string; epoch: number; slot: number; x: number; y: number; px: number; py: number; dir: Dir }
 
 export class HomePets {
@@ -65,7 +65,7 @@ export class HomePets {
     while (w.slot < slot) { w.slot++; this.step(w); }
     const t = Math.min(1, (into - slot * ROAM_SLOT_MS) / ROAM_WALK_MS);
     const moving = t < 1 && (w.px !== w.x || w.py !== w.y);
-    return { id, x: moving ? w.px + (w.x - w.px) * t : w.x, y: moving ? w.py + (w.y - w.py) * t : w.y, moving, moveT: moving ? t : 0, hopAt: -1e9, dir: w.dir, scale: pet.scale ?? 1, ride: false };
+    return { id, x: moving ? w.px + (w.x - w.px) * t : w.x, y: moving ? w.py + (w.y - w.py) * t : w.y, moving, moveT: moving ? t : 0, hopAt: -1e9, dir: w.dir, scale: 1, ride: false };
   }
 
   // slot 번째 간격의 움직임: 제자리 또는 옆 칸

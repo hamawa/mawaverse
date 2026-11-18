@@ -73,7 +73,7 @@ export class Synth {
     o.type = type; o.frequency.setValueAtTime(f0, t);
     if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
     this.env(g, t, vol, dur, attack);
-    o.connect(g).connect(out); o.start(t); o.stop(t + dur + 0.05);
+    o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.05);
   }
   noise(out: AudioNode, t: number, dur: number, vol: number, type: BiquadFilterType, f0: number, f1 = f0, q = 1): void {
     const ac = this.ac;
@@ -82,7 +82,7 @@ export class Synth {
     const f = ac.createBiquadFilter(); f.type = type; f.Q.value = q; f.frequency.setValueAtTime(f0, t);
     if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
     const g = ac.createGain(); this.env(g, t, vol, dur, 0.004);
-    s.connect(f).connect(g).connect(out); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
+    s.connect(f); f.connect(g); g.connect(out); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.05);
   }
 
   // 효과음 하나. k: 세기·등급 (낚은 물고기 등급 0~4 등)
@@ -146,7 +146,7 @@ export class Synth {
       o.type = 'triangle'; o.frequency.value = midi(n); o.detune.value = det;
       const peak = Math.max(0.0002, vol * 0.035);
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + dur * 0.45); g.gain.exponentialRampToValueAtTime(0.0001, t + dur * 1.25);
-      o.connect(g).connect(out); o.start(t); o.stop(t + dur * 1.3);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + dur * 1.3);
     }
   }
   drum(out: AudioNode, kind: 'kick' | 'snare' | 'hat' | 'brush', t: number, vol: number): void {
@@ -245,6 +245,38 @@ export function buildGraph(ac: BaseAudioContext, p: SoundPrefs): { sfxBus: GainN
   const wetIn = ac.createGain(); wetIn.gain.value = 0.55; wetIn.connect(rev); rev.connect(musicBus);
   return { sfxBus, musicBus, wetIn };
 }
+// ---- 아이폰 (2026-11-18 제보: 아이폰에서는 소리가 나지 않는다. 실제 기기로는 확인하지 못하고 넣었다) ----
+// 아이폰은 옆의 무음 스위치가 켜져 있으면 Web Audio 소리를 내지 않는다(동영상·음악은 나는데 웹의 효과음 취급이라 꺼진다). 재생 종류를 playback 으로 바꾸면 무음 스위치와 상관없이 난다.
+// iOS 16.4 부터는 navigator.audioSession 으로 바꾸고, 그 전 버전은 소리 없는 <audio> 를 틀어 두는 방법으로 같은 효과를 낸다. 소리를 끄면 되돌린다
+interface AudioSessionLike { type: string }
+const audioSession = (): AudioSessionLike | undefined => (typeof navigator === 'undefined' ? undefined : (navigator as unknown as { audioSession?: AudioSessionLike }).audioSession);
+const isIos = (): boolean => typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+let silentEl: HTMLAudioElement | null = null;
+function silentWavUrl(): string {
+  // 0.5초짜리 무음 WAV (8kHz·8비트·모노)
+  const n = 4000, b = new Uint8Array(44 + n), v = new DataView(b.buffer);
+  const str = (o: number, s: string) => { for (let i = 0; i < s.length; i++) b[o + i] = s.charCodeAt(i); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n, true); str(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); str(36, 'data'); v.setUint32(40, n, true);
+  b.fill(128, 44);
+  return URL.createObjectURL(new Blob([b], { type: 'audio/wav' }));
+}
+function iosPlayback(on: boolean): void {
+  try {
+    const s = audioSession();
+    if (s) { s.type = on ? 'playback' : 'auto'; return; }
+    if (!isIos()) return;
+    if (on) { if (!silentEl) { silentEl = document.createElement('audio'); silentEl.loop = true; silentEl.preload = 'auto'; silentEl.setAttribute('playsinline', ''); silentEl.src = silentWavUrl(); } void silentEl.play().catch(() => {}); }
+    else silentEl?.pause();
+  } catch { /* 지원하지 않는 브라우저: 그대로 둔다 */ }
+}
+// 사용자가 누른 그 순간에 부른다: 맥락을 깨우고, 옛 아이폰이 요구하는 "누른 순간에 시작한 소리"로 빈 소리 하나를 낸다
+function wake(l: Live): void {
+  iosPlayback(true);
+  void l.ac.resume().catch(() => {});
+  try { const s = l.ac.createBufferSource(); s.buffer = l.ac.createBuffer(1, 1, l.ac.sampleRate); s.connect(l.ac.destination); s.start(0); } catch { /* ignore */ }
+}
+const UNLOCK_EVENTS = ['touchend', 'click', 'pointerup', 'keydown'];
 function ensure(): Live | null {
   if (!load().on || typeof window === 'undefined') return null;
   if (!live) {
@@ -252,15 +284,21 @@ function ensure(): Live | null {
     if (!AC) return null;
     const ac = new AC();
     live = { ac, synth: new Synth(ac), ...buildGraph(ac, load()) };
+    iosPlayback(true);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState !== 'visible') dropTune(0.4); });
   }
-  if (live.ac.state === 'suspended') {
+  // 멈춰 있으면 깨운다. 아이폰은 뒤로 갔다 오거나 전화가 오면 suspended 가 아니라 interrupted 가 되므로 "running 이 아니면"으로 본다
+  if (live.ac.state !== 'running') {
     void live.ac.resume().catch(() => {});
     // 브라우저는 사용자가 한 번 누르기 전에는 소리를 내지 않는다: 켜 둔 채 새로 들어왔으면 첫 입력 때 푼다
     if (!unlockArmed) {
       unlockArmed = true;
-      const go = () => { void live?.ac.resume().catch(() => {}); if (live?.ac.state === 'running') { unlockArmed = false; for (const ev of ['pointerdown', 'keydown', 'touchend']) window.removeEventListener(ev, go, true); } };
-      for (const ev of ['pointerdown', 'keydown', 'touchend']) window.addEventListener(ev, go, true);
+      const go = () => {
+        if (!live || !load().on) return;
+        if (live.ac.state === 'running') { unlockArmed = false; for (const ev of UNLOCK_EVENTS) window.removeEventListener(ev, go, true); return; }
+        wake(live);
+      };
+      for (const ev of UNLOCK_EVENTS) window.addEventListener(ev, go, true);
     }
   }
   return live;
@@ -272,8 +310,8 @@ export function soundOn(): boolean { return load().on; }
 // 소리 켜기·끄기 (버튼을 누른 그 순간에 불러야 브라우저가 소리를 허락한다)
 export function setSoundOn(on: boolean): void {
   load().on = on; save();
-  if (on) { const l = ensure(); if (l) void l.ac.resume().then(() => sfx('on')).catch(() => {}); } // 다시 켤 때는 멈춰 둔 맥락이 풀린 뒤에 알림음
-  else { dropTune(0.3); void live?.ac.suspend().catch(() => {}); }
+  if (on) { const l = ensure(); if (l) { wake(l); void l.ac.resume().then(() => sfx('on')).catch(() => {}); } } // 다시 켤 때는 멈춰 둔 맥락이 풀린 뒤에 알림음
+  else { dropTune(0.3); void live?.ac.suspend().catch(() => {}); iosPlayback(false); }
 }
 export function setVolume(kind: 'music' | 'sfx', v: number): void {
   const p = load(); p[kind] = Math.max(0, Math.min(1, v)); save();

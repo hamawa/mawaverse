@@ -153,8 +153,7 @@ export function render(eng: Engine, st: RenderState): void {
     ctx.fillStyle = '#f4ead2'; roundRect(ctx, px + 5, py + 5, TILE - 10, TILE - 12, 3); ctx.fill();
     ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#222';
     ctx.fillText(p.icon, px + TILE / 2, py + TILE / 2 - 1);
-    drawLabel(ctx, p.text, px + TILE / 2, py + TILE + 10, '#fff', 'rgba(0,0,0,0.5)', 9);
-  } });
+  } }); // 이름·크기 글자는 아래 화면 좌표에서 닉네임 이름표와 같은 크기로 그린다
   // 금광의 거대한 금덩어리: 큰 그림 한 장. 아랫줄 기준으로 정렬해 위쪽에 선 사람은 뒤에, 아래쪽에 선 사람은 앞에 온다
   for (const z of map.zones) if (z.kind === 'mine') {
     if (!eng.isTileVisible(z.x + z.w / 2 - 0.5, z.y + z.h / 2 - 0.5, TILE * Math.max(z.w, z.h))) continue;
@@ -309,6 +308,16 @@ export function render(eng: Engine, st: RenderState): void {
   }
   // 마피아 미션: 화면 밖의 내 미션은 가장자리 화살표 + 이름 (2026-11-10)
   if (st.marks?.mine) for (const m of st.marks.spots) if (!eng.isTileVisible(m.x + m.w / 2 - 0.5, m.y + m.h / 2 - 0.5, -TILE / 2)) drawEdgeArrow(eng, (m.x + m.w / 2) * TILE, (m.y + m.h / 2) * TILE, m.label, st.now);
+  // 집 벽의 물고기 박제 이름: 액자 바로 아래, 닉네임 이름표와 같은 크기 (2026-11-18 사용자 요청. 전에는 맵과 함께 확대돼 글자가 컸다). 옆 칸에 붙어 걸린 것은 한 줄 내려 겹치지 않게
+  {
+    let prevX = -9, prevLow = false;
+    for (const p of [...(st.plaques ?? [])].sort((a, b) => a.x - b.x)) {
+      const low: boolean = p.x - prevX === 1 && !prevLow;
+      const [lx, ly] = eng.worldToScreen(p.x * TILE + TILE / 2, p.y * TILE + TILE - 5); // 액자의 아랫변
+      drawLabel(ctx, p.text, lx, ly + 1 + 18 + (low ? 19 : 0), '#ffffff', 'rgba(0,0,0,0.55)', 12);
+      prevX = p.x; prevLow = low;
+    }
+  }
   // 힌트
   if (st.hint) {
     const [sx, sy] = eng.worldToScreen(st.hint.x * TILE + TILE / 2, st.hint.y * TILE);

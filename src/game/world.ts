@@ -49,7 +49,7 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petScale, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
+import { fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
 import { SnowfightState, snowGateAt, snowfightAction, SNOW_PACK_HINT, SNOW_THROW_HINT, type SnowGate } from './snowfight';
 import { TASK_FOOTPRINT } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
@@ -755,15 +755,15 @@ export class World implements WorldCtx {
     const owner = homeOwnerOf(this.mapId), mine = owner === this.uid;
     const rp = mine ? null : this.players.get(owner);
     const here = rp && this.onMyMap(rp.st) ? rp : null;
-    // 주인이 데리고 온 펫은 레벨 크기 그대로 (나머지는 남의 지갑을 읽을 수 없어 기본 크기)
-    const led = mine ? this.myPet() : here?.st.pt ?? null, ledScale = petScale(mine ? this.petRide.xp() : here?.st.pl || 0);
+    // 집 안에서는 레벨과 상관없이 전부 기본(작은) 크기로 돌아다닌다 (2026-11-18 사용자 요청: 데리고 온 펫만 큰 것이 어색했다)
+    const led = mine ? this.myPet() : here?.st.pt ?? null;
     const ids = mine ? ownedPets(this.profile.own) : this.guestPets;
-    const pets: RoamPet[] = ids.map((id) => ({ key: `${owner}|${id}`, id, scale: id === led ? ledScale : 1 }));
-    if (led && !ids.includes(led)) pets.push({ key: `${owner}|${led}`, id: led, scale: ledScale }); // 주인의 펫 목록을 아직 못 읽었어도 데리고 온 펫은 보인다
+    const pets: RoamPet[] = ids.map((id) => ({ key: `${owner}|${id}`, id }));
+    if (led && !ids.includes(led)) pets.push({ key: `${owner}|${led}`, id: led }); // 주인의 펫 목록을 아직 못 읽었어도 데리고 온 펫은 보인다
     // 손님이 데리고 온 펫 (나 포함). 손님마다 열쇠가 달라 같은 종류라도 따로 돌아다닌다
     const myPet = mine ? null : this.myPet();
-    if (myPet) pets.push({ key: `${owner}|${this.uid}|${myPet}`, id: myPet, scale: petScale(this.petRide.xp()) });
-    for (const g of this.players.values()) if (g.uid !== owner && g.st.pt && this.onMyMap(g.st)) pets.push({ key: `${owner}|${g.uid}|${g.st.pt}`, id: g.st.pt, scale: petScale(g.st.pl || 0) });
+    if (myPet) pets.push({ key: `${owner}|${this.uid}|${myPet}`, id: myPet });
+    for (const g of this.players.values()) if (g.uid !== owner && g.st.pt && this.onMyMap(g.st)) pets.push({ key: `${owner}|${g.uid}|${g.st.pt}`, id: g.st.pt });
     return pets.length ? this.homePets.views(pets, serverNow()) : undefined;
   }
   // ---- 낮과 밤 (2026-11-18, shared/daylight.ts): 바깥 맵만. 집 안과 금광은 실내라 그대로. 내 메뉴에서 끌 수 있다 (이 브라우저에만 적는다) ----

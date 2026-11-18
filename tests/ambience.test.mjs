@@ -68,7 +68,7 @@ test('집 안 펫: 같은 집·같은 시각이면 누구 화면에서나 같은
   // 열쇠가 다르면(다른 집, 또는 같은 집의 손님이 데리고 온 같은 종류) 따로 돌아다닌다
   const spots = ['owner|petdog', 'other|petdog', 'owner|guest|petdog'].map((key) => { const v = a.views([{ key, id: 'petdog' }], t)[0]; return `${v.x},${v.y}`; });
   assert.ok(new Set(spots).size > 1, '열쇠마다 다르게 돌아다닌다');
-  assert.equal(a.views([{ key: 'owner|petdog', id: 'petdog', scale: 1.4 }], t)[0].scale, 1.4, '데리고 온 펫은 크기 그대로');
+  assert.ok(a.views(pets, t).every((v) => v.scale === 1), '집 안에서는 전부 기본 크기');
 });
 
 test('집 안 펫: 걸을 수 있는 칸에만 서고, 한 번에 한 칸씩만 옮긴다', () => {
