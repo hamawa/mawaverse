@@ -244,7 +244,25 @@ export function petCanvas(id: string): HTMLCanvasElement | null {
 }
 // (x, y) = 펫이 있는 타일 좌표(소수 가능, 보간 중). moving 이면 통통, hopAt 이 최근이면 점프(벌레 잡기). 타일 아래쪽 가운데에 선다
 // scale: 레벨에 따른 크기 (2026-11-10, 1 = 12×10 픽셀). ride 면 주인 발밑(그림자는 주인 것을 쓰므로 생략)
-export function drawPet(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, tile: number, now: number, moving: boolean, moveT: number, hopAt: number, dir: Dir, scale = 1, ride = false): void {
+// 선글라스 자리 (클럽, 2026-11-18): 펫 그림에서 가장 어두운 색이 한 줄에 둘 이상 찍힌 첫 줄을 눈으로 본다 (그림마다 눈 색 글자가 달라 그림에서 찾는다)
+const shadesCache = new Map<string, { row: number; x0: number; x1: number } | null>();
+function petShades(id: string): { row: number; x0: number; x1: number } | null {
+  if (shadesCache.has(id)) return shadesCache.get(id)!;
+  const art = PET_ART[id];
+  let out: { row: number; x0: number; x1: number } | null = null;
+  if (art) {
+    const lum = (hex: string) => { const n = parseInt(hex.slice(1), 16); return ((n >> 16) & 255) * 0.3 + ((n >> 8) & 255) * 0.59 + (n & 255) * 0.11; };
+    const dark = Object.entries(art.pal).sort((a, b) => lum(a[1]) - lum(b[1]))[0]?.[0];
+    for (let r = 1; r < Math.min(7, art.rows.length) && !out && dark; r++) {
+      const xs = [...art.rows[r]].map((c, i) => (c === dark ? i : -1)).filter((i) => i >= 0);
+      if (xs.length >= 2 && xs[xs.length - 1] - xs[0] >= 3) out = { row: r, x0: xs[0], x1: xs[xs.length - 1] };
+    }
+    if (!out) out = { row: 3, x0: 3, x1: 8 };
+  }
+  shadesCache.set(id, out);
+  return out;
+}
+export function drawPet(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, tile: number, now: number, moving: boolean, moveT: number, hopAt: number, dir: Dir, scale = 1, ride = false, shades = false): void {
   const cv = petCanvas(id);
   if (!cv) return;
   const hop = now - hopAt;
@@ -258,6 +276,16 @@ export function drawPet(ctx: CanvasRenderingContext2D, id: string, x: number, y:
   // 옆을 볼 때는 좌우로 뒤집는다 (오른쪽 = 기본)
   if (dir === 1) { ctx.save(); ctx.translate(px + w, py); ctx.scale(-1, 1); ctx.drawImage(cv, 0, 0, w, h); ctx.restore(); }
   else ctx.drawImage(cv, px, py, w, h);
+  if (shades) {
+    // 선글라스: 두 눈을 덮는 검은 알 둘과 가운데 다리, 왼쪽 알에 흰 반짝임
+    const g = petShades(id);
+    if (g) {
+      const k = w / cv.width, gy = py + Math.round((g.row - 0.3) * k), gh = Math.max(2, Math.round(1.7 * k)), lw = Math.max(3, Math.round(2.6 * k));
+      const lx = px + Math.round((g.x0 - 0.8) * k), rx = px + Math.round((g.x1 + 1.8) * k) - lw;
+      ctx.fillStyle = '#0b0b10'; ctx.fillRect(lx, gy, lw, gh); ctx.fillRect(rx, gy, lw, gh); ctx.fillRect(lx, gy, rx + lw - lx, Math.max(1, Math.round(0.5 * k)));
+      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillRect(lx + 1, gy + 1, 1, 1);
+    }
+  }
   // 그림자
   if (!ride) { ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(x * tile + tile / 2, y * tile + tile - 2, 5 * scale, 2 * scale, 0, 0, Math.PI * 2); ctx.fill(); }
 }

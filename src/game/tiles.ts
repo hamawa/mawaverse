@@ -1,6 +1,6 @@
 // 바닥/오브젝트 타일을 코드로 그려 캐시한다.
 import { PixelBuf, shade, mix } from './pixel';
-import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O, O_BED, O_CHEST, O_FIREPLACE, O_AQUARIUM, O_PIANO, O_TV, O_GOLD_VASE, O_GOLD_STATUE, WALLPAPER_BASE, WALLPAPER_COUNT } from './map';
+import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O, O_BED, O_CHEST, O_FIREPLACE, O_AQUARIUM, O_PIANO, O_TV, O_GOLD_VASE, O_GOLD_STATUE, O_SPEAKER, O_DJ, WALLPAPER_BASE, WALLPAPER_COUNT } from './map';
 import { TILE } from '../shared/config';
 import { seededRandom } from '../shared/hash';
 
@@ -348,6 +348,19 @@ function drawObject(id: number): PixelBuf | null {
       tall.rect(18, 14, 8, 5, '#fff2a8'); tall.px(17, 16, '#fff2a8'); tall.px(26, 14, '#fff2a8'); tall.px(26, 18, '#fff2a8'); tall.px(20, 15, '#c9952a');
       tall.rect(12, 34, 2, 18, '#fff2a8'); tall.rect(18, 36, 2, 16, '#c9952a'); tall.px(14, 26, '#c9952a'); tall.px(18, 26, '#c9952a');
       return tall.outline(P.outline);
+    case O_SPEAKER:
+      // 스피커 (클럽): 검은 통에 큰 울림판 둘
+      tall.rect(5, 10, 22, 52, '#17171d'); tall.rect(5, 10, 22, 3, '#2c2c38'); tall.rect(5, 10, 2, 52, '#2c2c38');
+      tall.circle(16, 24, 7, '#33333f'); tall.circle(16, 24, 4, '#0c0c10'); tall.circle(16, 24, 1, '#55556a');
+      tall.circle(16, 46, 9, '#33333f'); tall.circle(16, 46, 6, '#0c0c10'); tall.circle(16, 46, 2, '#55556a');
+      tall.px(8, 14, '#ff5ce1'); tall.px(24, 14, '#5cf2ff');
+      return tall.outline(P.outline);
+    case O_DJ:
+      // 디제이 탁자 (클럽): 턴테이블 둘과 불빛
+      one.rect(1, 10, 30, 19, '#2a2238'); one.rect(1, 10, 30, 3, '#463a5e'); one.rect(1, 26, 30, 3, '#1a1524');
+      one.circle(9, 9, 6, '#111118'); one.circle(9, 9, 2, '#ff5ce1'); one.circle(23, 9, 6, '#111118'); one.circle(23, 9, 2, '#5cf2ff');
+      for (let x = 4; x < 28; x += 4) one.rect(x, 17, 2, 5, ['#ff5ce1', '#5cf2ff', '#ffd84d', '#8fd45a'][(x / 4) % 4]);
+      return one.outline(P.outline);
     case O_BED:
       // 침대 (집 안): 나무 틀, 흰 베개, 붉은 이불
       one.rect(3, 5, 26, 24, P.benchDark); one.rect(5, 7, 22, 20, '#f4ead2'); one.rect(8, 8, 16, 6, '#ffffff'); one.rect(8, 13, 16, 1, '#d8d0bc');

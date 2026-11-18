@@ -11,8 +11,8 @@ import { Engine } from './engine';
 import { Input } from './input';
 import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
-import { O, objectAt, buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildHomeMap, HOME_EXIT_ZONE, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
-import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, playerMapId, isHomeMapId, homeMapId, homeOwnerOf } from '../shared/maps';
+import { O, objectAt, buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, CLUB_FLOOR, CLUB_DANCERS, buildHomeMap, HOME_EXIT_ZONE, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
+import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, playerMapId, isHomeMapId, homeMapId, homeOwnerOf } from '../shared/maps';
 import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { openPortalPicker } from './portalui';
 import { Net } from './net';
@@ -49,7 +49,7 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
+import { fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, PET_IDS, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
 import { SnowfightState, snowGateAt, snowfightAction, SNOW_PACK_HINT, SNOW_THROW_HINT, type SnowGate } from './snowfight';
 import { TASK_FOOTPRINT } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
@@ -107,6 +107,8 @@ async function loadSavedMap(id: string): Promise<MapData> {
   return m;
 }
 
+const CLUB_BPM = 126;        // 클럽의 바닥·춤추는 펫이 맞추는 박자 (곡은 124~128 이라 거의 맞는다)
+const CLUB_DANCE_MS = 8000;  // 클럽에서 이모트 한 번에 춤추는 시간
 const SMASH_CONFIRM_MS = 6000; // 눈사람 부수기: 첫 F 뒤 이 시간 안에 두 번째 F 를 눌러야 한다
 export class World implements WorldCtx {
   sessionId = randomId(16);
@@ -410,7 +412,7 @@ export class World implements WorldCtx {
     this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
     this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView() });
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView(), club: this.clubView() });
     if (now - this.sceneAt > 1000) { this.sceneAt = now; setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow()))); this.weatherTick(); } // 배경음악: 지금 상황에 맞는 곡 (1초에 한 번 본다)
   }
 
@@ -431,9 +433,10 @@ export class World implements WorldCtx {
     const iGhost = this.mafia.isGhost(this.uid);
     const loose = isHomeMapId(this.mapId); // 집 안: 데리고 온 펫은 풀려나 돌아다닌다 (roamers). 따라다니지도 타지도 않는다
     const mySeat = this.sitAt;
+    const myDance = this.danceOf(me.emoteId, me.poseAt, now);
     const list: Entity[] = [{
       uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: mySeat ? mySeat.x : me.dispX, y: mySeat ? mySeat.y : me.dispY, dir: mySeat ? 0 : me.dir, moving: me.moving, sit: !!mySeat,
-      moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: me.pose, poseAt: me.poseAt, emoteId: me.emoteId, bubble: me.bubble,
+      moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: myDance ? 'dance' : me.pose, poseAt: myDance ? now : me.poseAt, emoteId: myDance ? 0 : me.emoteId, dance: myDance || undefined, bubble: me.bubble,
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null, title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null,
       pet: this.pets.view(this.uid, loose ? null : this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
@@ -447,9 +450,10 @@ export class World implements WorldCtx {
       const ghost = this.mafia.isGhost(rp.uid);
       if (ghost && !iGhost) continue;
       const seat = rp.st.si ? this.seatOf(rp.toX, rp.toY, rp.st.d ?? 0) : null; // 앉아 있는 사람: 바라보는 쪽 옆 칸의 가구 위에 그린다
+      const dance = this.danceOf(rp.emoteId, rp.poseAt, now);
       list.push({
         uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat ? seat.x : rp.x, y: seat ? seat.y : rp.y, dir: seat ? 0 : rp.st.d ?? 0, sit: !!seat, moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
-        pose: rp.pose, poseAt: rp.poseAt, emoteId: rp.emoteId, bubble: rp.bubble, isMe: false,
+        pose: dance ? 'dance' : rp.pose, poseAt: dance ? now : rp.poseAt, emoteId: dance ? 0 : rp.emoteId, dance: dance || undefined, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
         hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null, title: rp.st.tt || null,
@@ -777,12 +781,21 @@ export class World implements WorldCtx {
   // ---- 낮과 밤 (2026-11-18, shared/daylight.ts): 바깥 맵만. 집 안과 금광은 실내라 그대로. 내 메뉴에서 끌 수 있다 (이 브라우저에만 적는다) ----
   private dayOff = ((): boolean => { try { return localStorage.getItem('mv-daylight-off') === '1'; } catch { return false; } })();
   private nightTint(): DayTint | null {
-    if (this.dayOff || isHomeMapId(this.mapId) || this.mapId === GOLD_MINE_MAP_ID) return null;
+    if (this.dayOff || isHomeMapId(this.mapId) || this.mapId === GOLD_MINE_MAP_ID || this.mapId === CLUB_MAP_ID) return null;
     return dayTint(kstMinuteOfDay(serverNow()));
   }
   private bgTimer = 0;
   // 단추를 누를 때 딸깍 (소리 단추 자신은 켜짐 알림음이 난다)
   private onUiClick = (e: MouseEvent): void => { const b = (e.target as HTMLElement | null)?.closest?.('button'); if (b && !b.hasAttribute('data-quiet')) sfx('ui', { vol: 0.6 }); };
+  // ---- 클럽 (2026-11-18, 사용자 제안): 춤추는 펫(선글라스), 색 조명, 이모트 1~9 가 전부 춤 ----
+  private clubPets: import('./render').PetView[] = CLUB_DANCERS.map((p, i) => ({ id: PET_IDS[i % PET_IDS.length], x: p.x, y: p.y, moving: false, moveT: 0, hopAt: -1e9, dir: 0, scale: 1.3, ride: false }));
+  private clubView(): { x: number; y: number; w: number; h: number; bpm: number; dancers: import('./render').PetView[] } | null {
+    return this.mapId === CLUB_MAP_ID ? { ...CLUB_FLOOR, bpm: CLUB_BPM, dancers: this.clubPets } : null;
+  }
+  // 클럽에서 이모트 1~9 를 쓰면 CLUB_DANCE_MS 동안 그 번호의 춤을 춘다 (그 밖의 맵에서는 0 = 평소 이모트)
+  private danceOf(emoteId: number, poseAt: number, now: number): number {
+    return this.mapId === CLUB_MAP_ID && emoteId >= 1 && emoteId <= 9 && now - poseAt < CLUB_DANCE_MS ? emoteId : 0;
+  }
   // ---- 앉기 (2026-11-18, 사용자 요청): 벤치·의자·소파를 보고 F. 보이는 모습만 그 가구 위로 옮긴다: 실제 자리는 그대로라 밀치기·끌기는 평소처럼 통하고, 움직이거나 돌아서면 일어난다 ----
   private sitAt: { x: number; y: number } | null = null;
   sitting(): boolean { return !!this.sitAt; }
@@ -803,7 +816,7 @@ export class World implements WorldCtx {
   private sit(): void { const s = this.seatAhead(); if (!s) return; this.sitAt = s; this.net.setSit(true); sfx('door', { vol: 0.5 }); }
   private standUp(): void { if (!this.sitAt) return; this.sitAt = null; this.net.setSit(false); }
   // ---- 날씨 (2026-11-18, shared/weather.ts): 바깥 맵에만 비가 온다. 집 안과 금광은 실내. 겨울 맵에서는 눈으로 보이고 비 한정 물고기는 없다 ----
-  private outdoors(): boolean { return !isHomeMapId(this.mapId) && this.mapId !== GOLD_MINE_MAP_ID; }
+  private outdoors(): boolean { return !isHomeMapId(this.mapId) && this.mapId !== GOLD_MINE_MAP_ID && this.mapId !== CLUB_MAP_ID; }
   private rainHere(): number { return this.outdoors() ? rainLevel(serverNow()) : 0; }
   raining(): boolean { return this.mapId !== WINTER_MAP_ID && this.rainHere() > 0; }
   private rainView(): { level: number; snow: boolean } | null { const level = this.dayOff ? 0 : this.rainHere(); return level > 0 ? { level, snow: this.mapId === WINTER_MAP_ID } : null; }
@@ -828,6 +841,7 @@ export class World implements WorldCtx {
     if (isHomeMapId(this.mapId)) return 'home';
     if (this.mapId === GOLD_MINE_MAP_ID) return 'mine';
     if (this.mapId === WINTER_MAP_ID) return 'winter';
+    if (this.mapId === CLUB_MAP_ID) return 'club';
     return 'main';
   }
   // 화면 위 소리 버튼: 켜기·끄기 (누른 그 순간에 불러야 브라우저가 소리를 허락한다)
@@ -860,7 +874,7 @@ export class World implements WorldCtx {
     if (src === 'active') return this.mainMap;
     if (src === 'builtin') {
       let m = this.builtinMaps.get(id);
-      if (!m) { m = id === GOLD_MINE_MAP_ID ? buildGoldMine() : id === WINTER_MAP_ID ? buildWinterMap() : buildPortalGarden(); this.builtinMaps.set(id, m); }
+      if (!m) { m = id === GOLD_MINE_MAP_ID ? buildGoldMine() : id === WINTER_MAP_ID ? buildWinterMap() : id === CLUB_MAP_ID ? buildClubMap() : buildPortalGarden(); this.builtinMaps.set(id, m); }
       return m;
     }
     if (src === 'home') {
@@ -985,6 +999,7 @@ export class World implements WorldCtx {
     this.setMap(map);
     this.loadGuestPets();
     this.sitAt = null;
+    if (id === CLUB_MAP_ID) window.setTimeout(() => { if (!this.stopped && this.mapId === CLUB_MAP_ID) this.note('💃 클럽에서는 이모트(1~9)가 전부 춤이 돼요!'); }, 1500);
     Object.assign(me, { x, y, fromX: x, fromY: y, dispX: x, dispY: y, moving: false, pushMore: null, bubble: null, pose: 'none', emoteId: 0 });
     this.waterHoldUntil = 0;
     this.resetWinter(); // 눈덩이·눈사람·관성은 맵을 나가면 사라지고 들어올 때 새로 놓인다

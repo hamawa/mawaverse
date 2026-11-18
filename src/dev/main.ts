@@ -3,8 +3,8 @@ import '../styles.css';
 import { Engine } from '../game/engine';
 import { Input } from '../game/input';
 import { render, poseForEmote, type Entity, type RenderState } from '../game/render';
-import { buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, isWalkable, isWater, isFishable, roomAt, portalNear, portalDests, labelAt, type MapData } from '../game/map';
-import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID } from '../shared/maps';
+import { buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, isWalkable, isWater, isFishable, roomAt, portalNear, portalDests, labelAt, type MapData } from '../game/map';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID } from '../shared/maps';
 import { destView, MAP_INFO } from '../game/portal';
 import { WinterPlay } from '../game/winterplay';
 import { snowActive } from '../shared/snowpenalty';
@@ -75,6 +75,7 @@ if (mode === 'gallery') {
     [GARDEN_MAP_ID]: buildPortalGarden(),
     [GOLD_MINE_MAP_ID]: buildGoldMine(),
     [WINTER_MAP_ID]: buildWinterMap(),
+    [CLUB_MAP_ID]: buildClubMap(),
   };
   const requestedMap = new URLSearchParams(location.search).get('map');
   let currentMapId: string = requestedMap && Object.hasOwn(maps, requestedMap) ? requestedMap : MAIN_MAP_ID;
@@ -206,6 +207,7 @@ if (mode === 'gallery') {
     j: [GARDEN_MAP_ID, 12, 13],
     k: [GOLD_MINE_MAP_ID, 12, 13],
     i: [WINTER_MAP_ID, 20, 19],
+    u: [CLUB_MAP_ID, 10, 12],
   };
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();

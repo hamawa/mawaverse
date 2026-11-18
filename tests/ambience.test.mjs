@@ -124,6 +124,26 @@ test('시간대 한정 종: 새벽은 5시~7시 반, 비는 비가 올 때만 �
   assert.ok(got > 0, '비가 오면 비 한정 종이 나온다');
 });
 
+test('클럽: 코드에 든 맵으로 등록돼 있고, 포탈 정원과 서로 오갈 수 있으며, 춤추는 펫은 춤추는 바닥 위에 있다', async () => {
+  const { buildClubMap, buildPortalGarden, CLUB_FLOOR, CLUB_DANCERS, G_DANCE, isWalkable, isReservedMapId, groundAt } = await import('../src/game/map.ts');
+  const { CLUB_MAP_ID, GARDEN_MAP_ID, BUILTIN_MAP_IDS } = await import('../src/shared/maps.ts');
+  const { mapSource, MAP_INFO } = await import('../src/game/portal.ts');
+  const club = buildClubMap(), garden = buildPortalGarden();
+  assert.equal(club.id, CLUB_MAP_ID);
+  assert.ok(BUILTIN_MAP_IDS.includes(CLUB_MAP_ID) && isReservedMapId(CLUB_MAP_ID) && mapSource(CLUB_MAP_ID) === 'builtin' && MAP_INFO[CLUB_MAP_ID]);
+  const rules = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules;
+  assert.ok(rules.players.$uid.m['.validate'].includes("newData.val() == 'club'"), '규칙의 맵 id 목록에 club');
+  assert.equal(isWalkable(club, club.spawn.x, club.spawn.y), true);
+  const out = club.zones.find((z) => z.kind === 'portal'), into = garden.zones.find((z) => z.kind === 'portal' && z.targetMap === CLUB_MAP_ID);
+  assert.ok(out && out.targetMap === GARDEN_MAP_ID && into, '양쪽에 포탈이 있다');
+  assert.equal(isWalkable(garden, out.targetSpawn.x, out.targetSpawn.y), true, '돌아갈 자리는 걸을 수 있는 땅');
+  for (let x = into.x - 1; x <= into.x + into.w; x++) assert.equal(isWalkable(garden, x, into.y - 1), true, `정원 쪽 포탈 앞 (${x})`);
+  for (const d of CLUB_DANCERS) { assert.equal(groundAt(club, d.x, d.y), G_DANCE, `춤추는 펫 (${d.x},${d.y})`); assert.ok(d.x >= CLUB_FLOOR.x && d.x < CLUB_FLOOR.x + CLUB_FLOOR.w && d.y >= CLUB_FLOOR.y && d.y < CLUB_FLOOR.y + CLUB_FLOOR.h); }
+  // 바깥 테두리는 전부 벽이라 밖으로 나갈 수 없다
+  for (let x = 0; x < club.w; x++) { assert.equal(isWalkable(club, x, 0), false); assert.equal(isWalkable(club, x, club.h - 1), false); }
+  for (let y = 0; y < club.h; y++) { assert.equal(isWalkable(club, 0, y), false); assert.equal(isWalkable(club, club.w - 1, y), false); }
+});
+
 test('소리: 소리를 낼 수 없는 환경에서도 불러올 수 있고 조용히 넘어간다 (처음에는 꺼져 있다)', () => {
   assert.equal(audio.soundOn(), false);
   assert.doesNotThrow(() => { audio.sfx('catch', { k: 4 }); audio.sfxAt('push', 3); audio.setScene('main', true); audio.stopSound(); });

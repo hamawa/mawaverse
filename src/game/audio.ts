@@ -9,7 +9,7 @@ export type Sfx =
   | 'chop' | 'wood' | 'mine' | 'gold' | 'coin' | 'portal' | 'door' | 'ui' | 'on'
   | 'card' | 'chip' | 'spin' | 'win' | 'lose' | 'horn' | 'alarm' | 'stab';
 // 배경음악이 달라지는 상황. main 은 여러 곡이 돌아가며 나오고 밤에는 밤 곡이 나온다
-export type Scene = 'main' | 'home' | 'mine' | 'winter' | 'race' | 'slots' | 'poker' | 'mafia';
+export type Scene = 'main' | 'home' | 'mine' | 'winter' | 'race' | 'slots' | 'poker' | 'mafia' | 'club';
 
 export interface SoundPrefs { on: boolean; music: number; sfx: number }
 const KEY = 'mv-sound';
@@ -19,14 +19,14 @@ const MUSIC_GAIN = 1.5, SFX_GAIN = 1; // 음량 설정에 곱하는 값 (오프�
 const midi = (n: number): number => 440 * 2 ** ((n - 69) / 12);
 
 // ---------- 소리 만들기 (실시간·오프라인 공용: 음량 점검은 OfflineAudioContext 로 한다) ----------
-type Wave = 'pluck' | 'bell' | 'marimba' | 'rhodes' | 'square' | 'brass';
-type Drums = 'gallop' | 'bounce' | 'swing' | 'heart' | 'sleigh';
+type Wave = 'pluck' | 'bell' | 'marimba' | 'rhodes' | 'square' | 'brass' | 'saw';
+type Drums = 'gallop' | 'bounce' | 'swing' | 'heart' | 'sleigh' | 'four'; // four: 박마다 킥 (클럽)
 export interface Tune {
   name: string; bpm: number; beats: number; root: number; scale: readonly number[]; prog: readonly number[]; bars: number;
   pad?: number;                                              // 깔리는 화음의 크기
   arp?: { vol: number; oct: number; pat: readonly number[]; wave: Wave }; // 한 마디를 pat 길이로 나눠 화음 음을 친다 (-1 = 쉼)
   lead?: { vol: number; oct: number; dens: number; wave: Wave };          // 가락: 박마다 dens 확률로 한 음
-  bass?: { vol: number; walk?: boolean };
+  bass?: { vol: number; walk?: boolean; off?: boolean }; // off: 박 사이(엇박)에 짧게 친다 (클럽)
   drums?: Drums; swing?: number; drone?: boolean; rev?: number;           // rev: 울림(잔향)으로 보내는 양
 }
 const MAJOR = [0, 2, 4, 5, 7, 9, 11], MINOR = [0, 2, 3, 5, 7, 8, 10], DORIAN = [0, 2, 3, 5, 7, 9, 10], LYDIAN = [0, 2, 4, 6, 7, 9, 11], PHRYG = [0, 1, 3, 5, 7, 8, 10];
@@ -52,6 +52,10 @@ export const TUNES: Record<string, Tune> = {
   slots2: { name: '잭팟 거리', bpm: 126, beats: 4, root: 60, scale: MAJOR, prog: [0, 5, 3, 4], bars: 32, arp: { vol: 0.2, oct: 1, pat: [0, 2, 1, 2, 3, 2, 1, 2], wave: 'square' }, lead: { vol: 0.26, oct: 1, dens: 0.45, wave: 'square' }, bass: { vol: 0.4 }, drums: 'bounce', rev: 0.15 },
   poker2: { name: '늦은 밤 테이블', bpm: 76, beats: 4, root: 45, scale: MINOR, prog: [0, 3, 4, 0], bars: 32, arp: { vol: 0.34, oct: 2, pat: [-1, 0, -1, 2, -1, 1, -1, 2], wave: 'rhodes' }, lead: { vol: 0.3, oct: 2, dens: 0.22, wave: 'rhodes' }, bass: { vol: 0.45, walk: true }, drums: 'swing', swing: 0.3, rev: 0.4 },
   mafia2: { name: '그림자', bpm: 54, beats: 4, root: 43, scale: PHRYG, prog: [0, 5, 1, 0], bars: 24, pad: 0.5, lead: { vol: 0.28, oct: 3, dens: 0.18, wave: 'bell' }, bass: { vol: 0.35 }, drums: 'heart', drone: true, rev: 0.8 },
+  // 클럽 (2026-11-18): 박마다 킥이 들어가는 빠른 전자 음악. 다른 곡과 달리 쉬지 않고 이어진다
+  club1: { name: '네온 플로어', bpm: 126, beats: 4, root: 57, scale: MINOR, prog: [0, 5, 2, 6], bars: 64, pad: 0.3, arp: { vol: 0.24, oct: 1, pat: [0, 2, 1, 2, 3, 2, 1, 2, 0, 2, 1, 2, 3, 2, 1, 3], wave: 'saw' }, lead: { vol: 0.26, oct: 1, dens: 0.5, wave: 'square' }, bass: { vol: 0.5, off: true }, drums: 'four', rev: 0.2 },
+  club2: { name: '미러볼', bpm: 128, beats: 4, root: 50, scale: MINOR, prog: [0, 3, 5, 4], bars: 64, pad: 0.3, arp: { vol: 0.24, oct: 2, pat: [0, -1, 2, 0, -1, 2, 0, 3, 0, -1, 2, 0, -1, 2, 1, 3], wave: 'saw' }, lead: { vol: 0.24, oct: 2, dens: 0.45, wave: 'brass' }, bass: { vol: 0.5, off: true }, drums: 'four', rev: 0.2 },
+  club3: { name: '밤새 춤을', bpm: 124, beats: 4, root: 55, scale: DORIAN, prog: [0, 0, 3, 4], bars: 64, pad: 0.25, arp: { vol: 0.22, oct: 1, pat: [0, 1, 2, 3, 2, 1, 0, 1, 2, 3, 2, 1, 0, 2, 1, 3], wave: 'square' }, lead: { vol: 0.26, oct: 1, dens: 0.55, wave: 'saw' }, bass: { vol: 0.5, off: true }, drums: 'four', rev: 0.2 },
   mafia: { name: '마피아', bpm: 60, beats: 4, root: 45, scale: PHRYG, prog: [0, 1, 0, 5], bars: 24, pad: 0.5, lead: { vol: 0.3, oct: 3, dens: 0.2, wave: 'bell' }, bass: { vol: 0.35 }, drums: 'heart', drone: true, rev: 0.8 },
 };
 const SCENE_TUNES: Record<Scene, { day: string[]; night?: string[]; gap: [number, number] }> = {
@@ -63,6 +67,7 @@ const SCENE_TUNES: Record<Scene, { day: string[]; night?: string[]; gap: [number
   slots: { day: ['slots', 'slots2'], gap: [0.5, 1.5] },
   poker: { day: ['poker', 'poker2'], gap: [0.5, 1.5] },
   mafia: { day: ['mafia', 'mafia2'], gap: [0.5, 2] },
+  club: { day: ['club1', 'club2', 'club3'], gap: [0.2, 0.6] },
 };
 
 // 한 맥락(실시간 또는 오프라인)에 소리를 그려 넣는 도구
@@ -144,7 +149,16 @@ export class Synth {
       case 'rhodes': this.tone(out, 'sine', f, f, t, Math.max(1.1, dur * 1.4), vol * 0.2, 0.012); this.tone(out, 'triangle', f * 2, f * 2, t, 0.35, vol * 0.04, 0.008); break;
       case 'square': this.tone(out, 'square', f, f, t, Math.min(0.3, dur), vol * 0.07, 0.004); break;
       case 'brass': this.tone(out, 'sawtooth', f, f, t, Math.min(0.5, dur * 0.95), vol * 0.07, 0.03); this.tone(out, 'triangle', f, f, t, Math.min(0.5, dur * 0.95), vol * 0.1, 0.03); break;
+      case 'saw': this.filt(out, f, t, Math.min(0.28, dur), vol * 0.11, 2600, 500); break; // 짧게 끊는 톱니음 (클럽)
     }
+  }
+  // 걸러낸 톱니음: 열렸다 닫히는 저역 통과 필터를 지난다 (클럽의 아르페지오와 베이스)
+  filt(out: AudioNode, f: number, t: number, dur: number, vol: number, open: number, close: number): void {
+    const o = this.ac.createOscillator(), lp = this.ac.createBiquadFilter(), g = this.ac.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t);
+    lp.type = 'lowpass'; lp.Q.value = 4; lp.frequency.setValueAtTime(open, t); lp.frequency.exponentialRampToValueAtTime(close, t + dur);
+    this.env(g, t, vol, dur, 0.004);
+    o.connect(lp); lp.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.05);
   }
   // 깔리는 화음: 천천히 올라왔다가 마디 끝에서 사라진다
   pad(out: AudioNode, t: number, notes: number[], dur: number, vol: number): void {
@@ -175,7 +189,8 @@ export class Synth {
     if (tu.drone) both((o, k) => this.pad(o, t0, [tu.root - 12, tu.root - 5], len, 0.9 * k * fade));
     if (tu.bass) {
       const b = tu.bass, low = (n: number) => { while (n > 52) n -= 12; return n; };
-      if (b.walk) { const steps = [chord[0], chord[1], chord[2], chord[1] + 1]; for (let i = 0; i < tu.beats; i++) this.tone(dry, 'triangle', midi(low(steps[i % 4])), midi(low(steps[i % 4])), t0 + i * beat, beat * 0.9, b.vol * 0.3 * fade, 0.01); }
+      if (b.off) { for (let i = 0; i < tu.beats; i++) this.filt(dry, midi(low(chord[0])), t0 + (i + 0.5) * beat, beat * 0.42, b.vol * 0.42 * fade, 900, 180); }
+      else if (b.walk) { const steps = [chord[0], chord[1], chord[2], chord[1] + 1]; for (let i = 0; i < tu.beats; i++) this.tone(dry, 'triangle', midi(low(steps[i % 4])), midi(low(steps[i % 4])), t0 + i * beat, beat * 0.9, b.vol * 0.3 * fade, 0.01); }
       else this.tone(dry, 'sine', midi(low(chord[0])), midi(low(chord[0])), t0, len * 0.9, b.vol * 0.34 * fade, 0.02);
     }
     if (tu.arp) {
@@ -199,6 +214,7 @@ export class Synth {
       else if (kind === 'bounce') { if (b % 2 === 0) this.drum(out, 'kick', t, 0.8 * v); else this.drum(out, 'snare', t, 0.6 * v); this.drum(out, 'hat', t + beat * 0.5, 0.8 * v); }
       else if (kind === 'swing') { this.drum(out, 'brush', t, 0.9 * v); this.drum(out, 'brush', t + beat * (2 / 3), 0.6 * v); if (b === 0) this.drum(out, 'kick', t, 0.35 * v); }
       else if (kind === 'heart') { if (b % 2 === 0) { this.drum(out, 'kick', t, 0.7 * v); this.drum(out, 'kick', t + beat * 0.3, 0.5 * v); } }
+      else if (kind === 'four') { this.drum(out, 'kick', t, 1.15 * v); if (b % 2 === 1) this.drum(out, 'snare', t, 0.8 * v); this.drum(out, 'hat', t + beat * 0.5, 1 * v); this.drum(out, 'hat', t + beat * 0.25, 0.35 * v); this.drum(out, 'hat', t + beat * 0.75, 0.35 * v); }
       else { this.drum(out, 'hat', t, 0.5 * v); this.drum(out, 'hat', t + beat * 0.5, 0.3 * v); }
     }
   }

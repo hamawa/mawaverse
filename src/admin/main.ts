@@ -7,8 +7,8 @@ import { showLoginScreen, showMessageScreen, toast, modal, promptModal, confirmM
 import { el, escapeHtml, fmtDateTime, fmtBytes, dayKey, nickKey, safeKey, idKey, validateNick } from '../shared/util';
 import { APP_NAME, CLIENT_VERSION } from '../shared/config';
 import type { PlayerState, UserProfile, ServerConfig, RoomState, ConnLog, ChatLog, Post } from '../shared/types';
-import { buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, sanitizeMap, labelAt, G, G_GOLD, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, type PortalDest, emptyMap, validateZone, isReservedMapId, portalDests, PORTAL_MAX_DESTS } from '../game/map';
-import { isMapId, isHomeMapId, homeOwnerOf, playerMapId, MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID } from '../shared/maps';
+import { buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, sanitizeMap, labelAt, G, G_GOLD, G_DANCE, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, type PortalDest, emptyMap, validateZone, isReservedMapId, portalDests, PORTAL_MAX_DESTS } from '../game/map';
+import { isMapId, isHomeMapId, homeOwnerOf, playerMapId, MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID } from '../shared/maps';
 import { MAP_INFO } from '../game/portal';
 import { groundTile, objectSprite } from '../game/tiles';
 import { catLabel } from '../game/board';
@@ -207,6 +207,7 @@ function tabDash(main: HTMLElement): void {
   addView(GARDEN_MAP_ID, buildPortalGarden());
   addView(GOLD_MINE_MAP_ID, buildGoldMine());
   addView(WINTER_MAP_ID, buildWinterMap());
+  addView(CLUB_MAP_ID, buildClubMap());
   get(ref(db, 'config/activeMap')).then(async (s) => {
     const id = s.val() || 'default';
     const m = await get(ref(db, `maps/${id}`));
@@ -232,7 +233,7 @@ function tabDash(main: HTMLElement): void {
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) {
       const g = map.ground[y * map.w + x], o = map.objects[y * map.w + x];
       ctx.fillStyle = g === G.WATER ? '#4aa3df' : g === G.PATH || g === G.PATH2 ? '#d9c38f' : g === G.PLAZA ? '#cfc9bd' : g === G.WOOD || g === G.TILE_FLOOR || g === G.CARPET ? '#c99a5b'
-        : g === G.DARK_FLOOR ? '#5b5b66' : g === G.SAND ? '#eadcaa' : g === G_GOLD ? '#f2b632' : '#7ec850';
+        : g === G.DARK_FLOOR ? '#5b5b66' : g === G.SAND ? '#eadcaa' : g === G_GOLD ? '#f2b632' : g === G_DANCE ? '#b05cff' : '#7ec850';
       if (o === O.WALL || o === O.WALL_SIDE || o === O.WALL_WINDOW) ctx.fillStyle = '#b7523f';
       else if (o === O.TREE || o === O.PINE || o === O.BUSH || o === O.HEDGE) ctx.fillStyle = '#2f7a2f';
       else if (o === O.ROCK) ctx.fillStyle = '#8a8a8a';

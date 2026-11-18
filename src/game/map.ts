@@ -1,5 +1,5 @@
 import { mulberry32 } from '../shared/hash';
-import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, isMapId } from '../shared/maps';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, isMapId, CLUB_MAP_ID } from '../shared/maps';
 import { HOME_TIERS, HOME_MAX_TIER, FLOORS, decoList, type HomeData } from '../shared/home';
 
 // 바닥 타일
@@ -12,6 +12,7 @@ export const G_GOLD = 12;
 export const G_ICE = 13;
 export const G_ICE_HOLE = 14;
 export const G_SNOW = 15;
+export const G_DANCE = 16; // 클럽의 춤추는 바닥: 칸마다 빛깔이 박자에 맞춰 바뀐다 (render.ts 가 직접 그린다. 편집기 팔레트에는 없다)
 
 // 오브젝트 (0 = 없음)
 export const O = {
@@ -36,6 +37,8 @@ export const O_CHEST = 35;  // 창고 상자: 주인이 보고 F 로 집 창 열
 export const O_FIREPLACE = 36, O_AQUARIUM = 37, O_PIANO = 38, O_TV = 39, O_GOLD_VASE = 40, O_GOLD_STATUE = 41;
 // 벽지를 바른 벽: 벽지 n(1~3)마다 벽·옆 벽·창문 벽 세 가지 (42부터 차례로)
 export const WALLPAPER_BASE = 42, WALLPAPER_COUNT = 3;
+// 클럽 (2026-11-18): 스피커(두 칸 높이)와 디제이 탁자
+export const O_SPEAKER = 51, O_DJ = 52;
 export function wallpaperObjects(n: number | null | undefined): { wall: number; side: number; window: number } | null {
   if (!n || n < 1 || n > WALLPAPER_COUNT || n % 1 !== 0) return null;
   const b = WALLPAPER_BASE + (n - 1) * 3;
@@ -46,7 +49,7 @@ export const WALKABLE_OBJECTS = new Set<number>([O.NONE, O.MAT]);
 // 들어갈 수 없는 바닥. 물은 수영으로 들어갈 수 있으므로 현재 비어 있음
 export const SOLID_GROUND = new Set<number>([G_GOLD, G_ICE_HOLE]);
 // 2타일 높이로 그려지는 오브젝트 (아랫칸 기준, 윗칸을 덮음)
-export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE, O_GOLD_STATUE]);
+export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE, O_GOLD_STATUE, O_SPEAKER]);
 
 export interface Zone {
   id: string;
@@ -82,7 +85,7 @@ function validPortalDest(d: unknown): boolean {
   return true;
 }
 
-export const RESERVED_MAP_IDS = [MAIN_MAP_ID, 'default', GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID] as const;
+export const RESERVED_MAP_IDS = [MAIN_MAP_ID, 'default', GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID] as const;
 
 export function isReservedMapId(id: string): boolean {
   return (RESERVED_MAP_IDS as readonly string[]).includes(id);
@@ -429,6 +432,11 @@ export function buildPortalGarden(): MapData {
   fillG(16, 14, 4, 3, G.PATH2);
   fillG(17, 15, 2, 1, G.PLAZA);
   m.zones.push({ id: 'portal-winter', kind: 'portal', x: 17, y: 15, w: 2, h: 1, label: '겨울 얼음 낚시터', targetMap: WINTER_MAP_ID });
+  // 클럽으로 가는 포탈 (서쪽 길가, 2026-11-18)
+  fillG(4, 14, 4, 3, G.PATH2);
+  fillG(5, 15, 2, 1, G.PLAZA);
+  setO(5, 14, O.NONE); // 화분이 있던 자리를 비운다 (포탈 앞)
+  m.zones.push({ id: 'portal-club', kind: 'portal', x: 5, y: 15, w: 2, h: 1, label: '클럽', targetMap: CLUB_MAP_ID });
 
   // 스폰 위치: 포탈 앞 안전한 타일 (12, 13)
   m.spawn = { x: 12, y: 13 };
@@ -498,6 +506,41 @@ export function buildWinterMap(): MapData {
 // 문(아래쪽 가운데 매트)이 밖으로 나가는 포탈이다. 행선지는 기본 맵으로 적어 두지만 world.ts 가 "들어오기 전에 있던 자리"로 바꿔서 보낸다
 export const HOME_EXIT_ZONE = 'home-exit';
 // 가구를 놓을 수 있는 칸인가: 방 안이고, 침대·창고 상자와 그 앞 칸, 문 앞(들어오는 자리)이 아니어야 한다 (주인이 침대·상자·문을 못 쓰게 막지 않도록)
+// 클럽 (2026-11-18, 사용자 제안): 가운데 춤추는 바닥, 위쪽 디제이 자리와 스피커, 양옆에 소파와 카운터. 실내라 낮밤·비가 없다.
+// 춤추는 펫(CLUB_DANCERS)은 그림만 있고 길을 막지 않는다. 이 맵에서는 이모트 1~9 가 전부 춤이 된다 (world.entities, render)
+export const CLUB_FLOOR = { x: 6, y: 5, w: 10, h: 6 } as const; // 춤추는 바닥
+export const CLUB_DANCERS: readonly { x: number; y: number }[] = [{ x: 7, y: 6 }, { x: 10, y: 5 }, { x: 14, y: 6 }, { x: 8, y: 9 }, { x: 12, y: 8 }, { x: 14, y: 9 }, { x: 11, y: 10 }];
+export function buildClubMap(): MapData {
+  const W = 22, H = 16;
+  const m = emptyMap(CLUB_MAP_ID, '클럽', W, H);
+  const setG = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.ground[y * W + x] = id; };
+  const setO = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.objects[y * W + x] = id; };
+  const wall = wallpaperObjects(3)!; // 밤하늘빛 벽
+  m.ground.fill(G.DARK_FLOOR);
+  for (let x = 0; x < W; x++) { setO(x, 0, wall.wall); setO(x, H - 1, wall.wall); }
+  for (let y = 1; y < H - 1; y++) { setO(0, y, wall.side); setO(W - 1, y, wall.side); }
+  for (let y = CLUB_FLOOR.y; y < CLUB_FLOOR.y + CLUB_FLOOR.h; y++) for (let x = CLUB_FLOOR.x; x < CLUB_FLOOR.x + CLUB_FLOOR.w; x++) setG(x, y, G_DANCE);
+  // 디제이 자리 (위쪽 가운데)와 스피커
+  setO(10, 2, O_DJ); setO(11, 2, O_DJ);
+  for (const x of [7, 8, 13, 14]) setO(x, 2, O_SPEAKER);
+  setO(2, 2, O_SPEAKER); setO(19, 2, O_SPEAKER);
+  // 왼쪽 쉼터: 소파와 원탁
+  for (const y of [5, 7, 9]) setO(2, y, O.SOFA);
+  setO(3, 6, O.TABLE_ROUND); setO(3, 8, O.TABLE_ROUND);
+  // 오른쪽 바: 카운터와 의자, 자판기
+  for (const y of [5, 6, 7, 8, 9]) setO(19, y, O.COUNTER);
+  for (const y of [5, 7, 9]) setO(18, y, O.CHAIR);
+  setO(20, 4, O.VENDING);
+  // 구석 화초
+  setO(1, 1, O.PLANT); setO(W - 2, 1, O.PLANT); setO(1, H - 2, O.PLANT); setO(W - 2, H - 2, O.PLANT);
+  // 문 앞 카펫과 나가는 포탈
+  for (let y = 11; y <= H - 2; y++) for (let x = 10; x <= 11; x++) setG(x, y, G.CARPET);
+  m.zones.push({ id: 'lbl-club', kind: 'label', x: 1, y: 1, w: W - 2, h: H - 2, label: '클럽' });
+  m.zones.push({ id: 'portal-garden', kind: 'portal', x: 10, y: H - 2, w: 2, h: 1, label: '포탈 정원', targetMap: GARDEN_MAP_ID, targetSpawn: { x: 5, y: 13 } });
+  m.spawn = { x: 10, y: H - 4 };
+  return m;
+}
+
 export function homeCanPlace(tierNo: number, x: number, y: number): boolean {
   const t = HOME_TIERS[Math.max(1, Math.min(HOME_MAX_TIER, Math.floor(tierNo) || 1)) - 1];
   const W = t.iw + 2, H = t.ih + 2, door = Math.floor(W / 2);

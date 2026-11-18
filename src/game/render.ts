@@ -2,7 +2,7 @@ import { TILE, BUBBLE_MS, EMOTE_MS } from '../shared/config';
 import type { Dir, RoomState } from '../shared/types';
 import { wrapText } from '../shared/util';
 import type { Engine } from './engine';
-import { G, O, TALL_OBJECTS, waterDepth, type MapData, type Zone } from './map';
+import { G, O, G_DANCE, TALL_OBJECTS, waterDepth, type MapData, type Zone } from './map';
 import type { DayTint } from '../shared/daylight';
 import { groundTile, objectSprite } from './tiles';
 import { goldNugget, drawGoldSparks } from './goldart';
@@ -41,6 +41,7 @@ export interface Entity {
   fx: string | null;
   title?: string | null;       // 칭호 품목 id (닉네임 바로 위에 뜬다)
   sit?: boolean;               // 앉아 있다: 다리를 가리고 조금 내려 그린다 (x, y 는 앉은 가구의 칸)
+  dance?: number;              // 클럽에서 추는 춤 (1~9: 이모트 번호마다 다른 춤)
   pet: PetView | null;         // 데리고 다니는 펫 (한 칸 뒤)
   ghost?: boolean;             // 마피아 유령: 반투명 (유령에게만 보임. 산 사람 화면에는 아예 안 들어온다)
   mining?: boolean;            // 금광에서 곡괭이질 중 (곡괭이를 휘두르는 모습)
@@ -72,6 +73,7 @@ export interface RenderState {
   roamers?: PetView[]; // 집 안을 돌아다니는 펫 (homepets.ts)
   night?: DayTint | null; // 낮밤 덧칠 (바깥 맵만. shared/daylight.ts)
   rain?: { level: number; snow: boolean } | null; // 비 (0~1. 겨울 맵에서는 눈으로 그린다. shared/weather.ts)
+  club?: { x: number; y: number; w: number; h: number; bpm: number; dancers: PetView[] } | null; // 클럽: 춤추는 바닥의 자리, 박자, 춤추는 펫 (어둡게 깔고 색 조명을 돌린다)
 }
 
 const EMOTE_ICON: Record<number, string> = { 1: '👋', 2: '', 3: '😆', 4: '💧', 5: '💤', 6: '🥱', 7: '💢', 8: '❤', 9: '♪', 10: '💥', 11: '🥅', 12: '🧸', 13: '⛏', 14: '🧲', 15: '🐤' }; // 15: 삐약 (예전 병아리 스킬. 이모트 자리는 남겨 둔다)
@@ -112,6 +114,7 @@ export function render(eng: Engine, st: RenderState): void {
   // ---- 바닥 ----
   for (let y = vis.y0; y <= vis.y1; y++) for (let x = vis.x0; x <= vis.x1; x++) {
     const id = map.ground[y * map.w + x];
+    if (id === G_DANCE) { drawDanceTile(ctx, x, y, st.now, st.club?.bpm ?? 126); continue; }
     const variant = (x * 7 + y * 13) % 3;
     ctx.drawImage(groundTile(id, variant, id === G.WATER ? waterFrame : 0), x * TILE, y * TILE);
   }
@@ -168,15 +171,30 @@ export function render(eng: Engine, st: RenderState): void {
   for (const e of st.entities) {
     const px = e.x * TILE + (TILE - FRAME_W) / 2;
     let py = e.y * TILE + TILE - FRAME_H;
-    const frame = e.moving ? Math.floor(e.moveT * 4) & 3 : 0;
+    let frame = e.moving ? Math.floor(e.moveT * 4) & 3 : 0;
     if (e.fx && e.moving) spawnFx(e.uid, e.fx, e.x * TILE + TILE / 2, e.y * TILE + TILE - 3, st.now);
     let pose = e.pose;
     let ddir = e.dir;
     const pt = (st.now - e.poseAt) / EMOTE_MS;
     if (pose !== 'none' && pt > 1) pose = 'none';
     let ox = 0;
-    if (pose === 'jump') py -= Math.round(Math.sin(Math.min(1, pt) * Math.PI) * 10);
-    if (pose === 'dance') { ddir = ([0, 1, 0, 2] as Dir[])[Math.floor(st.now / 220) % 4]; py += Math.floor(st.now / 110) % 2; }
+    if (e.dance) {
+      // 클럽의 춤 (2026-11-18): 이모트 번호마다 다른 춤. 그림은 있는 포즈를 돌려 쓰고 움직임(좌우·위아래·방향)으로 구분한다
+      const t = st.now + (e.x * 37 + e.y * 53) * 10; // 사람마다 조금 어긋나게
+      switch (e.dance) {
+        case 1: pose = 'wave'; ox = Math.sin(t / 160) * 3; py += Math.floor(t / 160) % 2; break;                                   // 손 흔들기
+        case 2: pose = 'jump'; py -= Math.abs(Math.sin(t / 170)) * 9; ddir = 0; break;                                            // 제자리 뛰기
+        case 3: pose = 'dance'; ddir = ([0, 2, 3, 1] as Dir[])[Math.floor(t / 110) % 4]; break;                                   // 빙글빙글
+        case 4: { pose = 'none'; ddir = 1; const k = (t / 700) % 2; ox = (k < 1 ? k : 2 - k) * 10 - 5; frame = Math.floor(t / 110) & 3; break; } // 문워크
+        case 5: pose = 'laugh'; py += Math.abs(Math.sin(t / 85)) * 4; ddir = 0; break;                                            // 머리 흔들기
+        case 6: pose = 'dance'; ddir = 0; py -= Math.sin(t / 200) * 3; ox = Math.cos(t / 200) * 2; break;                         // 물결
+        case 7: pose = 'none'; ddir = Math.floor(t / 240) % 2 ? 1 : 2; ox = Math.floor(t / 120) % 2 ? 2 : -2; py -= Math.abs(Math.sin(t / 120)) * 2; frame = Math.floor(t / 120) & 3; break; // 셔플
+        case 8: pose = 'heart'; py -= Math.abs(Math.sin(t / 230)) * 5; ddir = 0; break;                                           // 하트
+        default: pose = 'dance'; ddir = ([0, 1, 0, 2] as Dir[])[Math.floor(t / 220) % 4]; py += Math.floor(t / 110) % 2;          // 9: 기본 춤
+      }
+    }
+    if (pose === 'jump' && !e.dance) py -= Math.round(Math.sin(Math.min(1, pt) * Math.PI) * 10);
+    if (pose === 'dance' && !e.dance) { ddir = ([0, 1, 0, 2] as Dir[])[Math.floor(st.now / 220) % 4]; py += Math.floor(st.now / 110) % 2; }
     if (pose === 'angry' || pose === 'cry') ox = Math.floor(st.now / 60) % 2 === 0 ? -1 : 1;
     if (pose === 'push' && pt < 0.3) { const k = Math.sin((pt / 0.3) * Math.PI) * 5; ox += e.dir === 1 ? -k : e.dir === 2 ? k : 0; py += e.dir === 0 ? k : e.dir === 3 ? -k : 0; }
     if (pose === 'laugh') py += Math.floor(st.now / 120) % 2;
@@ -210,7 +228,7 @@ export function render(eng: Engine, st: RenderState): void {
     // 찌는 물 타일 위에, 캐릭터보다 뒤에 그린다
     if (e.fishing) { const fv = e.fishing; items.push({ sortY: fv.y + 0.5, order: 1, draw: () => drawBobber(ctx, e, fv, st.now) }); }
     // 펫: 자기 타일의 y 순서로 (주인과 겹치면 주인보다 앞뒤가 자연스럽게)
-    if (e.pet && !ride) { const p = e.pet; items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale) }); }
+    if (e.pet && !ride) { const p = e.pet; items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale, false, !!st.club) }); }
     items.push({
       sortY: e.y + 1, order: 1, draw: () => {
         const cx = e.x * TILE + TILE / 2;
@@ -249,6 +267,14 @@ export function render(eng: Engine, st: RenderState): void {
         if (e.snowReady) { const [hx, hy] = handPos(e); snowOrb(ctx, hx, hy + 4, 3); }
         ctx.globalAlpha = 1;
       },
+    });
+  }
+  // 클럽의 춤추는 펫: 박자에 맞춰 뛰고(hopAt 을 박자 머리로) 두 박마다 좌우를 바꾼다. 선글라스를 낀다
+  if (st.club) {
+    const beat = 60000 / st.club.bpm;
+    st.club.dancers.forEach((p, i) => {
+      const off = (i % 2) * (beat / 2), k = Math.floor((st.now + off) / beat);
+      items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, false, 0, k * beat - off, ((k + i) % 4 < 2 ? 2 : 1) as Dir, p.scale, false, true) });
     });
   }
   // 집 안을 돌아다니는 펫: 따라다니는 펫과 같은 그림, 자기 칸의 y 순서로
@@ -298,6 +324,7 @@ export function render(eng: Engine, st: RenderState): void {
 
   // ---- 낮과 밤: 이름표·말풍선·안내보다 먼저 덧칠한다 (글자는 어두워지지 않는다) ----
   if (st.night && st.night.a > 0.005) drawNight(eng, map, vis, st.night);
+  if (st.club) drawClubLights(eng, st.club, st.now);
 
   // ---- 화면 좌표 오버레이 ----
   eng.beginScreen();
@@ -448,6 +475,35 @@ function drawPickaxe(ctx: CanvasRenderingContext2D, e: Entity, now: number): voi
     ctx.fillStyle = `rgba(255, 226, 110, ${a})`;
     for (let i = 0; i < 4; i++) { const d = (1 - a) * 7 + 2, th = ang + (i - 1.5) * 0.7; ctx.fillRect(Math.round(sx + Math.cos(th) * d), Math.round(sy + Math.sin(th) * d - (1 - a) * 3), 2, 2); }
   }
+}
+// 클럽 (2026-11-18): 춤추는 바닥의 한 칸. 박자마다 빛깔이 바뀌고 칸마다 다르다
+function drawDanceTile(ctx: CanvasRenderingContext2D, x: number, y: number, now: number, bpm: number): void {
+  const beat = Math.floor(now / (60000 / bpm)), k = (now % (60000 / bpm)) / (60000 / bpm);
+  const hue = ((x * 47 + y * 83 + beat * 67) % 360 + 360) % 360, on = (x + y + beat) % 2 === 0;
+  ctx.fillStyle = `hsl(${hue}, 85%, ${on ? 62 - k * 14 : 30}%)`;
+  ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
+  ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(x * TILE + 2, y * TILE + 2, TILE - 4, 3);
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1; ctx.strokeRect(x * TILE + 0.5, y * TILE + 0.5, TILE - 1, TILE - 1);
+}
+// 클럽 조명: 방을 어둡게 깔고, 춤추는 바닥 위로 색 조명 여섯 개가 돌고, 미러볼 빛 점이 벽을 훑는다
+function drawClubLights(eng: Engine, c: { x: number; y: number; w: number; h: number; bpm: number }, now: number): void {
+  const { ctx, canvas } = eng, k = eng.scale * eng.dpr;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = 'rgba(8, 4, 26, 0.42)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const cx = ((c.x + c.w / 2) * TILE - eng.cam.x) * k, cy = ((c.y + c.h / 2) * TILE - eng.cam.y) * k, rw = (c.w / 2) * TILE * k, rh = (c.h / 2) * TILE * k;
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 6; i++) {
+    const a = now / (1400 + i * 230) + i * 1.05, x = cx + Math.cos(a) * rw * 0.85, y = cy + Math.sin(a * 1.3) * rh * 0.8, r = 2.4 * TILE * k;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `hsla(${(i * 60 + now / 40) % 360}, 95%, 60%, 0.3)`); g.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
+    ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  for (let i = 0; i < 14; i++) {
+    const a = now / 2600 + i * 0.449, x = cx + Math.cos(a) * rw * 2.1, y = cy + Math.sin(a * 0.83 + i) * rh * 1.9;
+    ctx.fillRect(Math.round(x), Math.round(y), Math.max(2, Math.round(1.5 * k)), Math.max(2, Math.round(1.5 * k)));
+  }
+  ctx.globalCompositeOperation = 'source-over';
 }
 // 비 (2026-11-18): 화면에 비스듬한 빗줄기와 바닥에 튀는 물방울을 그리고 살짝 흐리게 덧칠한다. 겨울 맵에서는 천천히 내리는 눈.
 // 방울마다 상태를 두지 않는다: 번호와 시각으로 자리를 계산한다 (화면 크기가 바뀌어도 그대로 이어진다)
