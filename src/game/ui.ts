@@ -363,7 +363,7 @@ export class Hud {
     const menuBtn = el('button', { class: 'btn small', text: this.mobile ? '☰' : '☰ 내 메뉴' });
     menuBtn.onclick = (e) => h.openMyMenu(e.clientX || window.innerWidth - 160, 40);
     // 소리 버튼 (2026-11-18): 누르면 바로 켜지고 꺼진다. 음량은 내 메뉴의 소리 설정
-    this.soundBtn = el('button', { class: 'btn small', title: '소리 켜기·끄기' }) as HTMLButtonElement;
+    this.soundBtn = el('button', { class: 'btn small', title: '소리 켜기·끄기', 'data-quiet': '1' }) as HTMLButtonElement;
     this.setSound(h.soundOn);
     this.soundBtn.onclick = () => this.setSound(h.sound());
     const right = el('div', { class: 'top-right' }, [this.soundBtn, helpBtn, menuBtn]);

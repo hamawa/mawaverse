@@ -4,7 +4,8 @@ import { modal, withCloseX, confirmModal } from './ui';
 import { getThumb, FRAME_W, FRAME_H } from './sprites';
 import { spriteTop } from './render';
 import { MAFIA_MIN, MAFIA_MAX, TASKS_PER_PLAYER, taskProgress, type MafiaGame } from '../shared/mafia';
-import type { MafiaMgr } from './mafia';
+import type { MafiaMgr } from './mafia';
+import { sfx } from './audio';
 
 export interface MafiaHost { uid: string; nick: string; mafia: MafiaMgr; toast(msg: string, err?: boolean): void }
 
@@ -123,7 +124,7 @@ export class MafiaHud {
     const mp = this.h.mafia.meetPhase();
     if (this.bar) this.bar.style.display = mp && g.meet ? 'none' : ''; // 회의 판이 떠 있는 동안 상단 바는 숨긴다 (겹침)
     if (!mp || !g.meet) { if (this.meet) { this.meet.remove(); this.meet = null; this.bubbles.clear(); } return; }
-    if (!this.meet) { this.meet = el('div', { id: 'mafia-meet' }); document.body.append(this.meet); this.meetSig = ''; }
+    if (!this.meet) { this.meet = el('div', { id: 'mafia-meet' }); document.body.append(this.meet); this.meetSig = ''; sfx('alarm'); } // 회의가 열리는 순간 경보
     const votes = g.meet.votes || {};
     const myVote = votes[this.h.uid];
     const me = this.h.mafia.me;

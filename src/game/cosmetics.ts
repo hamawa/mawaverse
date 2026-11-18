@@ -663,14 +663,14 @@ export function spawnFx(uid: string, kind: string, fx: number, fy: number, now: 
   const last = lastSpawn.get(uid) || 0;
   if (now - last < 55) return;
   lastSpawn.set(uid, now);
-  const n = kind === 'rainbow' ? 2 : 1;
+  const n = kind === 'rainbowtrail' ? 2 : 1;
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
     const sp = kind === 'dust' ? 0.012 : 0.02;
     parts.push({
       x: fx + (Math.random() - 0.5) * 10, y: fy - Math.random() * 3,
       vx: Math.cos(a) * sp, vy: kind === 'dust' ? -0.008 : -0.03 - Math.random() * 0.02,
-      born: now, life: kind === 'rainbow' ? 700 : kind === 'heart' ? 650 : 450,
+      born: now, life: kind === 'rainbowtrail' ? 700 : kind === 'heart' ? 650 : 450,
       kind, hue: (now / 4 + i * 40) % 360, size: 1.5 + Math.random() * 1.5,
     });
   }

@@ -45,17 +45,24 @@ export const TUNES: Record<string, Tune> = {
   race: { name: '경마장', bpm: 138, beats: 4, root: 60, scale: MAJOR, prog: [0, 0, 3, 4, 0, 5, 3, 4], bars: 32, arp: { vol: 0.2, oct: 0, pat: [0, 2, 1, 2, 0, 2, 1, 2], wave: 'square' }, lead: { vol: 0.3, oct: 1, dens: 0.6, wave: 'brass' }, bass: { vol: 0.42, walk: true }, drums: 'gallop', rev: 0.15 },
   slots: { name: '슬롯 방', bpm: 120, beats: 4, root: 65, scale: MAJOR, prog: [0, 3, 4, 3], bars: 32, arp: { vol: 0.2, oct: 0, pat: [0, 1, 2, 3, 2, 1, 0, -1], wave: 'square' }, lead: { vol: 0.26, oct: 1, dens: 0.5, wave: 'square' }, bass: { vol: 0.4 }, drums: 'bounce', rev: 0.15 },
   poker: { name: '포커 방', bpm: 88, beats: 4, root: 50, scale: DORIAN, prog: [1, 4, 0, 0], bars: 32, arp: { vol: 0.34, oct: 1, pat: [0, -1, 2, -1, 1, -1, 2, -1], wave: 'rhodes' }, lead: { vol: 0.32, oct: 2, dens: 0.24, wave: 'rhodes' }, bass: { vol: 0.45, walk: true }, drums: 'swing', swing: 0.3, rev: 0.35 },
+  home2: { name: '창가의 오후', bpm: 80, beats: 4, root: 65, scale: MAJOR, prog: [0, 3, 1, 4], bars: 32, pad: 0.35, arp: { vol: 0.4, oct: 0, pat: [0, -1, 2, 1, -1, 2, 1, -1], wave: 'rhodes' }, lead: { vol: 0.38, oct: 1, dens: 0.3, wave: 'pluck' }, bass: { vol: 0.3 }, rev: 0.45 },
+  mine2: { name: '깊은 갱도', bpm: 66, beats: 4, root: 48, scale: DORIAN, prog: [0, 3, 0, 6], bars: 28, pad: 0.4, arp: { vol: 0.46, oct: 1, pat: [0, -1, 2, -1, 1, 2, -1, 3], wave: 'marimba' }, lead: { vol: 0.28, oct: 3, dens: 0.12, wave: 'bell' }, bass: { vol: 0.4 }, drone: true, rev: 0.9 },
+  winter2: { name: '첫눈', bpm: 96, beats: 3, root: 62, scale: MAJOR, prog: [0, 4, 5, 3], bars: 40, pad: 0.4, arp: { vol: 0.26, oct: 1, pat: [0, 2, 1, 2, 3, 2], wave: 'bell' }, lead: { vol: 0.3, oct: 1, dens: 0.28, wave: 'pluck' }, bass: { vol: 0.3 }, rev: 0.7 },
+  race2: { name: '결승선', bpm: 144, beats: 4, root: 62, scale: MAJOR, prog: [0, 3, 0, 4, 5, 3, 4, 0], bars: 32, arp: { vol: 0.2, oct: 0, pat: [0, 1, 2, 1, 0, 1, 2, 3], wave: 'square' }, lead: { vol: 0.3, oct: 1, dens: 0.55, wave: 'brass' }, bass: { vol: 0.42, walk: true }, drums: 'gallop', rev: 0.15 },
+  slots2: { name: '잭팟 거리', bpm: 126, beats: 4, root: 60, scale: MAJOR, prog: [0, 5, 3, 4], bars: 32, arp: { vol: 0.2, oct: 1, pat: [0, 2, 1, 2, 3, 2, 1, 2], wave: 'square' }, lead: { vol: 0.26, oct: 1, dens: 0.45, wave: 'square' }, bass: { vol: 0.4 }, drums: 'bounce', rev: 0.15 },
+  poker2: { name: '늦은 밤 테이블', bpm: 76, beats: 4, root: 45, scale: MINOR, prog: [0, 3, 4, 0], bars: 32, arp: { vol: 0.34, oct: 2, pat: [-1, 0, -1, 2, -1, 1, -1, 2], wave: 'rhodes' }, lead: { vol: 0.3, oct: 2, dens: 0.22, wave: 'rhodes' }, bass: { vol: 0.45, walk: true }, drums: 'swing', swing: 0.3, rev: 0.4 },
+  mafia2: { name: '그림자', bpm: 54, beats: 4, root: 43, scale: PHRYG, prog: [0, 5, 1, 0], bars: 24, pad: 0.5, lead: { vol: 0.28, oct: 3, dens: 0.18, wave: 'bell' }, bass: { vol: 0.35 }, drums: 'heart', drone: true, rev: 0.8 },
   mafia: { name: '마피아', bpm: 60, beats: 4, root: 45, scale: PHRYG, prog: [0, 1, 0, 5], bars: 24, pad: 0.5, lead: { vol: 0.3, oct: 3, dens: 0.2, wave: 'bell' }, bass: { vol: 0.35 }, drums: 'heart', drone: true, rev: 0.8 },
 };
 const SCENE_TUNES: Record<Scene, { day: string[]; night?: string[]; gap: [number, number] }> = {
   main: { day: ['morning', 'noon', 'meadow', 'dusk'], night: ['stars', 'lake'], gap: [15, 40] },
-  home: { day: ['home'], gap: [8, 20] },
-  mine: { day: ['mine'], gap: [4, 10] },
-  winter: { day: ['winter'], gap: [8, 20] },
-  race: { day: ['race'], gap: [0.5, 1.5] },
-  slots: { day: ['slots'], gap: [0.5, 1.5] },
-  poker: { day: ['poker'], gap: [0.5, 1.5] },
-  mafia: { day: ['mafia'], gap: [0.5, 2] },
+  home: { day: ['home', 'home2'], gap: [8, 20] },
+  mine: { day: ['mine', 'mine2'], gap: [4, 10] },
+  winter: { day: ['winter', 'winter2'], gap: [8, 20] },
+  race: { day: ['race', 'race2'], gap: [0.5, 1.5] },
+  slots: { day: ['slots', 'slots2'], gap: [0.5, 1.5] },
+  poker: { day: ['poker', 'poker2'], gap: [0.5, 1.5] },
+  mafia: { day: ['mafia', 'mafia2'], gap: [0.5, 2] },
 };
 
 // 한 맥락(실시간 또는 오프라인)에 소리를 그려 넣는 도구

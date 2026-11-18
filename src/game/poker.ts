@@ -8,6 +8,7 @@ import { serverNow } from '../firebase/db';
 import { duelFee } from '../shared/duel';
 import { POKER_TABLES, POKER_TURN_MS, POKER_TURN_GRACE_MS, POKER_DEAL_LIMIT_MS, POKER_TABLE_STALE_MS, POKER_KEEP_MS, otherSide, sideOf, putOf, pokerCard, pokerWinner, pokerPayout, pokerOptions, type PokerHand, type Side } from '../shared/poker';
 import type { WorldCtx } from './state';
+import { sfx } from './audio';
 
 export interface TableView { t: string; hid: string | null; hand: PokerHand | null; mySide: Side | null; oppCard: number | null; cards: { a?: number; b?: number } }
 const num = (n: number): string => Math.floor(n).toLocaleString('ko-KR');
@@ -118,6 +119,7 @@ export class PokerMgr {
     let ok = false;
     try { ok = await fn(); } catch { ok = false; }
     this.busy = false; this.emit();
+    if (ok) sfx('chip');
     if (!ok && fail) this.w.toast(fail, true);
     return ok;
   }
@@ -213,6 +215,7 @@ export class PokerMgr {
         : h.w === side ? `🃏 인디언 포커 승리! 💰 +${num(pay - put)} (받은 돈 ${num(pay)})`
         : `🃏 인디언 포커 패배. ${num(put - pay)}코인을 잃었습니다.`;
       w.toast(text, h.w !== side && h.w !== 'tie' && h.w !== 'void');
+      sfx(h.w === side ? 'win' : h.w === 'tie' || h.w === 'void' ? 'card' : 'lose');
       w.events.emit('log', { channel: 'sys', from: '', text, ts: serverNow() });
     }
     this.emit();

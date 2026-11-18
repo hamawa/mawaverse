@@ -10,7 +10,8 @@ import {
 } from '../shared/shop';
 import { fmtGold, PICK_MAX, PICK_TOTAL_COST, pickAttempts, pickBonus } from '../shared/mine';
 import type { WalletMgr } from './wallet';
-import type { UserProfile, ServerConfig } from '../shared/types';
+import type { UserProfile, ServerConfig } from '../shared/types';
+import { sfx } from './audio';
 
 export interface ShopHost {
   uid: string; profile: UserProfile; wallet: WalletMgr; config: ServerConfig; toast(msg: string, err?: boolean): void;
@@ -125,7 +126,7 @@ export function openShop(h: ShopHost): void {
         const pick = await giftPicker(h, item, price);
         if (!pick) { b.disabled = false; return; }
         const r = await h.wallet.giftItem(item.id, price, pick.to, pick.msg);
-        if (r === 'ok') h.toast(`🎁 ${pick.to.nick} 님에게 ${item.name}을(를) 선물했어요!`);
+        if (r === 'ok') { sfx('coin'); h.toast(`🎁 ${pick.to.nick} 님에게 ${item.name}을(를) 선물했어요!`); }
         else if (r === 'owned') h.toast(`${pick.to.nick} 님은 이미 ${item.name}을(를) 가지고 있어요.`, true);
         else if (r === 'coins') h.toast('코인이 모자랍니다.', true);
         else h.toast('선물을 전달하지 못했어요. 다음 접속 때 다시 전달됩니다.', true);
@@ -193,6 +194,7 @@ export function openShop(h: ShopHost): void {
         if (!owned) {
           if (!(await confirmModal(`${item.name}을(를) ${fmtCoins(price)}에 살까요?`))) { btn.disabled = false; return; }
           if (!(await h.wallet.buyCosmetic(item.id, price))) { h.toast('코인이 모자랍니다.', true); btn.disabled = false; return; }
+          sfx('coin');
           await h.wallet.equip(kind, item.id);
           h.toast(pet ? `${item.icon} ${item.name} 입양! 바로 따라옵니다.` : `${item.icon} ${item.name} 구매! 바로 착용했습니다.`);
         } else await h.wallet.equip(kind, eq ? null : item.id);

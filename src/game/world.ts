@@ -237,6 +237,9 @@ export class World implements WorldCtx {
     this.home.start(); this.home.entered(this.mapId); this.trees.watch(this.mapId);
     this.loadGuestPets();
     startWakeLock();
+    // 화면 갱신이 멈춰 있는 동안(다른 창·탭) 하던 곡괭이질을 이어 간다 (2026-11-18. 나무 캐기는 HomeMgr.slowTick 이 같은 일을 한다)
+    this.bgTimer = window.setInterval(() => { if (!this.stopped && this.framesStalled()) this.mine.tick(performance.now()); }, 1000);
+    document.addEventListener('click', this.onUiClick, true);
     // 소리가 생겼다는 안내는 이 기기에서 한 번만 (처음에는 꺼져 있다)
     try { if (!soundOn() && !localStorage.getItem('mv-sound-seen')) { localStorage.setItem('mv-sound-seen', '1'); window.setTimeout(() => { if (!this.stopped) this.toast('🔊 소리가 생겼어요! 화면 위 🔇 버튼을 누르면 배경음악과 효과음이 켜집니다.'); }, 6000); } } catch { /* ignore */ }
     // 그날 첫 접속이면 2초 뒤 룰렛 창. 지갑이 한 번 읽힌 뒤에 판단한다
@@ -772,6 +775,9 @@ export class World implements WorldCtx {
     if (this.dayOff || isHomeMapId(this.mapId) || this.mapId === GOLD_MINE_MAP_ID) return null;
     return dayTint(kstMinuteOfDay(serverNow()));
   }
+  private bgTimer = 0;
+  // 단추를 누를 때 딸깍 (소리 단추 자신은 켜짐 알림음이 난다)
+  private onUiClick = (e: MouseEvent): void => { const b = (e.target as HTMLElement | null)?.closest?.('button'); if (b && !b.hasAttribute('data-quiet')) sfx('ui', { vol: 0.6 }); };
   // ---- 배경음악이 달라지는 상황 (audio.ts) ----
   private sceneAt = 0;
   private sceneNow(): Scene {
@@ -1296,7 +1302,7 @@ export class World implements WorldCtx {
     const body = avatarPicker(sel, (id) => { sel = id; });
     modal(ticket ? '외모 변경 (🎟 교환권 사용)' : fee > 0 ? `외모 변경 (${fmtCoins(fee)})` : '외모 변경', body, [
       { label: '취소', onClick: () => {} },
-      { label: '적용', primary: true, onClick: () => {
+      { label: ticket ? '적용 (🎟 교환권 사용)' : fee > 0 ? `적용 (${fmtCoins(fee)})` : '적용', primary: true, onClick: () => { // 누르는 단추에 값을 적는다 (2026-11-18: 값이 드는 줄 모르고 누른다는 말이 있었다)
         if (sel === this.profile.avatar) return;
         if (this.wallet.balance < fee) { this.toast(`코인이 모자랍니다. 외모 변경은 ${fmtCoins(fee)} 입니다.`, true); return; }
         this.profile.avatar = sel; this.net.setAvatar(sel);
@@ -1342,6 +1348,7 @@ export class World implements WorldCtx {
     if (this.stopped) return;
     this.stopped = true;
     stopSound();
+    clearInterval(this.bgTimer); document.removeEventListener('click', this.onUiClick, true);
     this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();

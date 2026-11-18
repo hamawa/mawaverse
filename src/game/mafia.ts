@@ -10,7 +10,8 @@ import {
 } from '../shared/mafia';
 import { nearZone, type Zone } from './map';
 import type { WorldCtx } from './state';
-import { MAIN_MAP_ID } from '../shared/maps';
+import { MAIN_MAP_ID } from '../shared/maps';
+import { sfx } from './audio';
 
 export interface TaskSpot { def: TaskDef; x: number; y: number }
 export type MafiaAction =
@@ -190,6 +191,7 @@ export class MafiaMgr {
         [`mafia/game/bodies/${targetUid}`]: { x: Math.round(rp.x), y: Math.round(rp.y), a: p.a, n: p.n, at: serverTimestamp() },
       });
       this.lastKill = performance.now();
+      sfx('stab');
       return true;
     } catch (e) { console.warn('kill failed', e); return false; }
   }

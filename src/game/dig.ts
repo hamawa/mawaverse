@@ -5,7 +5,8 @@ import { dayKey } from '../shared/util';
 import { G, O, groundAt, objectAt, isWalkable, roomAt, type MapData } from './map';
 import type { Net } from './net';
 import type { WorldCtx } from './state';
-import { MAIN_MAP_ID } from '../shared/maps';
+import { MAIN_MAP_ID } from '../shared/maps';
+import { sfx } from './audio';
 
 export const DIG_SPOTS = 5;          // 하루 자리 수
 export const DIG_MS = 1500;          // 삽질 시간
@@ -87,6 +88,7 @@ export class DigMgr {
     const s = this.spotHere();
     if (!s) return false;
     this.digging = { spot: s, until: performance.now() + DIG_MS };
+    sfx('chop');
     return true;
   }
   cancel(): void { if (this.digging) { this.digging = null; this.w.toast('삽질을 멈췄어요.'); } }
@@ -106,6 +108,7 @@ export class DigMgr {
     else if (Math.random() < DIG_JUNK_CHANCE) { coins = 0; text = ['🪱 지렁이만 나왔다… 꽝!', '🥾 누가 묻어둔 장화. 꽝!', '📎 녹슨 클립 한 개. 꽝!'][Math.floor(Math.random() * 3)]; }
     else { coins = DIG_COIN_MIN + Math.floor(Math.random() * (DIG_COIN_MAX - DIG_COIN_MIN + 1)); text = `💰 동전 주머니! +${coins}코인`; }
     w.setBubble(w.uid, { text: s.box ? '💎!' : coins ? '💰' : '🪱', kind: 'near', at: performance.now() });
+    sfx(s.box ? 'win' : coins ? 'coin' : 'junk', { k: 2 });
     w.events.emit('log', { channel: 'sys', from: '', text: `⛏ ${text} (오늘 ${this.dug.size}/${this.spots.length}곳)`, ts: serverNow() });
     this.saving = true;
     try {

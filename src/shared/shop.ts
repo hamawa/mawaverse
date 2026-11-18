@@ -37,7 +37,7 @@ export const FX: ShopItem[] = [
   { id: 'sparkle', kind: 'fx', name: '반짝이', price: 1000, icon: '✨', desc: '지나간 자리가 반짝반짝.' },
   { id: 'heart', kind: 'fx', name: '하트', price: 1200, icon: '💗', desc: '분홍 하트가 떠오른다.' },
   { id: 'fire', kind: 'fx', name: '불꽃', price: 1500, icon: '🔥', desc: '발에 불이 났다.' },
-  { id: 'rainbow', kind: 'fx', name: '무지개 꼬리', price: 2000, icon: '🌈', desc: '무지개가 꼬리처럼 따라온다.' },
+  { id: 'rainbowtrail', kind: 'fx', name: '무지개 꼬리', price: 2000, icon: '🌈', desc: '무지개가 꼬리처럼 따라온다.' }, // 2026-11-18: 이름표 색 '무지개'와 같은 id(rainbow)를 쓰고 있어 하나를 사면 둘 다 가진 것이 됐다. 이펙트 쪽 id 를 바꾸고, 그때까지 rainbow 를 가진 사람에게는 둘 다 줬다 (사용자 결정)
   { id: 'shasha', kind: 'fx', name: '샤샤샥', price: 10000, icon: '👥', desc: '움직일 때 내 모습의 잔상이 줄줄이 남는다.' }, // 파티클이 아니라 캐릭터 잔상 (cosmetics.ts drawAfterimages, 2026-11-11)
 ];
 

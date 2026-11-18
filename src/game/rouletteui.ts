@@ -7,6 +7,7 @@ import { ROULETTE, ROULETTE_ANNOUNCE, rollRoulette, type RouletteFeed } from '..
 import { fmtCoins } from '../shared/shop';
 import type { WalletMgr } from './wallet';
 import type { WorldCtx } from './state';
+import { sfx } from './audio';
 
 export interface RouletteHost { uid: string; nick: string; wallet: WalletMgr; toast(msg: string, err?: boolean): void; log(text: string): void; stat(key: string): void }
 
@@ -63,6 +64,7 @@ export function openRoulette(h: RouletteHost): void {
   btn.onclick = () => {
     if (spinning || h.wallet.rouletteDoneToday()) return;
     spinning = true; btn.disabled = true; btn.textContent = '돌아가는 중…';
+    sfx('spin');
     const idx = rollRoulette();
     const prize = ROULETTE[idx].v;
     // 포인터(위쪽) 아래에 idx 칸의 가운데가 오도록. 5바퀴 반 돌고 멈춘다
@@ -79,6 +81,7 @@ export function openRoulette(h: RouletteHost): void {
       const ok = await h.wallet.claimRoulette(prize);
       if (!ok) { result.textContent = '오늘은 이미 돌렸어요. 내일 다시!'; btn.textContent = '오늘은 돌렸어요'; return; }
       result.textContent = `🎉 ${fmtCoins(prize)} 당첨!`;
+      sfx('win', { k: prize >= 500 ? 2 : 0 });
       btn.textContent = '내일 또 만나요';
       h.toast(`🎰 룰렛 ${prize}코인 당첨!`);
       h.log(`🎰 오늘의 룰렛: ${prize}코인 (지갑 ${fmtCoins(h.wallet.balance)})`);

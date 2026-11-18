@@ -5,6 +5,7 @@ import { modal, withCloseX } from './ui';
 import { weekKey } from '../shared/fish';
 import type { WalletMgr } from './wallet';
 import type { Input } from './input';
+import { sfx } from './audio';
 
 export const MOLE_GAME_MS = 30000;
 export const MOLE_DAILY_COIN_GAMES = 3; // 하루에 코인을 주는 판 수
@@ -64,6 +65,7 @@ export function openMole(h: MoleHost): void {
     const mo = moles.find((x) => x.cell === cell && !x.hit);
     if (!mo) { holes[cell].classList.remove('miss'); void holes[cell].offsetWidth; holes[cell].classList.add('miss'); return; }
     mo.hit = true; mo.until = performance.now() + 120;
+    sfx(mo.kind === 'bomb' ? 'bat' : mo.kind === 'gold' ? 'gold' : 'hit', { vol: 0.7 });
     score = Math.max(0, score + (mo.kind === 'gold' ? 3 : mo.kind === 'bomb' ? -2 : 1));
     holes[cell].classList.remove('hit', 'boom'); void holes[cell].offsetWidth; holes[cell].classList.add(mo.kind === 'bomb' ? 'boom' : 'hit');
     render();
