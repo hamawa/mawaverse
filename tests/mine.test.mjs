@@ -44,11 +44,18 @@ test('채광: 한 번에 1~3개, 1개 75% · 2개 20% · 3개 5%', () => {
   assert.ok(MINE_GAP_MS < MINE_MS && MINE_GAP_MS >= 2000);
 });
 
-test('규칙 생성기의 상수가 클라이언트와 같다 (채광 간격·최대 개수·제작 금덩이)', () => {
+test('규칙 생성기의 상수가 클라이언트와 같다 (채광 간격·최대 개수·제작 금덩이)', async () => {
   const gen = readFileSync(new URL('../tools/gen-rules.cjs', import.meta.url), 'utf8');
   const m = /const MINE_GAP_MS = (\d+), MINE_MAX = (\d+), KING_CRAFT_GOLD = (\d+);/.exec(gen);
   assert.ok(m, 'gen-rules.cjs 에서 상수를 찾지 못함');
   assert.deepEqual([Number(m[1]), Number(m[2]), Number(m[3])], [MINE_GAP_MS, MINE_MAX, KING_CRAFT_GOLD]);
+  // 금덩이가 함께 드는 품목 (2026-11-18): 품목과 금덩이 수가 생성기와 같고, 전부 보관함 품목이며 id 가 gg 로 시작한다 (규칙이 그 접두사로 가른다)
+  const { GOLD_COST, isOwnItem: own2, itemById: byId2, ALL_ITEMS: all2 } = await import('../src/shared/shop.ts');
+  const gg = /const GOLD_GOODS = (\{[^}]+\});/.exec(gen);
+  assert.ok(gg, 'gen-rules.cjs 에서 GOLD_GOODS 를 찾지 못함');
+  assert.deepEqual(new Function(`return ${gg[1]}`)(), { ...GOLD_COST });
+  for (const id of Object.keys(GOLD_COST)) { assert.ok(id.startsWith('gg') && own2(id) && byId2(id).price > 0, id); }
+  assert.deepEqual(all2.filter((i) => i.id.startsWith('gg')).map((i) => i.id).sort(), Object.keys(GOLD_COST).sort(), 'gg 로 시작하는 품목은 전부 금덩이 품목이어야 한다');
   const p = /const PICK_MAX = (\d+), PICK_COST_UNIT = (\d+);/.exec(gen);
   assert.ok(p, 'gen-rules.cjs 에서 곡괭이 상수를 찾지 못함');
   assert.deepEqual([Number(p[1]), Number(p[2])], [PICK_MAX, PICK_COST_UNIT]);

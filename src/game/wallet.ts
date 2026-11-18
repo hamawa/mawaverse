@@ -1,7 +1,7 @@
 import { ref, get, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { type BatKind, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
+import { type BatKind, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
 import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
@@ -404,6 +404,21 @@ export class WalletMgr {
     const own = { ...(this.w.profile.own || {}) };
     delete own[itemId];
     this.w.profile.own = own;
+    this.listeners.forEach((f) => f());
+    return true;
+  }
+  // 금덩이가 함께 드는 품목 (2026-11-18, shop.ts GOLD_COST): 코인 값과 금덩이를 쓰기 한 번에 내고 보관함에 넣는다. 규칙: b 가 그 품목이고 금덩이가 정확히 그만큼 줄어야 한다. 선물 불가
+  async buyGold(itemId: string, price: number, gold: number): Promise<boolean> {
+    if (this.owns(itemId) || GOLD_COST[itemId] !== gold || price <= 0) return false;
+    if (this.balance < price || this.gold < gold) return false;
+    const ok = await this.tx((c) => {
+      if ((c.c || 0) < price || (c.gn || 0) < gold) return null;
+      const n: Wallet = { ...c, c: (c.c || 0) - price, sp: (c.sp || 0) + price, b: itemId, gn: (c.gn || 0) - gold };
+      delete n.gt;
+      return n;
+    });
+    if (!ok) return false;
+    await this.deliver(itemId);
     this.listeners.forEach((f) => f());
     return true;
   }

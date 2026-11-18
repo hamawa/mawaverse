@@ -12,7 +12,7 @@ import type { BugView } from './bugs';
 import type { TossView } from './toss';
 import type { SnowView } from './winterplay';
 import { snowActive, SNOW_PENALTY_TITLE } from '../shared/snowpenalty';
-import { drawHat, hatAbove, nameStyle, rainbowGradient, spawnFx, drawFx, drawPet, drawMount, mountInfo, drawAfterimages, AFTERIMAGE_FX } from './cosmetics';
+import { drawHat, hatAbove, nameStyle, titleStyle, isLabelFlow, labelFlow, spawnFx, drawFx, drawPet, drawMount, mountInfo, drawAfterimages, AFTERIMAGE_FX } from './cosmetics';
 
 export type BubbleKind = 'near' | 'all' | 'w';
 export interface Bubble { text: string; kind: BubbleKind; at: number }
@@ -39,6 +39,7 @@ export interface Entity {
   hat: string | null;          // 꾸미기 (상점)
   nameColor: string | null;
   fx: string | null;
+  title?: string | null;       // 칭호 품목 id (닉네임 바로 위에 뜬다)
   pet: PetView | null;         // 데리고 다니는 펫 (한 칸 뒤)
   ghost?: boolean;             // 마피아 유령: 반투명 (유령에게만 보임. 산 사람 화면에는 아예 안 들어온다)
   mining?: boolean;            // 금광에서 곡괭이질 중 (곡괭이를 휘두르는 모습)
@@ -334,7 +335,10 @@ export function render(eng: Engine, st: RenderState): void {
     const name = e.nick;
     let under = syFeet + 2 + 18; // drawLabel 은 라벨의 아래쪽 y 를 받는다 (높이 = 글자 크기 + 6)
     // 눈사람을 부순 벌칙 칭호: 닉네임 바로 위에 딱 붙인다 (2026-11-18 사용자 요청. 전에는 머리 위였다). 칭호가 이름표 자리에 오고 이름표는 그만큼 내려간다 (캐릭터를 가리지 않게)
-    if (snowActive(e.snowBrokenAt, st.serverNow)) { drawLabel(ctx, SNOW_PENALTY_TITLE, sx, syFeet + 2 + 17, '#ffffff', 'rgba(185, 28, 28, 0.92)', 11, '#fecaca'); under += 17; }
+    if (snowActive(e.snowBrokenAt, st.serverNow)) { drawLabel(ctx, SNOW_PENALTY_TITLE, sx, under - 1, '#ffffff', 'rgba(185, 28, 28, 0.92)', 11, '#fecaca'); under += 17; }
+    // 칭호 (상점): 닉네임 바로 위. 눈사람 칭호가 있으면 그 아래
+    const ts = titleStyle(e.title);
+    if (ts) { drawLabel(ctx, ts.text, sx, under - 1, ts.color, ts.bg, 10, ts.border); under += 16; }
     drawLabel(ctx, name, sx, under, nameColor, ns?.bg ?? 'rgba(0,0,0,0.55)', 12, ns?.border);
     // 머리 위: 😵 · 입질 · 이모트 · 말풍선. 물속이면 가라앉은 만큼 내려가고, 모자가 프레임 위로 솟았으면 그만큼 올라간다
     const [, syTop] = eng.worldToScreen(e.x * TILE + TILE / 2, e.y * TILE + TILE - FRAME_H + pos.sink - pos.above);
@@ -584,7 +588,7 @@ export function drawLabel(ctx: CanvasRenderingContext2D, text: string, cx: numbe
   ctx.fillStyle = bg;
   roundRect(ctx, cx - w / 2, bottom - h, w, h, 4); ctx.fill();
   if (border) { ctx.strokeStyle = border; ctx.lineWidth = 1; ctx.stroke(); }
-  ctx.fillStyle = color === 'rainbow' ? rainbowGradient(ctx, cx - w / 2, cx + w / 2, performance.now()) : color;
+  ctx.fillStyle = isLabelFlow(color) ? labelFlow(ctx, color, cx - w / 2, cx + w / 2, performance.now()) : color;
   ctx.fillText(text, cx, bottom - 3);
 }
 

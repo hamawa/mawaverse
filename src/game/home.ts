@@ -14,6 +14,8 @@ import type { Net } from './net';
 import type { TreeMgr } from './trees';
 import type { WorldCtx } from './state';
 import { sfx } from './audio';
+import { GOLD_COST } from '../shared/shop';
+import { WALLS } from '../shared/home';
 
 // 내 집 (2026-11-17, shared/home.ts 머리말에 설계). 이 클래스는 내 homes/{uid} 를 구독하고, 나무 캐기·짓기·창고·겨울잠과 "지금 들어와 있는 집"의 상태를 맡는다.
 // 맵 이동(들어가기·나가기)은 world.ts 가 포탈과 같은 길(usePortal)로 한다.
@@ -200,7 +202,8 @@ export class HomeMgr {
     if (!it) return false;
     const price = priceOf(it, w.config.prices);
     if (w.wallet.balance < price) return false;
-    return w.wallet.buyCosmetic(itemId, price);
+    const gold = GOLD_COST[itemId] || 0; // 금덩이가 함께 드는 품목 (황금 가구)
+    return gold ? w.wallet.buyGold(itemId, price, gold) : w.wallet.buyCosmetic(itemId, price);
   }
   async build(): Promise<BuildResult> {
     const w = this.w, next = nextTier(this.data);
@@ -236,10 +239,19 @@ export class HomeMgr {
   made(o: number): boolean { return this.data?.fu?.[String(o)] === true; }
   get decoCount(): number { return decoList(this.data).length; }
   get decoLimit(): number { return homeTier(this.data?.t)?.deco ?? 0; }
-  // 가구 만들기: 그 종류를 나무로 한 번 만들면 몇 개든 놓을 수 있다
-  async craft(o: number): Promise<'ok' | 'wood' | 'fail'> {
+  // 가구 만들기: 그 종류를 나무로 한 번 만들면 몇 개든 놓을 수 있다.
+  // 고급 가구(item 이 있는 것, 2026-11-18)는 나무 대신 그 품목을 산다: 코인(fn), 또는 코인 + 금덩이(gg). 값만 내고 끊겼어도 다음에 누르면 이어서 등록된다
+  async craft(o: number): Promise<'ok' | 'wood' | 'coins' | 'fail'> {
     const f = furnitureOf(o);
     if (!f || !this.tier || this.made(o) || this.busy) return 'fail';
+    if (f.item) {
+      this.busy = true;
+      try {
+        if (!(await this.pay(f.item))) return 'coins';
+        await update(ref(db, `homes/${this.w.uid}`), { [`fu/${o}`]: true });
+        return 'ok';
+      } catch (e) { console.warn('가구 만들기 실패', e); return 'fail'; } finally { this.busy = false; }
+    }
     if (this.wood < f.wood) return 'wood';
     this.busy = true;
     try { await update(ref(db, `homes/${this.w.uid}`), { [`fu/${o}`]: true, w: increment(-f.wood) }); return 'ok'; }
@@ -267,6 +279,17 @@ export class HomeMgr {
     const f = this.facingDeco();
     if (!f || f.kind !== 'remove') return false;
     try { await update(ref(db, `homes/${this.w.uid}/d`), { [posKey(f.x, f.y)]: null }); return true; } catch { return false; }
+  }
+  // 벽지: 그 품목을 사 두었으면 값 없이 몇 번이든 바꿀 수 있다 (n = 0 이면 기본 벽으로)
+  async setWall(n: number): Promise<'ok' | 'coins' | 'fail'> {
+    const wl = WALLS.find((x) => x.n === n);
+    if (!this.tier || this.busy || (n !== 0 && !wl) || (this.data?.wl || 0) === n) return 'fail';
+    this.busy = true;
+    try {
+      if (wl && !(await this.pay(wl.item))) return 'coins';
+      await update(ref(db, `homes/${this.w.uid}`), { wl: n || null });
+      return 'ok';
+    } catch (e) { console.warn('벽지 바꾸기 실패', e); return 'fail'; } finally { this.busy = false; }
   }
   async setFloor(g: number): Promise<'ok' | 'wood' | 'fail'> {
     if (!this.tier || !FLOORS.some((f) => f.g === g) || this.data?.fl === g || this.busy) return 'fail';
@@ -387,4 +410,4 @@ export function homeOpen(h: HomeData | null | undefined): 'ok' | 'none' | 'locke
 }
 
 // 방 모양에 영향을 주는 값만 뽑은 글자 (나무·물고기 수가 바뀔 때마다 방을 다시 만들지 않으려고)
-function sigOf(h: HomeData | null): string { return JSON.stringify([h?.t ?? 0, h?.d ?? null, h?.fl ?? null, h?.tr ?? null]); }
+function sigOf(h: HomeData | null): string { return JSON.stringify([h?.t ?? 0, h?.d ?? null, h?.fl ?? null, h?.tr ?? null, h?.wl ?? null]); }

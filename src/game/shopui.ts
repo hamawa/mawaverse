@@ -2,9 +2,9 @@ import { el } from '../shared/util';
 import { modal, withCloseX, confirmModal } from './ui';
 import { getSprite, FRAME_W, FRAME_H } from './sprites';
 import { spriteTop, drawLabel } from './render';
-import { drawHat, nameStyle, petCanvas, mountCanvas } from './cosmetics';
+import { drawHat, nameStyle, titleStyle, petCanvas, mountCanvas } from './cosmetics';
 import {
-  HATS, NAME_COLORS, FX, PET_GOODS, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
+  HATS, NAME_COLORS, FX, TITLES, GOLD_COST, PET_GOODS, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
   BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
 } from '../shared/shop';
@@ -56,8 +56,8 @@ function giftPicker(h: ShopHost, item: ShopItem, price: number): Promise<{ to: {
   });
 }
 
-type Tab = 'hat' | 'name' | 'fx' | 'pet' | 'fish' | 'gear';
-const TABS: { id: Tab; label: string }[] = [{ id: 'hat', label: '🎩 모자' }, { id: 'name', label: '🏷 이름표' }, { id: 'fx', label: '✨ 이펙트' }, { id: 'pet', label: '🐾 펫' }, { id: 'fish', label: '🎒 용품' }, { id: 'gear', label: '⚔ 장비' }];
+type Tab = 'hat' | 'name' | 'fx' | 'title' | 'pet' | 'fish' | 'gear';
+const TABS: { id: Tab; label: string }[] = [{ id: 'hat', label: '🎩 모자' }, { id: 'name', label: '🏷 이름표' }, { id: 'fx', label: '✨ 이펙트' }, { id: 'title', label: '🎖 칭호' }, { id: 'pet', label: '🐾 펫' }, { id: 'fish', label: '🎒 용품' }, { id: 'gear', label: '⚔ 장비' }];
 
 // 펫 미리보기 (4배 × 레벨 크기). 탑승 레벨이면 탈것 옆모습(3배)
 function petPreview(id: string, scale = 1, ride = false): HTMLElement {
@@ -89,6 +89,14 @@ function hatPreview(avatar: string, hat: string | null): HTMLCanvasElement {
   return cv;
 }
 // 이름표 미리보기
+// 칭호 미리보기: 게임 안에서 닉네임 위에 뜨는 모습 그대로
+function titlePreview(id: string): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.width = 140; cv.height = 26;
+  const st = titleStyle(id);
+  if (st) drawLabel(cv.getContext('2d')!, st.text, 70, 22, st.color, st.bg, 10, st.border);
+  return cv;
+}
 function namePreview(nick: string, nc: string | null): HTMLCanvasElement {
   const cv = document.createElement('canvas');
   cv.width = 140; cv.height = 26;
@@ -145,6 +153,7 @@ export function openShop(h: ShopHost): void {
     const riding = kind === 'pet' && petCanRide(xp) && h.wallet.rideOn(); // 만렙이고 타기를 고른 상태 (내려서 데리고 다니면 보통 모습)
     if (kind === 'hat') card.append(hatPreview(h.profile.avatar, item.id));
     else if (kind === 'name') card.append(namePreview(h.profile.nick, item.id));
+    else if (kind === 'title') card.append(titlePreview(item.id));
     else if (kind === 'pet') card.append(petPreview(item.id, petScale(xp), riding));
     else card.append(el('div', { class: 'ic', text: item.icon }));
     const lv = petLevel(xp);
@@ -185,15 +194,17 @@ export function openShop(h: ShopHost): void {
       } else if (owned && !eq && next) card.append(el('div', { class: 'ds muted', text: '먹이는 데리고 있을 때 줄 수 있어요' }));
     } else if (item.desc) card.append(el('div', { class: 'ds', text: item.desc }));
     const pet = kind === 'pet';
-    card.append(el('div', { class: 'pr', text: owned ? (eq ? (pet ? '데리고 있음' : '착용 중') : '보유') : fmtCoins(price) }));
+    const gold = GOLD_COST[item.id] || 0; // 금덩이가 함께 드는 품목 (순금 이름표)
+    card.append(el('div', { class: 'pr', text: owned ? (eq ? (pet ? '데리고 있음' : '착용 중') : '보유') : gold ? `${fmtCoins(price)} + ${fmtGold(gold)}` : fmtCoins(price) }));
     const btn = el('button', { class: 'btn small' + (owned ? '' : ' primary'), text: owned ? (eq ? (pet ? '집에 두기' : '해제') : (pet ? '데리고 다니기' : '착용')) : '구매' });
     if (!owned && h.wallet.balance < price) { btn.disabled = true; btn.title = '코인이 모자랍니다'; }
+    else if (!owned && gold && h.wallet.gold < gold) { btn.disabled = true; btn.title = '금덩이가 모자랍니다 (금광에서 캘 수 있어요)'; }
     btn.onclick = async () => {
       btn.disabled = true;
       try {
         if (!owned) {
-          if (!(await confirmModal(`${item.name}을(를) ${fmtCoins(price)}에 살까요?`))) { btn.disabled = false; return; }
-          if (!(await h.wallet.buyCosmetic(item.id, price))) { h.toast('코인이 모자랍니다.', true); btn.disabled = false; return; }
+          if (!(await confirmModal(gold ? `${item.name}을(를) ${fmtCoins(price)} + ${fmtGold(gold)}에 만들까요?` : `${item.name}을(를) ${fmtCoins(price)}에 살까요?`))) { btn.disabled = false; return; }
+          if (!(gold ? await h.wallet.buyGold(item.id, price, gold) : await h.wallet.buyCosmetic(item.id, price))) { h.toast(gold ? '코인이나 금덩이가 모자랍니다.' : '코인이 모자랍니다.', true); btn.disabled = false; return; }
           sfx('coin');
           await h.wallet.equip(kind, item.id);
           h.toast(pet ? `${item.icon} ${item.name} 입양! 바로 따라옵니다.` : `${item.icon} ${item.name} 구매! 바로 착용했습니다.`);
@@ -201,7 +212,7 @@ export function openShop(h: ShopHost): void {
       } catch { h.toast('처리하지 못했습니다.', true); }
       render();
     };
-    card.append(el('div', { class: 'row', style: 'gap:4px;justify-content:center' }, [btn, giftBtn(item, price)]));
+    card.append(el('div', { class: 'row', style: 'gap:4px;justify-content:center' }, gold ? [btn] : [btn, giftBtn(item, price)])); // 금덩이 품목은 선물할 수 없다 (규칙)
     // 만렙 펫을 데리고 있으면: 타고 다닐지 내려서 데리고 다닐지 고른다 (2026-11-12 건의 반영)
     if (pet && owned && eq && petCanRide(xp)) {
       const rb = el('button', { class: 'btn small', text: h.wallet.rideOn() ? '🐾 내려서 데리고 다니기' : '🏇 타고 다니기', style: 'margin-top:4px' });
@@ -488,7 +499,7 @@ export function openShop(h: ShopHost): void {
     else if (tab === 'gear') pane.append(gearPane());
     else {
       const grid = el('div', { class: 'shop-grid' + (tab === 'pet' ? ' pets' : '') });
-      const list = tab === 'hat' ? HATS : tab === 'name' ? NAME_COLORS : tab === 'pet' ? PET_GOODS : FX;
+      const list = tab === 'hat' ? HATS : tab === 'name' ? NAME_COLORS : tab === 'pet' ? PET_GOODS : tab === 'title' ? TITLES : FX;
       for (const item of list) grid.append(cosmeticCard(item, tab));
       pane.append(grid);
     }

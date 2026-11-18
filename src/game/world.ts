@@ -432,7 +432,7 @@ export class World implements WorldCtx {
       uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: me.dir, moving: me.moving,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: me.pose, poseAt: me.poseAt, emoteId: me.emoteId, bubble: me.bubble,
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
-      fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null,
+      fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null, title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null,
       pet: this.pets.view(this.uid, loose ? null : this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
       ghost: iGhost, mining: this.mine.active, snowBrokenAt: this.snowBrokenAt, snowReady: this.snowfight.packed,
       progress: this.home.chopProgress(now), // 나무 캐는 중: 머리 위 진행 막대 (2026-11-18)
@@ -448,7 +448,7 @@ export class World implements WorldCtx {
         pose: rp.pose, poseAt: rp.poseAt, emoteId: rp.emoteId, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
-        hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null,
+        hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null, title: rp.st.tt || null,
         pet: this.pets.view(rp.uid, loose ? null : rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0, !!rp.st.nr),
         ghost, mining: !!rp.st.mn, snowBrokenAt: rp.st.sn || 0,
       });

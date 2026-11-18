@@ -1,6 +1,6 @@
 // 바닥/오브젝트 타일을 코드로 그려 캐시한다.
-import { PixelBuf, shade } from './pixel';
-import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O, O_BED, O_CHEST } from './map';
+import { PixelBuf, shade, mix } from './pixel';
+import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O, O_BED, O_CHEST, O_FIREPLACE, O_AQUARIUM, O_PIANO, O_TV, O_GOLD_VASE, O_GOLD_STATUE, WALLPAPER_BASE, WALLPAPER_COUNT } from './map';
 import { TILE } from '../shared/config';
 import { seededRandom } from '../shared/hash';
 
@@ -176,7 +176,16 @@ function tree(b: PixelBuf, leaf: string, light: string, dark: string, round: boo
   }
 }
 
+// 벽지 빛깔: 기본 벽 그림의 색을 이 빛깔 쪽으로 섞는다 (벽돌 줄눈·창문 모양은 그대로)
+const WALLPAPER_TINT: readonly [string, number][] = [['#ff9ec4', 0.45], ['#7fe0c0', 0.45], ['#2b3a6b', 0.6]];
 function drawObject(id: number): PixelBuf | null {
+  if (id >= WALLPAPER_BASE && id < WALLPAPER_BASE + WALLPAPER_COUNT * 3) {
+    const k = id - WALLPAPER_BASE, base = drawObject([O.WALL, O.WALL_SIDE, O.WALL_WINDOW][k % 3]);
+    if (!base) return null;
+    const [tint, amt] = WALLPAPER_TINT[Math.floor(k / 3)];
+    base.data = base.data.map((c) => (c ? mix(c, tint, amt) : c));
+    return base;
+  }
   const tall = new PixelBuf(TILE, TILE * 2);
   const one = new PixelBuf(TILE, TILE);
   const rnd = seededRandom('obj' + id);
@@ -298,6 +307,47 @@ function drawObject(id: number): PixelBuf | null {
     case O.ROCK:
       one.ellipse(16, 20, 11, 7, P.rock); one.ellipse(13, 17, 6, 4, shade(P.rock, 0.2)); one.ellipse(18, 23, 8, 3, P.rockDark);
       return one.outline(P.outline);
+    // ---- 고급 가구 (2026-11-18) ----
+    case O_FIREPLACE:
+      // 벽난로: 벽돌 틀 안에서 불이 탄다
+      one.rect(3, 4, 26, 25, '#a8503c'); one.rect(3, 4, 26, 3, '#7a3526'); one.rect(1, 2, 30, 3, '#d9c7a0');
+      for (let y = 9; y < 28; y += 5) one.hline(3, y, 26, '#7a3526');
+      one.rect(8, 12, 16, 15, '#241512'); one.rect(10, 20, 12, 7, '#ff7b2e'); one.rect(12, 17, 8, 9, '#ffb84d'); one.rect(14, 21, 4, 5, '#fff2a8'); one.px(11, 18, '#ff7b2e'); one.px(20, 17, '#ff7b2e');
+      one.rect(8, 27, 16, 2, '#5a3a22');
+      return one.outline(P.outline);
+    case O_AQUARIUM:
+      // 어항: 받침 위 유리 수조에 물고기 두 마리
+      one.rect(4, 22, 24, 7, P.benchDark); one.rect(4, 22, 24, 2, P.benchWood);
+      one.rect(4, 6, 24, 17, '#6fc3ec'); one.rect(4, 6, 24, 3, '#b9e6fb'); one.rect(4, 20, 24, 3, '#e8d9a0');
+      one.rect(9, 12, 5, 3, '#ff8a3c'); one.px(8, 13, '#ff8a3c'); one.px(13, 13, '#222'); one.rect(18, 15, 5, 3, '#ffd84d'); one.px(23, 16, '#ffd84d'); one.px(19, 16, '#222');
+      one.vline(24, 13, 7, '#3fa85c'); one.vline(7, 15, 5, '#3fa85c'); one.px(12, 9, '#ffffff'); one.px(20, 11, '#ffffff');
+      one.vline(4, 6, 17, '#dff4ff'); one.vline(27, 6, 17, '#4b9cc9');
+      return one.outline(P.outline);
+    case O_PIANO:
+      // 피아노: 검은 몸체, 흰 건반
+      one.rect(3, 6, 26, 22, '#1c1c24'); one.rect(3, 6, 26, 3, '#3a3a4a'); one.rect(5, 10, 22, 6, '#2a2a36');
+      one.rect(4, 17, 24, 6, '#f6f1e4'); for (let x = 6; x < 28; x += 3) one.vline(x, 17, 6, '#b9b2a0');
+      for (const x of [5, 8, 14, 17, 20, 26]) one.rect(x, 17, 2, 4, '#1c1c24');
+      one.rect(5, 26, 3, 3, '#1c1c24'); one.rect(24, 26, 3, 3, '#1c1c24'); one.rect(13, 11, 6, 3, '#e8c15a');
+      return one.outline(P.outline);
+    case O_TV:
+      // 텔레비전: 낮은 장 위의 화면
+      one.rect(5, 22, 22, 7, P.benchDark); one.rect(5, 22, 22, 2, P.benchWood); one.rect(13, 19, 6, 3, '#333');
+      one.rect(3, 5, 26, 15, '#22222a'); one.rect(5, 7, 22, 11, '#3d7bd9'); one.rect(5, 7, 22, 4, '#7fb7f2'); one.rect(8, 13, 6, 5, '#5fc45f'); one.rect(18, 11, 5, 7, '#ffd84d'); one.px(25, 18, '#e74c3c');
+      return one.outline(P.outline);
+    case O_GOLD_VASE:
+      // 황금 화분: 금빛 항아리에 붉은 꽃
+      one.circle(12, 8, 3, '#e74c3c'); one.circle(19, 6, 3, '#ff7eb3'); one.circle(16, 10, 3, '#ffd84d'); one.vline(15, 11, 5, '#3e9b3e'); one.vline(12, 10, 5, '#3e9b3e'); one.vline(19, 9, 6, '#3e9b3e');
+      one.rect(10, 14, 12, 3, '#fff2a8'); one.rect(8, 17, 16, 10, '#ffd84d'); one.rect(10, 27, 12, 2, '#c9952a'); one.rect(8, 17, 3, 10, '#fff2a8'); one.rect(21, 17, 3, 10, '#c9952a'); one.rect(13, 20, 6, 3, '#c9952a');
+      return one.outline(P.outline);
+    case O_GOLD_STATUE:
+      // 황금 동상: 받침 위에 물고기를 든 낚시꾼 (두 칸 높이)
+      tall.rect(6, 52, 20, 9, '#8a8a8a'); tall.rect(6, 52, 20, 2, '#b5b5b5'); tall.rect(4, 59, 24, 3, '#6b6b6b');
+      tall.rect(12, 34, 8, 18, '#ffd84d'); tall.rect(11, 44, 4, 8, '#ffd84d'); tall.rect(17, 44, 4, 8, '#ffd84d'); tall.circle(16, 27, 6, '#ffd84d');
+      tall.rect(20, 34, 3, 8, '#ffd84d'); tall.rect(22, 20, 2, 15, '#c9952a'); tall.rect(9, 36, 3, 9, '#ffd84d');
+      tall.rect(18, 14, 8, 5, '#fff2a8'); tall.px(17, 16, '#fff2a8'); tall.px(26, 14, '#fff2a8'); tall.px(26, 18, '#fff2a8'); tall.px(20, 15, '#c9952a');
+      tall.rect(12, 34, 2, 18, '#fff2a8'); tall.rect(18, 36, 2, 16, '#c9952a'); tall.px(14, 26, '#c9952a'); tall.px(18, 26, '#c9952a');
+      return tall.outline(P.outline);
     case O_BED:
       // 침대 (집 안): 나무 틀, 흰 베개, 붉은 이불
       one.rect(3, 5, 26, 24, P.benchDark); one.rect(5, 7, 22, 20, '#f4ead2'); one.rect(8, 8, 16, 6, '#ffffff'); one.rect(8, 13, 16, 1, '#d8d0bc');

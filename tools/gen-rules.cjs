@@ -26,6 +26,8 @@ const pxSame = PET_IDS.map((id) => `${n('px/' + id)} == ${d('px/' + id)}`).join(
 const esNoUp = `${n('es')} <= ${d('es')}`, rsSame = `${n('rs')} == ${d('rs')}`;
 // 금광·킹 낚싯대 (2026-11-11). gn: 금덩이, ga: 마지막 채광 시각, ks: 킹 낚싯대 성. 아래 세 값은 shared/mine.ts·shared/shop.ts 와 같아야 한다
 const MINE_GAP_MS = 2500, MINE_MAX = 3, KING_CRAFT_GOLD = 100;
+// 금덩이가 함께 드는 품목 (2026-11-18): 품목 id → 금덩이 수. shared/shop.ts 의 GOLD_COST 와 같아야 한다 (tests/mine.test.mjs 가 대조). id 는 gg 로 시작한다
+const GOLD_GOODS = { gg40: 200, gg41: 500, ggname: 1000 };
 const gnSame = `${n('gn')} == ${d('gn')}`, gaSame = `${n('ga')} == ${d('ga')}`, ksSame = `${n('ks')} == ${d('ks')}`;
 // 빠따(bt): b='bat' 결제에서만 늘고, 그 밖의 쓰기에서는 줄기만 한다 (방어를 깨는 밀치기·말랑이·끌기 쓰기가 줄인다. 2026-11-11)
 // 어둠의 빠따(bd, 2026-11-17): 빠따와 같은 식이다. b='darkbat' 결제에서만 늘고, 그 밖의 쓰기에서는 줄기만 한다 (b=2 가 붙은 밀치기·말랑이·끌기 쓰기가 줄인다).
@@ -137,7 +139,11 @@ function walletValidate(pre = '') {
   const feedCost = `(${price('petfood')} * ${K} + ${PET_FOOD_STEP} * (${K} * ${PXD} + ${K} * (${K} - 1) / 2))`;
   const feed = `(${bIs('petfood')} && newData.child('pp').isString() && ${price('petfood')} > 0 && newData.child('px/' + newData.child('pp').val()).isNumber() && ${K} >= 1 && ${K} % 1 == 0 && ${dS} == ${feedCost} && (${PET_IDS.map((id) => `(newData.child('pp').val() == '${id}' || ${n('px/' + id)} == ${d('px/' + id)})`).join(' && ')}) && ${sameAr} && ${sameAb} && ${cbSame} && ${baitNoUp} && ${esNoUp} && ${rsSame} && ${kingSame} && ${btNoUp} && ${i4Same})`;
   // 자동 버프 품목은 autoreel/autoreel30/autoreel60, autobug/autobug30/autobug60 (2026-11-09: 30분·1시간 추가). 그 구매 쓰기에서만 ar/ab 가 바뀔 수 있다
-  const buyOne = `(newData.child('b').val() != 'bait' && newData.child('b').val() != 'race' && newData.child('b').val() != 'scroll' && newData.child('b').val() != 'petfood' && newData.child('b').val() != 'rod3' && newData.child('b').val() != 'pick' && newData.child('b').val() != 'bat' && newData.child('b').val() != 'darkbat' && newData.child('b').val() != 'slot' && newData.child('b').val() != 'oddeven' && newData.child('b').val() != 'duel' && newData.child('b').val() != 'poker' && ${dS} == ${priceB} && ${baitNoUp} && ${cbSame} && ${gearSame} && ${i4Same} && (newData.child('b').val().beginsWith('autoreel') || ${sameAr}) && (newData.child('b').val().beginsWith('autobug') || ${sameAb}))`;
+  // 금덩이가 함께 드는 품목 (2026-11-18): 보통 구매와 같은 분기에서 금덩이 칸만 갈라 본다 (분기를 따로 두면 "그 밖의 칸은 그대로" 조건이 통째로 되풀이돼 5KB 가 든다).
+  //  b 가 gg 로 시작하면 금덩이가 정확히 그 품목의 수만큼 줄어야 하고(모자라면 음수가 되어 거부) 선물(gt)은 안 된다. 그 밖의 품목은 지금까지처럼 금덩이가 그대로여야 한다
+  const goldPart = `(newData.child('b').val().beginsWith('gg') ? (!newData.child('gt').exists() && ${n('gn')} >= 0 && (${Object.entries(GOLD_GOODS).map(([id, g]) => `(${bIs(id)} && ${n('gn')} == ${d('gn')} - ${g})`).join(' || ')})) : ${gnSame})`;
+  const gearSameGold = `${pxSame} && ${esNoUp} && ${rsSame} && ${goldPart} && ${gaSame} && ${ksSame} && ${piSame} && ${btNoUp}`; // gearSame 에서 금덩이 칸만 goldPart 로 바꾼 것
+  const buyOne = `(newData.child('b').val() != 'bait' && newData.child('b').val() != 'race' && newData.child('b').val() != 'scroll' && newData.child('b').val() != 'petfood' && newData.child('b').val() != 'rod3' && newData.child('b').val() != 'pick' && newData.child('b').val() != 'bat' && newData.child('b').val() != 'darkbat' && newData.child('b').val() != 'slot' && newData.child('b').val() != 'oddeven' && newData.child('b').val() != 'duel' && newData.child('b').val() != 'poker' && ${dS} == ${priceB} && ${baitNoUp} && ${cbSame} && ${gearSameGold} && ${i4Same} && (newData.child('b').val().beginsWith('autoreel') || ${sameAr}) && (newData.child('b').val().beginsWith('autobug') || ${sameAb}))`;
   // 경마 배팅 결제: 금액은 100 단위로 100 ~ config/casinoMax(기본 10000), 말은 0~4, 라운드는 열려 있어야(o 있고 at 없음). 수령 표시 cr 은 그대로
   const MAXBET = `(root.child('config/casinoMax').isNumber() ? root.child('config/casinoMax').val() : 10000)`;
   const CB = `root.child('casino/r/' + newData.child('cb').val()`;
@@ -339,6 +345,7 @@ function ownEqLines(pre, ind) {
     `${ind}  "h": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "nc": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "fx": { ".validate": ${q(ownsStr(pre))} },`,
+    `${ind}  "tt": { ".validate": ${q(ownsStr(pre))} },`, // 칭호 (2026-11-18)
     `${ind}  "pt": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "pa": { ".validate": ${q(armorEq(pre, 'pusharmor'))} },`,
     `${ind}  "ta": { ".validate": ${q(armorEq(pre, 'tossarmor'))} },`,

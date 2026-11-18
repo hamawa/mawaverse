@@ -1,7 +1,7 @@
 // 꾸미기 그리기: 모자 픽셀 아트, 이름표 색, 이동 이펙트 파티클. render.ts 와 상점 미리보기가 같이 쓴다
 import { FRAME_W, FRAME_H } from './sprites';
 import type { Dir } from '../shared/types';
-import { NAME_COLORS } from '../shared/shop';
+import { NAME_COLORS, TITLES } from '../shared/shop';
 
 // ---- 모자 ----
 // 16px 너비 픽셀 아트. 문자는 팔레트 키, '.' 은 투명. 맨 아랫줄이 머리 꼭대기(첫 불투명 줄)보다 overlap 만큼 아래에 온다
@@ -77,6 +77,36 @@ const HAT_ART: Record<string, HatArt> = {
     '..ddddddddddddd.',
   ] },
 };
+// 비싼 모자 (2026-11-18)
+Object.assign(HAT_ART, {
+  tophat: { overlap: 3, pal: { k: '#23232b', h: '#3a3a48', r: '#c0392b' }, rows: [
+    '....kkkkkkkk....',
+    '....khkkkkkk....',
+    '....khkkkkkk....',
+    '....khkkkkkk....',
+    '....khkkkkkk....',
+    '....rrrrrrrr....',
+    '.kkkkkkkkkkkkkk.',
+  ] },
+  halo: { overlap: 0, pal: { y: '#ffe680', w: '#fff8d0', d: '#d9a520' }, rows: [
+    '....wyyyyyyw....',
+    '...y........y...',
+    '...dyyyyyyyyd...',
+    '................',
+    '................',
+  ] },
+  emperor: { overlap: 3, pal: { g: '#ffd84d', d: '#c9a227', r: '#b0222b', v: '#7a1620', b: '#3fa7ff', e: '#4fd67b', w: '#ffffff' }, rows: [
+    '.......ww.......',
+    '.......gg.......',
+    '..g...gbbg...g..',
+    '..gg.grrrrg.gg..',
+    '..ggggrrrrgggg..',
+    '..gegrrvvrrgeg..',
+    '..ggggggggggggg.',
+    '..gbgggwgggbggg.',
+    '..ddddddddddddd.',
+  ] },
+} satisfies Record<string, HatArt>);
 export const HAT_IDS = Object.keys(HAT_ART);
 
 const hatCache = new Map<string, HTMLCanvasElement>();
@@ -600,13 +630,42 @@ export function drawMount(ctx: CanvasRenderingContext2D, id: string, x: number, 
 }
 
 // ---- 이름표 색 ----
-export interface NameStyle { color: string; bg: string; border?: string } // color 가 'rainbow' 면 drawLabel 이 그라데이션으로 칠한다
+export interface NameStyle { color: string; bg: string; border?: string } // color 가 흐르는 빛깔 이름(LABEL_FLOWS: rainbow·flame·neon·puregold)이면 drawLabel 이 그라데이션으로 칠한다
 export function nameStyle(nc: string | null | undefined): NameStyle | null {
   if (!nc) return null;
   if (nc === 'gold') return { color: '#ffd84d', bg: 'rgba(70, 50, 0, 0.75)', border: '#ffd84d' };
   if (nc === 'rainbow') return { color: 'rainbow', bg: 'rgba(0, 0, 0, 0.6)' };
+  // 비싼 이름표 (2026-11-18)
+  if (nc === 'ncflame') return { color: 'flame', bg: 'rgba(40, 8, 0, 0.75)', border: '#ff7b2e' };
+  if (nc === 'ncneon') return { color: 'neon', bg: 'rgba(10, 0, 30, 0.8)', border: '#ff5ce1' };
+  if (nc === 'ncdiamond') return { color: '#d6f6ff', bg: 'rgba(10, 40, 70, 0.8)', border: '#8fe3ff' };
+  if (nc === 'ggname') return { color: 'puregold', bg: 'rgba(60, 40, 0, 0.85)', border: '#fff2a8' };
   const it = NAME_COLORS.find((x) => x.id === nc);
   return it?.color ? { color: it.color, bg: 'rgba(0, 0, 0, 0.55)' } : null;
+}
+// 흐르는 빛깔: 이름 → 색 띠 (왼쪽에서 오른쪽으로 흐른다). rainbow 는 아래 rainbowGradient 가 따로 그린다
+const FLOWS: Record<string, string[]> = {
+  flame: ['#ffe066', '#ff9a3c', '#ff4d2e', '#ff9a3c', '#ffe066'],
+  neon: ['#5cf2ff', '#ff5ce1', '#b388ff', '#5cf2ff', '#ff5ce1'],
+  puregold: ['#fff2a8', '#ffd84d', '#c9952a', '#ffd84d', '#fff2a8'],
+};
+export function isLabelFlow(color: string): boolean { return color === 'rainbow' || color in FLOWS; }
+export function labelFlow(ctx: CanvasRenderingContext2D, color: string, x0: number, x1: number, now: number): CanvasGradient {
+  if (color === 'rainbow') return rainbowGradient(ctx, x0, x1, now);
+  const stops = FLOWS[color], w = Math.max(1, x1 - x0), shift = ((now / 1600) % 1) * w;
+  const g = ctx.createLinearGradient(x0 - w + shift, 0, x1 + shift, 0);
+  // 같은 띠를 두 번 이어 붙여 흘러도 끊기지 않게
+  for (let k = 0; k < 2; k++) stops.forEach((c, i) => g.addColorStop((k + i / (stops.length - 1)) / 2, c));
+  return g;
+}
+// 칭호의 빛깔: 값이 비쌀수록 눈에 띈다 (2026-11-18)
+export function titleStyle(id: string | null | undefined): { text: string; color: string; bg: string; border?: string } | null {
+  const it = id ? TITLES.find((t) => t.id === id) : undefined;
+  if (!it) return null;
+  if (it.price >= 1000000) return { text: it.name, color: 'rainbow', bg: 'rgba(20, 6, 30, 0.85)', border: '#ffd84d' };
+  if (it.price >= 300000) return { text: it.name, color: '#ffd84d', bg: 'rgba(60, 20, 90, 0.85)', border: '#d9a8ff' };
+  if (it.price >= 150000) return { text: it.name, color: '#ffe9a8', bg: 'rgba(90, 60, 0, 0.8)', border: '#ffd84d' };
+  return { text: it.name, color: '#e8fff4', bg: 'rgba(10, 70, 60, 0.8)' };
 }
 export function rainbowGradient(ctx: CanvasRenderingContext2D, x0: number, x1: number, now: number): CanvasGradient {
   const g = ctx.createLinearGradient(x0, 0, x1, 0);
@@ -670,7 +729,7 @@ export function spawnFx(uid: string, kind: string, fx: number, fy: number, now: 
     parts.push({
       x: fx + (Math.random() - 0.5) * 10, y: fy - Math.random() * 3,
       vx: Math.cos(a) * sp, vy: kind === 'dust' ? -0.008 : -0.03 - Math.random() * 0.02,
-      born: now, life: kind === 'rainbowtrail' ? 700 : kind === 'heart' ? 650 : 450,
+      born: now, life: kind === 'rainbowtrail' || kind === 'petal' ? 700 : kind === 'heart' || kind === 'stardust' ? 650 : 450,
       kind, hue: (now / 4 + i * 40) % 360, size: 1.5 + Math.random() * 1.5,
     });
   }
@@ -689,6 +748,9 @@ export function drawFx(ctx: CanvasRenderingContext2D, now: number): void {
       case 'sparkle': { ctx.fillStyle = t < 0.5 ? '#fff8c0' : '#ffd84d'; const r = p.size * (1.3 - t * 0.6); ctx.fillRect(x - r, y - 0.5, r * 2, 1); ctx.fillRect(x - 0.5, y - r, 1, r * 2); break; }
       case 'heart': ctx.fillStyle = '#ff7eb3'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('♥', x, y); break;
       case 'fire': ctx.fillStyle = t < 0.4 ? '#ffd166' : t < 0.75 ? '#ff7b2e' : '#8a2a0a'; ctx.beginPath(); ctx.arc(x, y, p.size * (1.2 - t * 0.7), 0, Math.PI * 2); ctx.fill(); break;
+      // 비싼 이펙트 (2026-11-18): 꽃잎은 살랑살랑 내려앉고, 별가루는 금빛 별이 반짝인다
+      case 'petal': { ctx.fillStyle = p.hue % 2 < 1 ? '#ffb7d5' : '#ff8fc0'; const sway = Math.sin((now - p.born) / 120 + p.hue) * 2; ctx.beginPath(); ctx.ellipse(x + sway, y + t * 6, p.size * 1.2, p.size * 0.7, p.hue, 0, Math.PI * 2); ctx.fill(); break; }
+      case 'stardust': { ctx.fillStyle = t < 0.5 ? '#fff6c2' : '#ffd84d'; const r = p.size * (1.6 - t); ctx.beginPath(); for (let k = 0; k < 10; k++) { const a = (Math.PI / 5) * k - Math.PI / 2, rr = k % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); break; }
       default: ctx.fillStyle = `hsl(${p.hue}, 95%, 65%)`; ctx.beginPath(); ctx.arc(x, y, p.size, 0, Math.PI * 2); ctx.fill(); break;
     }
   }

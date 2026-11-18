@@ -32,12 +32,21 @@ export const OBJECT_NAMES: Record<number, string> = {
 // 집 안에만 놓이는 가구 (2026-11-17, buildHomeMap). 관리자 편집기 팔레트(O 의 값들)에는 넣지 않는다
 export const O_BED = 34;    // 침대: 주인이 보고 F 로 겨울잠
 export const O_CHEST = 35;  // 창고 상자: 주인이 보고 F 로 집 창 열기
+// 고급 가구 (2026-11-18. 집 안에만 놓인다: shared/home.ts FURNITURE 의 번호와 같아야 한다)
+export const O_FIREPLACE = 36, O_AQUARIUM = 37, O_PIANO = 38, O_TV = 39, O_GOLD_VASE = 40, O_GOLD_STATUE = 41;
+// 벽지를 바른 벽: 벽지 n(1~3)마다 벽·옆 벽·창문 벽 세 가지 (42부터 차례로)
+export const WALLPAPER_BASE = 42, WALLPAPER_COUNT = 3;
+export function wallpaperObjects(n: number | null | undefined): { wall: number; side: number; window: number } | null {
+  if (!n || n < 1 || n > WALLPAPER_COUNT || n % 1 !== 0) return null;
+  const b = WALLPAPER_BASE + (n - 1) * 3;
+  return { wall: b, side: b + 1, window: b + 2 };
+}
 
 export const WALKABLE_OBJECTS = new Set<number>([O.NONE, O.MAT]);
 // 들어갈 수 없는 바닥. 물은 수영으로 들어갈 수 있으므로 현재 비어 있음
 export const SOLID_GROUND = new Set<number>([G_GOLD, G_ICE_HOLE]);
 // 2타일 높이로 그려지는 오브젝트 (아랫칸 기준, 윗칸을 덮음)
-export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE]);
+export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE, O_GOLD_STATUE]);
 
 export interface Zone {
   id: string;
@@ -506,8 +515,9 @@ export function buildHomeMap(id: string, tierNo: number, label: string, deco?: H
   const floor = FLOORS.some((f) => f.g === deco?.fl) ? deco!.fl! : null;
   const placed = decoList(deco).filter((p) => homeCanPlace(t.tier, p.x, p.y));
   m.ground.fill(floor ?? (t.tier === 1 ? G.SAND : t.tier === 2 ? G.WOOD : G.TILE_FLOOR));
-  for (let x = 0; x < W; x++) { setO(x, 0, x > 1 && x < W - 2 && x % 3 === 2 ? O.WALL_WINDOW : O.WALL); setO(x, H - 1, O.WALL); }
-  for (let y = 1; y < H - 1; y++) { setO(0, y, O.WALL_SIDE); setO(W - 1, y, O.WALL_SIDE); }
+  const wp = wallpaperObjects(deco?.wl) ?? { wall: O.WALL, side: O.WALL_SIDE, window: O.WALL_WINDOW }; // 벽지
+  for (let x = 0; x < W; x++) { setO(x, 0, x > 1 && x < W - 2 && x % 3 === 2 ? wp.window : wp.wall); setO(x, H - 1, wp.wall); }
+  for (let y = 1; y < H - 1; y++) { setO(0, y, wp.side); setO(W - 1, y, wp.side); }
   const door = Math.floor(W / 2);
   setO(door, H - 1, O.MAT);
   setO(1, 1, O_BED); setO(W - 2, 1, O_CHEST);

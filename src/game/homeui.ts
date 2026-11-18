@@ -2,10 +2,11 @@ import { ref, get } from 'firebase/database';
 import { db } from '../firebase/app';
 import { el } from '../shared/util';
 import { modal, withCloseX, confirmModal } from './ui';
-import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, TROPHY_MIN_RARITY } from '../shared/home';
+import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, TROPHY_MIN_RARITY } from '../shared/home';
 import { fishById, fmtSize, RARITY_NAME, type FishBookEntry } from '../shared/fish';
 import { winterFishById } from '../shared/winter';
-import { itemById, priceOf, fmtCoins } from '../shared/shop';
+import { itemById, priceOf, fmtCoins, GOLD_COST } from '../shared/shop';
+import { fmtGold } from '../shared/mine';
 import type { World } from './world';
 
 // 집 창 (2026-11-17): 내 메뉴의 "🏠 내 집", 집 안 창고 상자 앞 F. 짓기·올리기, 드나들기·문 잠금, 창고(칸 늘리기·묶음 판매), 겨울잠 안내.
@@ -94,8 +95,13 @@ export function openHome(w: World): void {
     }, h.inMine()), line(h.inMine() ? '빈 칸을 보고 F 로 놓고, 놓은 가구를 보고 F 로 치워요' : '집 안에서 켤 수 있어요', true)));
     body.append(line('가구는 종류마다 나무로 한 번 만들면 몇 개든 놓을 수 있어요. 하나라도 놓으면 기본 가구는 치워져요.', true));
     const fbox = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;margin:6px 0' });
-    for (const f of FURNITURE) fbox.append(craftButton(w, f.o, btn));
+    for (const f of FURNITURE) if (!f.item) fbox.append(craftButton(w, f.o, btn));
     body.append(fbox);
+    // 고급 가구 (2026-11-18): 코인으로, 황금 가구는 코인과 금덩이로
+    body.append(line('고급 가구는 코인으로 사요. 황금 가구는 금광에서 캔 금덩이가 함께 들어요.', true));
+    const pbox = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;margin:6px 0' });
+    for (const f of FURNITURE) if (f.item) pbox.append(craftButton(w, f.o, btn));
+    body.append(pbox);
 
     body.append(title('바닥'));
     body.append(row(...FLOORS.map((f) => btn(h.data?.fl === f.g ? `✔ ${f.name}` : f.name, async () => {
@@ -103,6 +109,19 @@ export function openHome(w: World): void {
       if (r !== 'ok') w.toast(r === 'wood' ? '나무가 모자랍니다.' : '바꾸지 못했습니다.', true);
     }, h.data?.fl !== f.g && h.wood >= FLOOR_WOOD))));
     body.append(line(`바꿀 때마다 나무 ${FLOOR_WOOD}개가 들어요.`, true));
+
+    // 벽지 (2026-11-18): 한 번 사면 값 없이 몇 번이든 바꿀 수 있다
+    body.append(title('벽지'));
+    const cur = h.data?.wl || 0;
+    body.append(row(btn(cur === 0 ? '✔ 기본 벽' : '기본 벽', async () => { if ((await h.setWall(0)) !== 'ok') w.toast('바꾸지 못했습니다.', true); }, cur !== 0),
+      ...WALLS.map((wl) => {
+        const it = itemById(wl.item), own = w.wallet.owns(wl.item), price = it ? priceOf(it, w.config.prices) : 0;
+        return btn(cur === wl.n ? `✔ ${wl.name}` : own ? wl.name : `${wl.name} ${fmtCoins(price)}`, async () => {
+          if (!own && !(await confirmModal(`${wl.name}를 ${fmtCoins(price)}에 살까요? 한 번 사면 몇 번이든 바꿀 수 있어요.`))) return;
+          const r = await h.setWall(wl.n);
+          if (r !== 'ok') w.toast(r === 'coins' ? '코인이 모자랍니다.' : '바꾸지 못했습니다.', true);
+        }, cur !== wl.n && (own || w.wallet.balance >= price));
+      })));
 
     body.append(title('🏆 물고기 박제'));
     body.append(line('내가 잡은 적 있는 전설·신화 물고기를 벽에 걸 수 있어요.', true));
@@ -127,6 +146,17 @@ type Btn = (label: string, onClick: () => unknown, enabled?: boolean, primary?: 
 function craftButton(w: World, o: number, btn: Btn): HTMLElement {
   const f = FURNITURE.find((x) => x.o === o)!;
   if (w.home.made(o)) return el('span', { style: 'font-size:12px;opacity:.8;padding:4px 6px', text: `✔ ${f.name}` });
+  if (f.item) {
+    // 고급 가구: 코인(+ 금덩이)으로 산다. 값만 내고 끊겼으면(이미 가진 품목) 값 없이 이어서 등록된다
+    const it = itemById(f.item), own = w.wallet.owns(f.item), price = it ? priceOf(it, w.config.prices) : 0, gold = GOLD_COST[f.item] || 0;
+    const cost = `${fmtCoins(price)}${gold ? ` + ${fmtGold(gold)}` : ''}`;
+    return btn(own ? `${f.name} 놓을 준비` : `${f.name} ${cost}`, async () => {
+      if (!own && !(await confirmModal(`${f.name}을(를) ${cost}에 살까요? 한 번 사면 몇 개든 놓을 수 있어요.`))) return;
+      const r = await w.home.craft(o);
+      if (r === 'ok') w.toast(`🛋 ${f.name}을(를) 샀어요. 꾸미기 모드에서 놓을 수 있어요.`);
+      else w.toast(r === 'coins' ? (gold ? '코인이나 금덩이가 모자랍니다.' : '코인이 모자랍니다.') : '사지 못했습니다.', true);
+    }, own || (w.wallet.balance >= price && w.wallet.gold >= gold));
+  }
   return btn(`${f.name} 만들기 ${fmtWood(f.wood)}`, async () => {
     const r = await w.home.craft(o);
     if (r === 'ok') w.toast(`🛋 ${f.name}을(를) 만들었어요. 꾸미기 모드에서 놓을 수 있어요.`);

@@ -2,7 +2,7 @@
 // 가격은 config/prices/{id} 로 관리자가 덮어쓸 수 있다 (priceOf)
 import { snowActive } from './snowpenalty';
 
-export type ItemKind = 'hat' | 'name' | 'fx' | 'pet' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
+export type ItemKind = 'hat' | 'name' | 'fx' | 'title' | 'pet' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
 export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
 export interface ShopItem { id: string; kind: ItemKind; name: string; price: number; icon: string; desc: string; color?: string }
 
@@ -15,6 +15,10 @@ export const HATS: ShopItem[] = [
   { id: 'wizard', kind: 'hat', name: '마법사 모자', price: 1000, icon: '🧙', desc: '별이 박힌 보라색 고깔.' },
   { id: 'catears', kind: 'hat', name: '고양이 귀', price: 1200, icon: '🐱', desc: '냥.' },
   { id: 'crown', kind: 'hat', name: '왕관', price: 1500, icon: '👑', desc: '마을의 주인은 나.' },
+  // 비싼 꾸미기 (2026-11-18, 코인 쓸 곳): 다 갖춘 사람이 절반을 넘고 지갑 상위 25% 가 24만 코인 이상이라 넣었다. 값은 사용자가 고른 5만~100만대
+  { id: 'tophat', kind: 'hat', name: '실크햇', price: 80000, icon: '🎩', desc: '붉은 띠를 두른 신사 모자.' },
+  { id: 'halo', kind: 'hat', name: '천사 링', price: 150000, icon: '😇', desc: '머리 위에 떠 있는 금빛 고리.' },
+  { id: 'emperor', kind: 'hat', name: '황제관', price: 300000, icon: '👑', desc: '보석이 박힌 높은 관.' },
 ];
 
 export const NAME_COLORS: ShopItem[] = [
@@ -30,6 +34,10 @@ export const NAME_COLORS: ShopItem[] = [
   { id: 'brown', kind: 'name', name: '갈색', price: 200, icon: '🟫', desc: '', color: '#d9b38c' },
   { id: 'gold', kind: 'name', name: '금테', price: 1500, icon: '🥇', desc: '금색 글자에 금테.' },
   { id: 'rainbow', kind: 'name', name: '무지개', price: 1500, icon: '🌈', desc: '흐르는 무지개 글자.' },
+  { id: 'ncflame', kind: 'name', name: '불꽃', price: 100000, icon: '🔥', desc: '타오르듯 일렁이는 글자.' },
+  { id: 'ncneon', kind: 'name', name: '네온', price: 200000, icon: '💡', desc: '형광빛이 흐르는 글자.' },
+  { id: 'ncdiamond', kind: 'name', name: '다이아', price: 300000, icon: '💎', desc: '얼음빛 글자에 반짝이는 테두리.' },
+  { id: 'ggname', kind: 'name', name: '순금', price: 100000, icon: '⭐', desc: '금덩이를 녹여 만든 이름표. 금덩이 1,000개가 함께 든다.' },
 ];
 
 export const FX: ShopItem[] = [
@@ -38,6 +46,8 @@ export const FX: ShopItem[] = [
   { id: 'heart', kind: 'fx', name: '하트', price: 1200, icon: '💗', desc: '분홍 하트가 떠오른다.' },
   { id: 'fire', kind: 'fx', name: '불꽃', price: 1500, icon: '🔥', desc: '발에 불이 났다.' },
   { id: 'rainbowtrail', kind: 'fx', name: '무지개 꼬리', price: 2000, icon: '🌈', desc: '무지개가 꼬리처럼 따라온다.' }, // 2026-11-18: 이름표 색 '무지개'와 같은 id(rainbow)를 쓰고 있어 하나를 사면 둘 다 가진 것이 됐다. 이펙트 쪽 id 를 바꾸고, 그때까지 rainbow 를 가진 사람에게는 둘 다 줬다 (사용자 결정)
+  { id: 'petal', kind: 'fx', name: '꽃잎', price: 100000, icon: '🌸', desc: '걸을 때마다 분홍 꽃잎이 흩날린다.' },
+  { id: 'stardust', kind: 'fx', name: '별가루', price: 200000, icon: '🌟', desc: '금빛 별이 반짝이며 따라온다.' },
   { id: 'shasha', kind: 'fx', name: '샤샤샥', price: 10000, icon: '👥', desc: '움직일 때 내 모습의 잔상이 줄줄이 남는다.' }, // 파티클이 아니라 캐릭터 잔상 (cosmetics.ts drawAfterimages, 2026-11-11)
 ];
 
@@ -242,10 +252,36 @@ export function netChance(base: number, tier: number): number { return tier >= 2
 
 // 내 집 (2026-11-17, shared/home.ts): 통나무집·벽돌집을 짓는 코인 값과 창고 칸. 상점에는 안 나오고 집 창(homeui.ts)에서 산다.
 // 보관함 품목이라 기존 구매 규칙(가격표의 값을 내면 own 등록)을 그대로 쓰고, homes 규칙이 "그 품목을 가졌는가"를 본다. 선물은 안 된다 (화면에 없다)
+// 칭호 (2026-11-18): 닉네임 바로 위에 뜨는 한 줄. 코인으로 사서 하나를 단다 (착용 칸 tt). 자랑용이라 효과는 없다
+export const TITLES: ShopItem[] = [
+  { id: 'tt-angler', kind: 'title', name: '낚시 중독', price: 50000, icon: '🎣', desc: '물가를 떠나지 않는 사람.' },
+  { id: 'tt-bug', kind: 'title', name: '곤충 박사', price: 50000, icon: '🐞', desc: '풀밭의 모든 것을 아는 사람.' },
+  { id: 'tt-miner', kind: 'title', name: '황금 손', price: 80000, icon: '⛏', desc: '곡괭이를 놓지 않는 사람.' },
+  { id: 'tt-rich', kind: 'title', name: '마을 부자', price: 150000, icon: '💰', desc: '지갑이 두둑한 사람.' },
+  { id: 'tt-boss', kind: 'title', name: '카지노 큰손', price: 300000, icon: '🎰', desc: '판이 클수록 웃는 사람.' },
+  { id: 'tt-mayor', kind: 'title', name: '명예 이장', price: 500000, icon: '🏅', desc: '마을이 인정한 사람.' },
+  { id: 'tt-legend', kind: 'title', name: '살아있는 전설', price: 1000000, icon: '👑', desc: '더 설명이 필요 없는 사람.' },
+];
+// 금덩이로 만드는 것 (2026-11-18, 금광 살리기: 킹 낚싯대를 만든 뒤에는 금덩이 쓸 곳이 없어 채광이 하루 2,400번에서 200번 아래로 줄었다). id 는 gg 로 시작한다: 지갑 규칙이 그 접두사로 가른다.
+// 코인 값(가격표)과 함께 금덩이가 정확히 이만큼 줄어야 한다 (gen-rules.cjs 의 GOLD_GOODS 와 같아야 한다). 선물할 수 없다
+export const GOLD_COST: Readonly<Record<string, number>> = { gg40: 200, gg41: 500, ggname: 1000 };
+export const isGoldItem = (id: string): boolean => id in GOLD_COST;
 export const HOME_GOODS: ShopItem[] = [
   { id: 'house2', kind: 'home', name: '통나무집 짓는 값', price: 10000, icon: '🌲', desc: '통나무집으로 올릴 때 나무 300개와 함께 낸다.' },
   { id: 'house3', kind: 'home', name: '벽돌집 짓는 값', price: 50000, icon: '🧱', desc: '벽돌집으로 올릴 때 나무 1,000개와 함께 낸다.' },
   ...[1, 2, 3, 4, 5, 6].map((n): ShopItem => ({ id: `hslot${n}`, kind: 'home', name: `창고 ${4 + n}번째 칸`, price: 5000 * n, icon: '📦', desc: '창고 한 칸(물고기 100마리)을 늘린다.' })),
+  // 코인으로 사는 고급 가구 (2026-11-18): id 는 fn{오브젝트 번호}. 사면 집에 몇 개든 놓을 수 있다 (shared/home.ts FURNITURE 의 item)
+  { id: 'fn39', kind: 'home', name: '텔레비전', price: 60000, icon: '📺', desc: '집에 놓는 가구.' },
+  { id: 'fn36', kind: 'home', name: '벽난로', price: 80000, icon: '🔥', desc: '집에 놓는 가구.' },
+  { id: 'fn37', kind: 'home', name: '어항', price: 120000, icon: '🐠', desc: '집에 놓는 가구.' },
+  { id: 'fn38', kind: 'home', name: '피아노', price: 200000, icon: '🎹', desc: '집에 놓는 가구.' },
+  // 금덩이 가구: 코인 값과 함께 금덩이가 든다 (GOLD_COST)
+  { id: 'gg40', kind: 'home', name: '황금 화분', price: 10000, icon: '🏺', desc: '집에 놓는 가구. 금덩이 200개가 함께 든다.' },
+  { id: 'gg41', kind: 'home', name: '황금 동상', price: 30000, icon: '🗿', desc: '집에 놓는 가구. 금덩이 500개가 함께 든다.' },
+  // 벽지: 사면 집 벽을 그 빛깔로 바꿀 수 있다 (homes 의 wl)
+  { id: 'wall1', kind: 'home', name: '분홍 벽지', price: 30000, icon: '🌸', desc: '집 벽을 분홍빛으로.' },
+  { id: 'wall2', kind: 'home', name: '민트 벽지', price: 30000, icon: '🍃', desc: '집 벽을 민트빛으로.' },
+  { id: 'wall3', kind: 'home', name: '밤하늘 벽지', price: 50000, icon: '🌙', desc: '집 벽을 짙은 남빛으로.' },
 ];
 // 변경 요금 (2026-11-17, 사용자 요청): 외모·닉네임을 바꿀 때 낸다. 소모품이라 지갑에만 기록된다. 요금은 화면이 받는다: 규칙이 변경과 결제를 묶어 보지는 않는다
 export const AVATAR_FEE: ShopItem = { id: 'avatarfee', kind: 'use', name: '외모 변경 요금', price: 1000, icon: '🎨', desc: '외모를 바꿀 때마다 낸다.' };
@@ -254,7 +290,7 @@ export const NICK_FEE: ShopItem = { id: 'nickfee', kind: 'use', name: '닉네임
 // 받은 사람은 변경할 때 요금 대신 교환권을 쓰고, 쓴 뒤에 보관함에서 지운다. 종류마다 한 장만 가질 수 있다 (이미 가진 사람에게는 선물이 안 된다). 값은 변경 요금과 같다
 export const AVATAR_TICKET: ShopItem = { id: 'avatarticket', kind: 'ticket', name: '외모 교환권', price: 1000, icon: '🎟', desc: '받은 사람이 외모를 한 번 무료로 바꿀 수 있다. 선물 전용.' };
 export const NICK_TICKET: ShopItem = { id: 'nickticket', kind: 'ticket', name: '닉네임 교환권', price: 5000, icon: '🎟', desc: '받은 사람이 닉네임을 한 번 무료로 바꿀 수 있다. 선물 전용.' };
-export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
+export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...TITLES, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }
 // 보관함(users/{uid}/own)에 들어가는 품목인가 (소모품인 자동 낚시·미끼·자동 채집·펫 먹이·강화 주문서는 지갑에만 기록된다)
@@ -285,9 +321,9 @@ export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?:
 export interface GiftMark { f: string; fn: string; i: string; m?: string; at: number }
 export const GIFT_MSG_MAX = 40;
 // users/{uid}/eq: 착용 중인 모자(h), 이름표 색(nc), 이동 이펙트(fx), 펫(pt), 철벽 갑옷(pa), 푹신 갑옷(ta). players/{uid} 에도 같은 키로 실린다
-export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null }
+export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; tt?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null }
 // sg: 스키 장갑을 낀 상태 (프로필에만. presence 에는 안 싣는다. 규칙: 보유해야 켤 수 있다)
 // nr: 만렙(Lv10) 펫을 타지 않고 데리고 다닌다 (2026-11-12 건의 반영. 없으면 지금까지처럼 탄다). 걷기 속도 등 펫 효과는 타든 안 타든 같다: 모습만 바뀐다
-export const EQUIP_KEY: Record<CosmeticKind, keyof Equip> = { hat: 'h', name: 'nc', fx: 'fx', pet: 'pt' };
+export const EQUIP_KEY: Record<CosmeticKind, keyof Equip> = { hat: 'h', name: 'nc', fx: 'fx', title: 'tt', pet: 'pt' }; // tt: 칭호 (2026-11-18)
 
 export const fmtCoins = (n: number): string => `💰 ${Math.floor(n).toLocaleString('ko-KR')}`;

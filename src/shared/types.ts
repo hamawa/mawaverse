@@ -50,6 +50,7 @@ export interface PlayerState {
   h?: string | null;    // 착용한 모자
   nc?: string | null;   // 이름표 색
   fx?: string | null;   // 이동 이펙트
+  tt?: string | null;   // 칭호 (2026-11-18. 닉네임 바로 위에 뜬다)
   pt?: string | null;   // 데리고 다니는 펫 (품목 id)
   pl?: number | null;   // 그 펫의 누적 먹이(경험치). 남들이 크기·탑승·방어(Lv8 이상이면 밀치기 무효)를 보는 데 쓴다 (규칙: 지갑 px 이하)
   pa?: boolean | null;  // 철벽 갑옷 입는 중 (밀치기 무효)

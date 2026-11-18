@@ -10,7 +10,7 @@
 // - 겨울잠: 내 집 침대에서 SLEEP_MS 를 자면 물고기 SHIELD_FISH 마리를 먹고 든든함 +1 (최대 SHIELD_MAX). 든든함 하나가 빠따 한 번을 막는다 (상대 빠따는 그대로 소모)
 //   "하루 동안 빠따 면역"은 넣지 않았다: 갑옷·펫 방어를 대부분 갖춰 빠따가 유일한 공격 수단이라, 집 있는 사람이 전부 면역이 되면 빠따가 쓸모없어진다
 // 꾸미기 (2026-11-17 저녁, 사용자 요청): fu 만든 가구 종류(오브젝트 id → true. 한 번 만들면 몇 개든 놓는다), d 놓은 가구("x_y" → 오브젝트 id), fl 바닥재(바닥 id), tr 박제(자리 번호 → { id 물고기, s 크기 })
-export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number; fu?: Record<string, true>; d?: Record<string, number>; fl?: number; tr?: Record<string, { id: string; s?: number }> }
+export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number; fu?: Record<string, true>; d?: Record<string, number>; fl?: number; wl?: number; tr?: Record<string, { id: string; s?: number }> }
 
 export interface HomeTier {
   tier: number; name: string; icon: string;
@@ -76,13 +76,18 @@ export function needsWood(h: HomeData | null | undefined): boolean { const n = n
 
 // ---- 꾸미기: 가구·바닥·박제 ----
 // 가구는 나무로 종류마다 한 번 만들면(fu) 집 단계의 개수(deco)까지 몇 개든 놓는다. o 는 맵 오브젝트 id (map.ts O). 값은 규칙의 fu 검증에 같은 숫자로 들어 있다
-export interface Furniture { o: number; name: string; wood: number }
+// item: 나무 대신 그 보관함 품목을 사야 만들 수 있다 (2026-11-18 고급 가구: fn = 코인, gg = 코인 + 금덩이. shop.ts HOME_GOODS). 규칙도 그 품목을 가졌는지 본다
+export interface Furniture { o: number; name: string; wood: number; item?: string }
 export const FURNITURE: readonly Furniture[] = [
   { o: 6, name: '의자', wood: 20 }, { o: 12, name: '화분', wood: 20 }, { o: 31, name: '화초', wood: 20 },
   { o: 5, name: '테이블', wood: 30 }, { o: 30, name: '원탁', wood: 30 }, { o: 4, name: '벤치', wood: 30 },
   { o: 10, name: '가로등', wood: 40 }, { o: 27, name: '카운터', wood: 40 }, { o: 32, name: '파라솔', wood: 50 },
   { o: 21, name: '책장', wood: 60 }, { o: 22, name: '소파', wood: 60 }, { o: 23, name: '자판기', wood: 100 }, { o: 33, name: '오락기', wood: 100 },
+  { o: 39, name: '텔레비전', wood: 0, item: 'fn39' }, { o: 36, name: '벽난로', wood: 0, item: 'fn36' }, { o: 37, name: '어항', wood: 0, item: 'fn37' }, { o: 38, name: '피아노', wood: 0, item: 'fn38' },
+  { o: 40, name: '황금 화분', wood: 0, item: 'gg40' }, { o: 41, name: '황금 동상', wood: 0, item: 'gg41' },
 ];
+// 벽지 (2026-11-18): 보관함 품목 wall{n} 을 사면 집 벽을 그 빛깔로 바꿀 수 있다 (homes 의 wl = n. 0 또는 없음 = 기본 벽). 규칙이 그 품목을 가졌는지 본다
+export const WALLS: readonly { n: number; name: string; item: string }[] = [{ n: 1, name: '분홍 벽지', item: 'wall1' }, { n: 2, name: '민트 벽지', item: 'wall2' }, { n: 3, name: '밤하늘 벽지', item: 'wall3' }];
 export function furnitureOf(o: unknown): Furniture | undefined { return FURNITURE.find((f) => f.o === o); }
 // 바닥재 (g 는 맵 바닥 id, map.ts G). 바꿀 때마다 나무 FLOOR_WOOD 개
 export const FLOORS: readonly { g: number; name: string }[] = [{ g: 7, name: '모래' }, { g: 4, name: '나무 바닥' }, { g: 5, name: '타일' }, { g: 8, name: '카펫' }];

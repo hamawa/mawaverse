@@ -20,7 +20,7 @@ registerHooks({
 });
 
 const H = await import('../src/shared/home.ts');
-const { itemById, isOwnItem, AVATAR_FEE, NICK_FEE } = await import('../src/shared/shop.ts');
+const { itemById, isOwnItem, AVATAR_FEE, NICK_FEE, GOLD_COST } = await import('../src/shared/shop.ts');
 const { isHomeMapId, homeMapId, homeOwnerOf, isMapId, occupancyKey } = await import('../src/shared/maps.ts');
 const { mapSource, savedMapId, arrivalTile } = await import('../src/game/portal.ts');
 const { buildHomeMap, homeCanPlace, HOME_EXIT_ZONE, O, G, O_BED, O_CHEST, objectAt, groundAt, isWalkable, portalNear } = await import('../src/game/map.ts');
@@ -147,18 +147,40 @@ test('변경 요금: 소모품이라 보관함에 들어가지 않는다', () =>
 });
 
 test('꾸미기: 가구 값이 규칙과 같고, 단계마다 놓을 수 있는 수와 박제 자리가 늘어난다', () => {
-  assert.equal(H.FURNITURE.reduce((a, f) => a + f.wood, 0), 600, '전부 만들면 나무 600개');
+  assert.equal(H.FURNITURE.reduce((a, f) => a + f.wood, 0), 600, '나무 가구를 전부 만들면 나무 600개');
   assert.equal(new Set(H.FURNITURE.map((f) => f.o)).size, H.FURNITURE.length);
+  const woodFurniture = H.FURNITURE.filter((f) => !f.item), boughtFurniture = H.FURNITURE.filter((f) => f.item);
   const fu = rules.homes.$uid.fu.$id['.validate'];
   // 규칙의 값 계산을 그대로 흉내 낸다: 적힌 id 묶음마다의 값, 나머지는 20
   const cost = (o) => { const id = String(o); return ['23', '33'].includes(id) ? 100 : ['21', '22'].includes(id) ? 60 : id === '32' ? 50 : ['10', '27'].includes(id) ? 40 : ['4', '5', '30'].includes(id) ? 30 : 20; };
-  for (const f of H.FURNITURE) {
+  for (const f of woodFurniture) {
     assert.equal(cost(f.o), f.wood, f.name);
     assert.ok(new RegExp(`\\(([0-9]+\\|)*${f.o}(\\|[0-9]+)*\\)`).test(fu), `규칙의 가구 목록에 ${f.name}(${f.o})`);
     assert.ok(Object.values(O).includes(f.o), `${f.name} 은 맵 오브젝트여야 한다`);
   }
+  // 고급 가구 (2026-11-18): 나무가 들지 않고, 품목 id 는 fn{번호}(코인) 또는 gg{번호}(코인 + 금덩이)이며 규칙이 그 품목을 가졌는지 본다
+  assert.equal(boughtFurniture.length, 6);
+  for (const f of boughtFurniture) {
+    assert.equal(f.wood, 0, f.name);
+    assert.ok(f.item === `fn${f.o}` || f.item === `gg${f.o}`, `${f.name} 의 품목 id`);
+    const it = itemById(f.item);
+    assert.ok(it && it.kind === 'home' && it.price >= 10000, `${f.name} 은 상점 품목이어야 한다`);
+    assert.equal(f.item.startsWith('gg'), f.item in GOLD_COST, `${f.name}: 금덩이 품목 여부`);
+    const group = f.item.startsWith('gg') ? /\(\$id\.matches\(\/\^\(([0-9|]+)\)\$\/\) && root\.child\('users\/' \+ \$uid \+ '\/own\/gg' \+ \$id\)/ : /\(\$id\.matches\(\/\^\(([0-9|]+)\)\$\/\) && root\.child\('users\/' \+ \$uid \+ '\/own\/fn' \+ \$id\)/;
+    const m = group.exec(fu);
+    assert.ok(m && m[1].split('|').includes(String(f.o)), `규칙의 고급 가구 목록에 ${f.name}(${f.o})`);
+  }
+  // 벽지: 품목 wall{n}, 규칙이 1~3 과 보유를 본다. 벽지 벽은 맵에서 벽으로 선다
+  assert.deepEqual(H.WALLS.map((w) => [w.n, w.item]), [[1, 'wall1'], [2, 'wall2'], [3, 'wall3']]);
+  assert.ok(rules.homes.$uid.wl['.validate'].includes("newData.val() >= 1 && newData.val() <= 3") && rules.homes.$uid.wl['.validate'].includes("'/own/wall' + newData.val()"));
+  for (const w of H.WALLS) {
+    assert.ok(itemById(w.item), w.name);
+    const m = buildHomeMap('h-x', 3, '시험', { t: 3, wl: w.n });
+    assert.notEqual(objectAt(m, 0, 0), O.WALL, `${w.name}: 벽이 바뀐다`);
+    for (let x = 0; x < m.w; x++) assert.equal(isWalkable(m, x, 0), false, `${w.name}: 윗벽은 막혀 있다`);
+  }
   assert.ok(fu.includes("? 100 : (") && fu.includes("? 60 : (") && fu.includes("? 50 : (") && fu.includes("? 40 : (") && fu.includes("? 30 : 20"));
-  assert.equal((fu.match(/\(([0-9]+\|)+[0-9]+\)/)[0].match(/[0-9]+/g) || []).length, H.FURNITURE.length, '규칙의 목록과 가구 수가 같다');
+  assert.equal((fu.match(/\(([0-9]+\|)+[0-9]+\)/)[0].match(/[0-9]+/g) || []).length, woodFurniture.length, '규칙의 목록과 나무 가구 수가 같다');
   assert.deepEqual(H.HOME_TIERS.map((t) => [t.deco, t.trophyX.length]), [[4, 1], [10, 2], [24, 4]]);
   assert.ok(rules.homes.$uid.fl['.validate'].includes(`- ${H.FLOOR_WOOD})`));
   for (const f of H.FLOORS) assert.ok(rules.homes.$uid.fl['.validate'].includes(`newData.val() == ${f.g}`), f.name);
