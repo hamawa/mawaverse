@@ -498,6 +498,27 @@ else {
     await expect('deny', 'T308 결제 없이 얼음 낚싯대 보유 등록', () => userDb.ref(`${UP}/own/iceRod`).set(true));
   }
 }
+// ---- 금덩이가 함께 드는 품목 (2026-11-18, shop.ts GOLD_COST): 코인 값과 함께 금덩이가 정확히 그만큼 줄어야 한다. 가격표에 값이 있을 때만 시험한다 ----
+if (prices.ggname && prices.gg41) {
+  await seed({ c: 500000, e: 500000, gn: 1200 });
+  w = await cur();
+  const gg = (id, gold, over = {}) => ({ ...w, c: w.c - prices[id], sp: (w.sp || 0) + prices[id], b: id, gn: w.gn - gold, ...over });
+  await expect('deny', 'G400 금덩이 품목을 코인만 내고 (금덩이 그대로)', () => W(gg('ggname', 0)));
+  await expect('deny', 'G401 금덩이를 덜 내고', () => W(gg('ggname', 999)));
+  await expect('deny', 'G402 금덩이를 더 내고', () => W(gg('ggname', 1001)));
+  await expect('deny', 'G403 금덩이 품목을 선물로 (gt)', () => W(gg('ggname', 1000, { gt: 'zz-rules-gift' })));
+  await expect('deny', 'G404 황금 동상 값(금덩이 500)으로 순금 이름표', () => W(gg('ggname', 500)));
+  await expect('deny', 'G405 보통 품목을 사면서 금덩이를 줄임', () => W({ ...w, c: w.c - prices.straw, sp: (w.sp || 0) + prices.straw, b: 'straw', gn: w.gn - 1 }));
+  await expect('deny', 'G406 보통 품목을 사면서 금덩이를 늘림', () => W({ ...w, c: w.c - prices.straw, sp: (w.sp || 0) + prices.straw, b: 'straw', gn: w.gn + 100 }));
+  if (!ONLY_WALLET) await expect('deny', 'G407 결제 전에 순금 이름표 보유 등록', () => userDb.ref(`${UP}/own/ggname`).set(true));
+  await expect('allow', 'G408 순금 이름표 (금덩이 −1000)', () => W(gg('ggname', 1000)));
+  if (!ONLY_WALLET) await expect('allow', 'G409 결제 뒤 순금 이름표 보유 등록', () => userDb.ref(`${UP}/own/ggname`).set(true));
+  w = await cur();
+  await expect('deny', 'G410 금덩이가 모자란데 황금 동상 (200개로 500개짜리)', () => W(gg('gg41', 500)));
+  await seed({ c: 500000, e: 500000, gn: 500 });
+  w = await cur();
+  await expect('allow', 'G411 황금 동상 (금덩이 −500, 남은 것 0)', () => W(gg('gg41', 500)));
+}
 await rootDb.ref().update({ [WP]: null, [UP]: null, [PP]: null });
 await rootDb.ref('approved').update({ [T]: null, 'zz-rules-gift': null });
 console.log(`\n결과: 통과 ${pass}, 실패 ${fail}`);

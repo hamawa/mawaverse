@@ -441,7 +441,7 @@ export class World implements WorldCtx {
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null, title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null,
       pet: this.pets.view(this.uid, loose ? null : this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
       ghost: iGhost, mining: this.mine.active, snowBrokenAt: this.snowBrokenAt, snowReady: this.snowfight.packed,
-      progress: this.home.chopProgress(now), // 나무 캐는 중: 머리 위 진행 막대 (2026-11-18)
+      progress: this.home.chopProgress(now) ?? this.mine.progress(now), // 나무·금을 캐는 중: 머리 위 진행 막대 (2026-11-18)
     }];
     const sNow = serverNow(); // 방어가 깨진 사람은 이름 옆에 💥 (빠따 gb 또는 눈사람 벌칙 sn. 내 이름은 guardBroken() 이 둘 다 본다)
     for (const rp of this.players.values()) {

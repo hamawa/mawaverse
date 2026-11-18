@@ -57,7 +57,8 @@ export function openMole(h: MoleHost): void {
     for (let i = 0; i < 9; i++) {
       const mo = moles.find((x) => x.cell === i);
       holes[i].classList.toggle('up', !!mo && !mo.hit);
-      moleEls[i].className = 'mole-body' + (mo ? ' ' + mo.kind : '');
+      // 두더지가 사라질 때는 종류(색)를 그대로 둔다: 내려가는 동안 종류를 지우면 폭탄·황금 두더지가 보통 두더지 색으로 바뀌며 내려갔다 (2026-11-18 수정). 다음 두더지가 올라올 때 새 종류로 바뀐다
+      if (mo) moleEls[i].className = 'mole-body ' + mo.kind;
     }
   };
   const hitCell = (cell: number) => {

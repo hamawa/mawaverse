@@ -48,6 +48,13 @@ export class MineMgr {
   }
 
   // F: 곡괭이 단계+1 번 치기 시작. 이미 치는 중(저장 중 포함)이면 무시
+  // 지금 하는 곡괭이질 묶음(F 한 번 = 단계+1 번)이 얼마나 됐나 (0~1). 머리 위 진행 막대용 (2026-11-18, 나무 캐기와 같은 막대). 안 캐는 중이면 undefined
+  progress(now: number): { p: number; parts: number } | undefined {
+    const b = this.batch;
+    if (!b) return undefined;
+    const cur = b.saving ? 1 : Math.max(0, Math.min(1, (now - b.start) / MINE_MS)); // 저장을 기다리는 동안은 그 한 번이 다 찬 것으로
+    return { p: Math.min(1, (b.done + cur) / b.total), parts: b.total };
+  }
   begin(): boolean {
     if (this.batch || !this.target()) return false;
     const w = this.w, me = w.me, now = performance.now(), level = w.wallet.pickLevel;
