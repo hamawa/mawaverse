@@ -14,7 +14,10 @@ import type { WorldCtx, RemotePlayer } from './state';
 import { MAIN_MAP_ID, occupancyKey, playerMapId } from '../shared/maps';
 import { lastPosOf, mapSwitchUpdate } from './portal';
 import { snowActive } from '../shared/snowpenalty';
-import { batGuardField, ANON, type BatKind } from '../shared/shop';
+import { batGuardField, ANON, type BatKind } from '../shared/shop';
+import { sfx, sfxAt, type Sfx } from './audio';
+// 남의 동작(이모트)에 붙는 소리: 밀치기·잠자리채·말랑이·삽질(도끼질)·끌기
+const EMOTE_SFX: Record<number, Sfx> = { 10: 'push', 11: 'swing', 12: 'toss', 13: 'chop', 14: 'pull' };
 
 // 착용 중인 꾸미기를 presence 에 싣는다 (짧은 키). 규칙이 "가진 것만" 허용하므로 보유 목록에 없는 건 뺀다 (어긋난 데이터로 입장이 막히지 않게)
 // pl: 데리고 있는 펫의 누적 먹이 (지갑 px 값. 규칙이 지갑과 대조). 펫이 없으면 싣지 않는다
@@ -79,6 +82,7 @@ export class Net {
   // 서버에 올라가 있는 내 찌 (내 presence 노드의 f, "x,y"). 내 노드가 없으면(재등록 전) undefined. 낚시가 자기 상태와 견줘 어긋나면 다시 쓴다 (fishing.ts guard)
   private myF: string | null | undefined = undefined;
   seenFishing(): string | null | undefined { return this.myF; }
+  private hiddenAt = '';     // 화면이 뒤로 갈 때 마지막으로 저장한 자리 (같으면 다시 쓰지 않는다)
   private pendingSteps = 0;  // 서버 답을 기다리는 걸음 수
   private changing = false;  // 맵 이동 쓰기 중 (재등록이 옛 맵 상태로 덮어쓰지 않게)
   // 지금 칸의 occ 가 내 것인가. 입장·재등록 때 자리를 못 잡았으면(남이 먼저) false: 그 칸을 지우려 하면 규칙이 쓰기를 통째로 거부한다
@@ -135,6 +139,10 @@ export class Net {
       this.heartbeat();
     } else {
       this.flushStats();
+      // 화면이 뒤로 갔다: 지금 자리·방향을 적어 둔다 (2026-11-18). 폰은 뒤에 있는 페이지를 멈추거나 아예 닫아 버리는데, 다시 열렸을 때 같은 자리에서 이어 하게.
+      // 평소 저장은 걸음에 묶여 있어(15초에 한 번) 물가에 서서 낚던 자리가 빠져 있을 수 있다. 자리가 그대로면 다시 쓰지 않는다
+      const w = this.w, at = `${w.mapId}|${w.me.x}|${w.me.y}|${w.me.dir}`;
+      if (this.joined && at !== this.hiddenAt) { this.hiddenAt = at; void this.savePos(); }
       if (this.afk || this.afkTimer) return;
       this.afkTimer = window.setTimeout(() => {
         this.afkTimer = 0;
@@ -239,6 +247,7 @@ export class Net {
         }
         if (st.e && (!prev.e || st.e.at !== prev.e.at) && serverNow() - st.e.at < 4000) {
           rp.pose = poseForEmote(st.e.t); rp.poseAt = now; rp.emoteId = st.e.t;
+          const snd = EMOTE_SFX[st.e.t]; if (snd && w.onMyMap(st)) sfxAt(snd, Math.abs(st.x - w.me.x) + Math.abs(st.y - w.me.y)); // 가까이서 난 남의 동작은 작게 들린다
         }
         if (st.f && (!prev.f || prev.f.x !== st.f.x || prev.f.y !== st.f.y)) rp.fishAt = now; // 찌 던지는 동작 재생용
         if (st.toss && (!prev.toss || st.toss.t !== prev.toss.t) && serverNow() - st.toss.t < 5000 && w.onMyMap(st)) w.events.emit('toss', uid, st.toss); // 말랑이가 날아간다 (내 맵에서만)
@@ -312,10 +321,10 @@ export class Net {
       if ((p.b === 1 || p.b === 2) && !this.snowOpen() && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(who, p.b === 2); // 눈사람 벌칙 중이면 빠따가 와도 60초 방어 깨짐을 새로 걸지 않는다
       const open = this.guardOpen();
       // 철벽 갑옷: 안 밀린다 (🛡 표시만)
-      if (!open && w.profile.eq?.pa) { w.me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${who} 의 밀치기를 막았다.`); return; }
+      if (!open && w.profile.eq?.pa) { w.me.blockAt = performance.now(); sfx('block'); w.toast(`🛡 철벽 갑옷이 ${who} 의 밀치기를 막았다.`); return; }
       if (!open && w.petGuard()) {
         // 펫 방어 (Lv8): 안 밀리고, 보통 밀치기는 80% 로 되받아친다 — 민 사람에게 반대 방향 밀치기를 쓴다 (그쪽에서 보면 내가 바로 옆에서 보고 민 것과 같은 모양이라 그대로 검증을 통과). 되받은 것(r)은 다시 되받지 않는다
-        w.me.blockAt = performance.now();
+        w.me.blockAt = performance.now(); sfx('block');
         if (p.n !== 2 && !p.r && w.petReflect()) { this.pushReflect(p.f, -p.dx, -p.dy); w.toast(`🛡 펫이 ${who} 의 밀치기를 되받아쳤다!`); }
         else w.toast(`🛡 펫이 ${who} 의 밀치기를 막았다.`);
         return;
@@ -327,7 +336,7 @@ export class Net {
       const pdir: Dir = p.dx === 1 ? 2 : p.dx === -1 ? 1 : p.dy === 1 ? 0 : 3;
       w.me.pushAt = performance.now(); w.me.pushDir = pdir;
       w.me.pushMore = p.n === 2 ? { dx: p.dx, dy: p.dy, dir: pdir } : null; // 장풍: 도착하면 한 칸 더 (world.afterStep)
-      w.startStep(nx, ny, pdir);
+      w.startStep(nx, ny, pdir); sfx('push');
       w.stunAfter(STEP_MS * (p.n === 2 ? 2 : 1)); // 밀린 사람은 도착 뒤 잠깐 스턴
     }));
     // 끌기 당함: 끄는 사람이 비운 자리(보통 끌기) 또는 끄는 사람의 바로 앞 칸(갈고리)으로 당겨진다
@@ -355,8 +364,8 @@ export class Net {
       const who = p.b === 2 ? ANON : puller.st.n; // 어둠의 빠따: 이름을 알리지 않는다
       if ((p.b === 1 || p.b === 2) && !this.snowOpen() && (w.profile.eq?.pa || w.petGuard())) w.breakGuard(who, p.b === 2); // 빠따: 방어를 깨고 그대로 끈다
       const open = this.guardOpen();
-      if (!open && w.profile.eq?.pa) { me.blockAt = performance.now(); w.toast(`🛡 철벽 갑옷이 ${who} 의 끌기를 막았다.`); return; }
-      if (!open && w.petGuard()) { me.blockAt = performance.now(); w.toast(`🛡 펫이 ${who} 의 끌기를 막았다.`); return; }
+      if (!open && w.profile.eq?.pa) { me.blockAt = performance.now(); sfx('block'); w.toast(`🛡 철벽 갑옷이 ${who} 의 끌기를 막았다.`); return; }
+      if (!open && w.petGuard()) { me.blockAt = performance.now(); sfx('block'); w.toast(`🛡 펫이 ${who} 의 끌기를 막았다.`); return; }
       w.settleIfStalled();
       if (me.locked || me.moving) return;
       if (!w.canStep(p.x, p.y, true)) return;
@@ -365,7 +374,7 @@ export class Net {
       const dist = Math.abs(mx) + Math.abs(my);
       const dur = dist > 1 ? HOOK_SLIDE_MS * dist : STEP_MS;
       me.pushAt = performance.now(); me.pushDir = pdir; me.pushMore = null;
-      w.startStep(p.x, p.y, pdir, { dur });
+      w.startStep(p.x, p.y, pdir, { dur }); sfx('pull');
       w.stunAfter(dur);
     }));
     // 관리자가 나를 광장으로 보냈다

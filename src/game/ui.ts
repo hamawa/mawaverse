@@ -323,6 +323,8 @@ export interface HudHandlers {
   interact: () => void;
   openShop: () => void;
   toss: () => void;
+  sound: () => boolean; // 소리 버튼: 켜고 끈 뒤 지금 켜져 있는지 돌려준다 (2026-11-18)
+  soundOn: boolean;     // 처음 그릴 때의 상태
   input: Input;
   myUid: string;
 }
@@ -340,6 +342,7 @@ export class Hud {
   coinPill: HTMLElement;
   announce: HTMLElement;
   hintPill: HTMLElement;
+  private soundBtn!: HTMLButtonElement;
   readonly mobile = isMobile();
 
   constructor(parent: HTMLElement, private h: HudHandlers) {
@@ -359,7 +362,11 @@ export class Hud {
     helpBtn.onclick = () => openKeyGuide();
     const menuBtn = el('button', { class: 'btn small', text: this.mobile ? '☰' : '☰ 내 메뉴' });
     menuBtn.onclick = (e) => h.openMyMenu(e.clientX || window.innerWidth - 160, 40);
-    const right = el('div', { class: 'top-right' }, [helpBtn, menuBtn]);
+    // 소리 버튼 (2026-11-18): 누르면 바로 켜지고 꺼진다. 음량은 내 메뉴의 소리 설정
+    this.soundBtn = el('button', { class: 'btn small', title: '소리 켜기·끄기' }) as HTMLButtonElement;
+    this.setSound(h.soundOn);
+    this.soundBtn.onclick = () => this.setSound(h.sound());
+    const right = el('div', { class: 'top-right' }, [this.soundBtn, helpBtn, menuBtn]);
     top.append(left, right);
     this.root.append(top);
     this.announce = el('div', { id: 'announce', style: 'display:none' });
@@ -573,6 +580,7 @@ export class Hud {
 
   setOnline(n: number): void { this.onlinePill.innerHTML = `<span class="app">${APP_NAME} · </span>접속 <b>${n}</b>명`; }
 
+  setSound(on: boolean): void { this.soundBtn.textContent = on ? '🔊' : '🔇'; this.soundBtn.classList.toggle('off', !on); }
   setHint(text: string | null): void {
     this.hintPill.style.display = text ? 'inline-flex' : 'none';
     if (text) this.hintPill.textContent = text;

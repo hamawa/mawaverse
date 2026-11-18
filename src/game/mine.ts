@@ -3,7 +3,8 @@ import { dirVec } from './area';
 import { GOLD_MINE_MAP_ID } from '../shared/maps';
 import { MINE_MS, MINE_IDLE_OFF_MS, rollGold, fmtGold, pickAttempts } from '../shared/mine';
 import type { Net } from './net';
-import type { WorldCtx } from './state';
+import type { WorldCtx } from './state';
+import { sfx } from './audio';
 
 // 금광 채광 (2026-11-11): 거대한 금덩어리 옆 칸에서 금덩어리를 보고 F → 곡괭이질 한 번(3초) → 금덩이 1~3개가 지갑에 들어온다.
 // F 한 번(반복 입력은 world.interact 가 거른다)에 곡괭이 단계+1 번(0단계 1번 … 10단계 11번)을 차례로 치고 멈춘다: 자동으로 이어 치지 않는다. 치는 중·저장 중에 누른 F 는 무시한다.
@@ -53,6 +54,7 @@ export class MineMgr {
     this.batch = { x: me.x, y: me.y, mapId: w.mapId, level, total: pickAttempts(level), done: 0, gained: 0, start: now, until: now + MINE_MS, saving: false };
     this.lastSwingAt = now;
     this.show(true);
+    sfx('mine');
     return true;
   }
   // 남은 곡괭이질을 조용히 취소한다 (밀림·순간이동 등. 저장된 보상은 그대로)
@@ -96,7 +98,7 @@ export class MineMgr {
     // 통신이 밀려 앞 쓰기와 간격이 좁게 도착하면 규칙이 거부한다: 한 번만 조금 뒤에 다시 (그 사이 취소됐으면 하지 않는다)
     if (!ok && this.batch === b) { await new Promise((r) => setTimeout(r, 700)); if (this.batch === b) ok = await w.wallet.mine(n); }
     if (ok) {
-      b.done++; b.gained += n;
+      sfx('gold'); b.done++; b.gained += n;
       w.catchNote('etc', `⛏ 금덩이 +${n} (${b.done}/${b.total}번째 · 보유 ${fmtGold(w.wallet.gold)})`); this.net.stat('mine');
     } else w.toast('금덩이를 받지 못했습니다. 잠시 후 다시 캐 보세요.', true);
     if (this.batch !== b) return;
@@ -107,5 +109,6 @@ export class MineMgr {
     }
     const now = performance.now();
     b.start = now; b.until = now + MINE_MS; b.saving = false;
+    sfx('mine');
   }
 }

@@ -9,7 +9,8 @@ import { playerMapId } from '../shared/maps';
 import { planSnowThrow, snowStillThere, snowMsgValid } from './snowfight';
 import type { Net } from './net';
 import type { WorldCtx, RemotePlayer } from './state';
-import type { TossMsg } from '../shared/types';
+import type { TossMsg } from '../shared/types';
+import { sfx } from './audio';
 
 export const TOSS_COOLDOWN_MS = 3000;
 export const TOSS_RANGE = 3;      // 앞으로 몇 칸까지 (보따리 없을 때)
@@ -40,9 +41,9 @@ export class TossMgr {
   private land(fn: () => void): void { const g = this.gen; window.setTimeout(() => { if (g === this.gen) fn(); }, TOSS_FLY_MS); }
   cooldownLeft(): number { return Math.max(0, TOSS_COOLDOWN_MS - (performance.now() - this.lastThrow)); }
   // 장풍 💨 효과 (미는 쪽과 밀리는 쪽이 각자 그린다)
-  wave(fx: number, fy: number, tx: number, ty: number): void { this.flying.push({ fx, fy, tx, ty, start: performance.now(), icon: '💨' }); }
+  wave(fx: number, fy: number, tx: number, ty: number): void { this.flying.push({ fx, fy, tx, ty, start: performance.now(), icon: '💨' }); sfx('wave'); }
   // 갈고리 ⚓ 효과: 끄는 사람에게서 끌려올 사람 쪽으로 줄이 날아간다 (끄는 쪽과 끌리는 쪽이 각자 그린다)
-  hook(fx: number, fy: number, tx: number, ty: number): void { this.flying.push({ fx, fy, tx, ty, start: performance.now(), icon: '⚓' }); }
+  hook(fx: number, fy: number, tx: number, ty: number): void { this.flying.push({ fx, fy, tx, ty, start: performance.now(), icon: '⚓' }); sfx('hook'); }
 
   // 겨냥 범위 안의 사람들. 보따리가 없으면 앞 3칸 안의 첫 사람 하나
   private targets(): RemotePlayer[] {
@@ -68,6 +69,7 @@ export class TossMgr {
     const targets = this.targets();
     if (!targets.length) { w.toast(bag ? '앞 4칸 안에 아무도 없어요. 상대 쪽을 바라보고 던지세요.' : '앞 3칸 안에 아무도 없어요. 상대를 바라보고 던지세요.', true); return false; }
     this.lastThrow = now;
+    sfx('toss');
     // 방어 중인 사람에게는 빠따가 있으면 한 개씩 써서 깨고 맞힌다 (b=1). 모자라면 그 사람은 막는다
     const plan = assignBats(targets.map((t) => guardedOf(t.st, 'toss', serverNow())), w.wallet.batsReady(), w.wallet.darksReady());
     const shots: Shot[] = targets.map((t, i) => ({ uid: t.uid, m: { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(t.x), ty: Math.round(t.y), ...(plan[i].bat ? { b: plan[i].kind } : {}) } }));
@@ -99,6 +101,7 @@ export class TossMgr {
     const left = this.cooldownLeft();
     if (left > 0) { w.toast(`눈덩이는 ${Math.ceil(left / 1000)}초 후에 다시 던질 수 있어요.`, true); return false; }
     this.lastThrow = now;
+    sfx('snow');
     const plan = planSnowThrow(me, (x, y) => w.playerAt(x, y));
     const m: Omit<TossMsg, 't'> = { f: w.uid, fx: me.x, fy: me.y, tx: plan.tx, ty: plan.ty, s: 1 };
     this.flying.push({ fx: m.fx, fy: m.fy, tx: m.tx, ty: m.ty, start: now, snow: true });
@@ -151,10 +154,10 @@ export class TossMgr {
       const who = m.b === 2 ? ANON : w.nickOf(m.f); // 어둠의 빠따(b=2): 누가 던졌는지 알리지 않는다. 아래 안내에도 이름 대신 이것을 쓴다
       if ((m.b === 1 || m.b === 2) && !snowActive(w.snowBrokenAt, serverNow()) && (w.profile.eq?.ta || w.petGuard())) w.breakGuard(who, m.b === 2);
       const open = w.guardBroken();
-      if (!open && w.profile.eq?.ta) { me.blockAt = now; w.toast(`🧥 푹신 갑옷이 ${who} 의 말랑이를 튕겨냈다.`); return; }
+      if (!open && w.profile.eq?.ta) { me.blockAt = now; sfx('block'); w.toast(`🧥 푹신 갑옷이 ${who} 의 말랑이를 튕겨냈다.`); return; }
       if (!open && w.petGuard()) {
         // 펫 방어 (Lv8, 2026-11-10): 튕겨내고, 80% 확률로 던진 사람에게 되던진다 (r 표시: 되돌아온 건 다시 안 튕긴다)
-        me.blockAt = now;
+        me.blockAt = now; sfx('block');
         const thrower = w.players.get(m.f);
         if (!m.r && thrower && w.petReflect()) {
           const back: Omit<TossMsg, 't'> = { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(thrower.x), ty: Math.round(thrower.y), r: true };
@@ -165,7 +168,7 @@ export class TossMgr {
         } else w.toast(`🛡 펫이 ${who} 의 말랑이를 튕겨냈다.`);
         return;
       }
-      me.hitAt = now; me.stunUntil = now + TOSS_STUN_MS;
+      me.hitAt = now; me.stunUntil = now + TOSS_STUN_MS; sfx('hit');
       this.hooks.cancelFishing();
       w.toast(m.r ? `😵 ${w.nickOf(m.f)} 의 펫이 되던진 말랑이에 맞았다!` : `😵 ${who} 의 말랑이에 맞았다!`);
     });
@@ -179,7 +182,7 @@ export class TossMgr {
     this.land(() => {
       const me = w.me, now = performance.now();
       if (!snowStillThere(me, m.tx, m.ty)) { w.toast('❄ 휙! 피했다.'); return; }
-      me.hitAt = now; me.stunUntil = now + TOSS_STUN_MS;
+      me.hitAt = now; me.stunUntil = now + TOSS_STUN_MS; sfx('hit');
       this.hooks.cancelFishing();
       w.toast(`😵 ${w.nickOf(m.f)} 의 눈덩이에 맞았다!`);
     });

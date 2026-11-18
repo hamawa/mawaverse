@@ -58,6 +58,10 @@ import { WinterPlay } from './winterplay';
 import { SnowPenaltyMgr } from './snowpenalty';
 import { snowActive, SNOW_BREAK_NOTICE } from '../shared/snowpenalty';
 import { Fishing } from './fishing';
+import { sfx, setScene, stopSound, soundOn, setSoundOn, soundPrefs, setVolume, type Scene } from './audio';
+import { dayTint, isNight, kstMinuteOfDay, type DayTint } from '../shared/daylight';
+import { HomePets, ownedPets } from './homepets';
+import { wakeLockSupported, wakeLockOn, setWakeLock, startWakeLock } from './wakelock';
 import type { WorldCtx, WorldEvents, RemotePlayer, LocalPlayer } from './state';
 
 export async function loadActiveMap(): Promise<MapData> {
@@ -221,6 +225,8 @@ export class World implements WorldCtx {
       interact: () => this.input.trigger('interact'),
       openShop: () => this.openShop(),
       toss: () => this.throwToss(),
+      sound: () => this.toggleSound(),
+      soundOn: soundOn(),
       input: this.input,
       myUid: this.uid,
     });
@@ -229,6 +235,10 @@ export class World implements WorldCtx {
     this.wallet.listen(() => this.petRide.sync());
     this.wallet.start();
     this.home.start(); this.home.entered(this.mapId); this.trees.watch(this.mapId);
+    this.loadGuestPets();
+    startWakeLock();
+    // 소리가 생겼다는 안내는 이 기기에서 한 번만 (처음에는 꺼져 있다)
+    try { if (!soundOn() && !localStorage.getItem('mv-sound-seen')) { localStorage.setItem('mv-sound-seen', '1'); window.setTimeout(() => { if (!this.stopped) this.toast('🔊 소리가 생겼어요! 화면 위 🔇 버튼을 누르면 배경음악과 효과음이 켜집니다.'); }, 6000); } } catch { /* ignore */ }
     // 그날 첫 접속이면 2초 뒤 룰렛 창. 지갑이 한 번 읽힌 뒤에 판단한다
     const offW = this.wallet.listen(() => { if (!this.wallet.loaded) return; offW(); if (!this.wallet.rouletteDoneToday()) window.setTimeout(() => { if (!this.stopped) this.openRoulette(); }, 2000); });
     this.rouletteUnsub = watchRouletteFeed(this);
@@ -395,7 +405,8 @@ export class World implements WorldCtx {
     this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
     this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques() });
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint() });
+    if (now - this.sceneAt > 1000) { this.sceneAt = now; setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow()))); } // 배경음악: 지금 상황에 맞는 곡 (1초에 한 번 본다)
   }
 
   // 마피아 미션 자리 표시 (2026-11-10): 시민·유령은 내 미완료 미션(금색 테두리 + 화면 밖 화살표), 마피아는 모든 자리(흐린 테두리)
@@ -530,6 +541,7 @@ export class World implements WorldCtx {
     this.guardUntil = serverNow() + GUARD_BREAK_MS;
     try { localStorage.setItem(`mv-gb-${this.uid}`, String(this.guardUntil)); } catch { /* ignore */ }
     this.net.setGuardBroken(this.guardUntil);
+    sfx('bat');
     // 어둠의 빠따(dark)는 byNick 이 "누군가"로 온다: 누가 쳤는지 알림에도 기록에도 남기지 않는다
     const bat = dark ? `🌑 ${byNick}의 어둠의 빠따` : `🏏 ${byNick} 의 빠따`;
     this.toast(`${bat}에 방어가 깨졌다! ${GUARD_BREAK_MS / 1000}초 동안 갑옷·펫이 막아 주지 않는다.`, true);
@@ -719,11 +731,76 @@ export class World implements WorldCtx {
   // ---------- 포탈 (맵 이동) ----------
   private setMap(map: MapData): void {
     this.map = map;
+    if (isHomeMapId(this.mapId)) this.homePets.setMap(map); else this.homePets.clear();
     this.boardZone = map.zones.find((z) => z.kind === 'board');
     this.fishZone = map.zones.find((z) => z.kind === 'fish');
     this.arcadeZone = map.zones.find((z) => z.kind === 'arcade');
   }
   private builtinMaps = new Map<string, MapData>(); // 코드에 든 맵은 한 번 만들어 두고 다시 쓴다
+  // ---- 집 안을 돌아다니는 펫 (2026-11-18, homepets.ts): 집 주인이 가진 펫 전부. 주인이 집에 있으면 데리고 다니는 한 마리는 주인을 따라다닌다 ----
+  private homePets = new HomePets();
+  private guestPets: string[] = []; // 남의 집: 들어갈 때 한 번 읽어 온 그 집 주인의 펫
+  private loadGuestPets(): void {
+    this.guestPets = [];
+    if (!isHomeMapId(this.mapId)) return;
+    const owner = homeOwnerOf(this.mapId);
+    if (owner === this.uid) return; // 내 집은 내 보관함을 그대로 본다
+    const gen = this.mapGen;
+    get(ref(db, `users/${owner}/own`)).then((s) => { if (gen === this.mapGen) this.guestPets = ownedPets(s.val() as Record<string, unknown> | null); }).catch(() => {});
+  }
+  private roamers(): import('./render').PetView[] | undefined {
+    if (!isHomeMapId(this.mapId)) return undefined;
+    const owner = homeOwnerOf(this.mapId), mine = owner === this.uid;
+    const rp = mine ? null : this.players.get(owner);
+    const led = mine ? this.myPet() : rp && this.onMyMap(rp.st) ? rp.st.pt : null; // 주인을 따라다니는 중인 펫
+    const ids = (mine ? ownedPets(this.profile.own) : this.guestPets).filter((id) => id !== led);
+    return ids.length ? this.homePets.views(owner, ids, serverNow()) : undefined;
+  }
+  // ---- 낮과 밤 (2026-11-18, shared/daylight.ts): 바깥 맵만. 집 안과 금광은 실내라 그대로. 내 메뉴에서 끌 수 있다 (이 브라우저에만 적는다) ----
+  private dayOff = ((): boolean => { try { return localStorage.getItem('mv-daylight-off') === '1'; } catch { return false; } })();
+  private nightTint(): DayTint | null {
+    if (this.dayOff || isHomeMapId(this.mapId) || this.mapId === GOLD_MINE_MAP_ID) return null;
+    return dayTint(kstMinuteOfDay(serverNow()));
+  }
+  // ---- 배경음악이 달라지는 상황 (audio.ts) ----
+  private sceneAt = 0;
+  private sceneNow(): Scene {
+    const room = this.me.roomId;
+    if (room === 'casino') return 'race';
+    if (room === 'slots') return 'slots';
+    if (room === 'poker') return 'poker';
+    const g = this.mafia.game;
+    if (g && g.st !== 'lobby' && g.players?.[this.uid]) return 'mafia';
+    if (isHomeMapId(this.mapId)) return 'home';
+    if (this.mapId === GOLD_MINE_MAP_ID) return 'mine';
+    if (this.mapId === WINTER_MAP_ID) return 'winter';
+    return 'main';
+  }
+  // 화면 위 소리 버튼: 켜기·끄기 (누른 그 순간에 불러야 브라우저가 소리를 허락한다)
+  toggleSound(): boolean {
+    const on = !soundOn();
+    setSoundOn(on);
+    if (on) { this.sceneAt = 0; this.toast('🔊 소리를 켰습니다. 음량은 내 메뉴 → 소리 설정에서 조절해요.'); } else this.toast('🔇 소리를 껐습니다.');
+    return on;
+  }
+  private openSoundSettings(): void {
+    const p = soundPrefs();
+    const body = el('div', { class: 'sound-set' });
+    const row = (label: string, kind: 'music' | 'sfx', test?: () => void) => {
+      const input = el('input', { type: 'range', min: '0', max: '100', value: String(Math.round(p[kind] * 100)) }) as HTMLInputElement;
+      const val = el('span', { class: 'muted', text: `${input.value}` });
+      input.oninput = () => { val.textContent = input.value; setVolume(kind, Number(input.value) / 100); };
+      input.onchange = () => test?.();
+      body.append(el('label', { style: 'display:flex;align-items:center;gap:10px;margin:10px 0' }, [el('span', { style: 'width:72px', text: label }), input, val]));
+    };
+    const onBtn = el('button', { class: 'btn', text: soundOn() ? '🔊 소리 켜짐 (누르면 끔)' : '🔇 소리 꺼짐 (누르면 켬)' });
+    onBtn.onclick = () => { const on = this.toggleSound(); onBtn.textContent = on ? '🔊 소리 켜짐 (누르면 끔)' : '🔇 소리 꺼짐 (누르면 켬)'; this.hud.setSound(on); };
+    body.append(onBtn);
+    row('배경음악', 'music');
+    row('효과음', 'sfx', () => sfx('catch', { k: 2 }));
+    body.append(el('p', { class: 'muted', text: '소리는 파일 없이 브라우저가 그 자리에서 만들어 냅니다. 곡은 상황(광장·집·금광·겨울·경마장·슬롯·포커·마피아)과 낮밤에 따라 달라져요. 설정은 이 기기에만 저장됩니다.' }));
+    modal('🔊 소리 설정', body, [{ label: '닫기', onClick: () => {} }]);
+  }
   private async loadMap(id: string): Promise<MapData> {
     const src = mapSource(id);
     if (src === 'active') return this.mainMap;
@@ -847,9 +924,11 @@ export class World implements WorldCtx {
   // 맵 이동이 서버에 반영됐다: 옛 맵에 묶인 화면 상태(벌레·말랑이·펫 자리·말풍선·장풍 예약)를 비우고 새 맵으로
   private enterMap(id: string, map: MapData, x: number, y: number): void {
     const me = this.me;
+    sfx(isHomeMapId(id) || isHomeMapId(this.mapId) ? 'door' : 'portal');
     this.mapGen++;
     this.mapId = id;
     this.setMap(map);
+    this.loadGuestPets();
     Object.assign(me, { x, y, fromX: x, fromY: y, dispX: x, dispY: y, moving: false, pushMore: null, bubble: null, pose: 'none', emoteId: 0 });
     this.waterHoldUntil = 0;
     this.resetWinter(); // 눈덩이·눈사람·관성은 맵을 나가면 사라지고 들어올 때 새로 놓인다
@@ -1021,6 +1100,7 @@ export class World implements WorldCtx {
     if (id === 14 && !this.pull(now)) return;
     me.pose = poseForEmote(id); me.poseAt = now; me.emoteId = id;
     this.net.emote(id);
+    if (id === 10 && !this.profile.own?.wave) sfx('push'); else if (id === 14) sfx('pull'); // 장풍·갈고리·말랑이 소리는 날아가는 그림(toss.ts)이 낸다
   }
   // 빠따를 썼으면 한 줄 알림. 남은 개수는 지갑에 반영된 뒤에 읽는다
   // shielded: 그 빠따 가운데 상대의 든든함(겨울잠으로 쌓은 🐟, shared/home.ts)에 막혔을 수. 빠따는 그대로 소모되고 상대 든든함이 하나 준다
@@ -1123,6 +1203,9 @@ export class World implements WorldCtx {
       { label: this.wallet.rouletteDoneToday() ? '🎰 오늘의 룰렛 (돌렸음)' : '🎰 오늘의 룰렛', onClick: () => this.openRoulette() },
       { label: '🗺 오늘의 보물 지도', onClick: () => { if (this.mapId !== MAIN_MAP_ID) { this.toast('보물 지도는 광장 맵에서만 볼 수 있어요.', true); return; } openDigMap(this.mainMap, this.dig.spots, this.dig.dug, { x: this.me.x, y: this.me.y }); } },
       { label: '🏠 리스폰 (시작 지점으로)', onClick: () => this.respawnFlow() },
+      { label: soundOn() ? '🔊 소리 설정' : '🔇 소리 설정 (꺼짐)', onClick: () => this.openSoundSettings() },
+      { label: this.dayOff ? '🌙 낮밤 효과 켜기' : '🌙 낮밤 효과 끄기', onClick: () => { this.dayOff = !this.dayOff; try { localStorage.setItem('mv-daylight-off', this.dayOff ? '1' : '0'); } catch { /* ignore */ } this.toast(this.dayOff ? '🌙 낮밤 효과를 껐습니다. 언제나 낮처럼 보여요.' : '🌙 낮밤 효과를 켰습니다. 실제 시각에 따라 하늘빛이 바뀌어요.'); } },
+      ...(wakeLockSupported() ? [{ label: wakeLockOn() ? '📱 화면 꺼짐 방지 끄기' : '📱 화면 꺼짐 방지 켜기', onClick: async () => { const on = !wakeLockOn(); const ok = await setWakeLock(on); this.toast(!on ? '📱 화면 꺼짐 방지를 껐습니다.' : ok ? '📱 화면 꺼짐 방지를 켰습니다. 게임을 띄워 둔 동안 화면이 꺼지지 않아요. (배터리를 더 씁니다)' : '화면 꺼짐 방지를 켜지 못했어요. 기기가 배터리 절약 중일 수 있어요.', on && !ok); } }] : []),
       { label: this.mafia.game ? (this.mafia.game.st === 'lobby' ? '🕵 마피아 (모집 중!)' : '🕵 마피아 (진행 중)') : '🕵 마피아 모집', onClick: () => openMafiaLobby(this) },
     ];
     items.push({ label: this.duel.optedOut() ? '🎲 내기 신청 받기 (지금: 안 받음)' : '🚫 내기 신청 받지 않기', onClick: () => { const on = !this.duel.optedOut(); this.duel.setOptOut(on); this.toast(on ? '🚫 내기 신청을 받지 않습니다.' : '🎲 내기 신청을 다시 받습니다.'); } });
@@ -1248,6 +1331,7 @@ export class World implements WorldCtx {
   private async stop(replaced = false): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    stopSound();
     this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();

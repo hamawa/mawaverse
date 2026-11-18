@@ -7,7 +7,8 @@ import type { WorldCtx } from './state';
 import { RARITY_NAME, MYTHIC, type CollDef, type BookEntry, type BestEntry, type FeedEntry } from '../shared/collection';
 import { bugColl, bugCatchChance, bugPoints, fmtBugSize, BUG_MAX_ALIVE, BUG_SPAWN_MS, BUG_LIFE_MIN_MS, BUG_LIFE_MAX_MS, BUG_SCARE_DIST, BUG_ANNOUNCE_RARITY, BUG_SAVE_GAP_MS, BUG_AUTO_GAP_MS } from '../shared/bugs';
 import { netChance, netTierOf, PET_SWING_MS, petBugRange } from '../shared/shop';
-import { weekKey } from '../shared/fish';
+import { weekKey } from '../shared/fish';
+import { sfx } from './audio';
 
 // 렌더러에 넘기는 벌레 (내 화면에만 있다: 스폰은 클라이언트 로컬)
 export interface BugView { x: number; y: number; icon: string; state: 'idle' | 'flee' | 'caught'; since: number; seed: number }
@@ -117,6 +118,7 @@ export class BugHunt {
     const now = performance.now();
     const a = pick ?? this.target();
     if (!a) return false;
+    if (!pick) sfx('swing');
     if (Math.random() < netChance(bugCatchChance(a.def), netTierOf(this.w.profile.own))) { // 잠자리채 등급(상점): 1단계 실패 절반, 2단계 무조건
       a.view.state = 'caught'; a.view.since = now;
       this.queueCatch(a.def);
@@ -143,6 +145,7 @@ export class BugHunt {
     const size = bugColl.rollSize(f);
     const pts = bugPoints(f);
     const sizeTxt = size ? ` ${fmtBugSize(size)}` : '';
+    sfx(f.junk ? 'junk' : 'bug', { k: f.rarity, vol: 0.7 });
     w.catchNote('bug', f.junk ? `🐛 ${f.icon} ${f.name}… 꽝!` : `🐛 ${f.icon} ${RARITY_NAME[f.rarity]} 등급 ${f.name}${sizeTxt} 채집! (+${pts}점 · 💰+${pts})`); // 채팅·말풍선 대신 (2026-11-09)
     try {
       const wk = weekKey();

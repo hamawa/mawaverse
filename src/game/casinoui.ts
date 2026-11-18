@@ -8,6 +8,7 @@ import { fmtCoins } from '../shared/shop';
 import type { CasinoMgr } from './casino';
 import type { WalletMgr } from './wallet';
 import type { ServerConfig } from '../shared/types';
+import { sfx } from './audio';
 
 export interface CasinoHost { uid: string; wallet: WalletMgr; config: ServerConfig; casino: CasinoMgr; toast(msg: string, err?: boolean): void; leaveCasino(): Promise<void> }
 
@@ -44,9 +45,12 @@ export class CasinoPanel {
   }
 
   // force: 구조를 다시 그린다. 아니면 숫자(남은 시간)와 경주 캔버스만 갱신
+  private heardPhase: string | null = null; // 소리를 낸 마지막 단계 (처음 열었을 때는 내지 않는다)
   private render(force: boolean): void {
     const root = this.root; if (!root) return;
     const st = this.h.casino.state();
+    // 소리: 출발 나팔, 내가 건 판의 결과 (판이 넘어가는 순간 한 번)
+    if (st.phase !== this.heardPhase) { if (this.heardPhase !== null) { if (st.phase === 'racing') sfx('horn'); else if (st.phase === 'done' && st.myBet && st.winner !== null) sfx(st.myBet.h === st.winner ? 'win' : 'lose', { k: 2 }); } this.heardPhase = st.phase; }
     const sig = `${st.rid}|${st.phase}|${JSON.stringify(st.round?.bets || {})}|${st.claimed}|${this.amount}|${this.h.wallet.balance}`;
     if (!force && sig === this.lastSig) { this.tickDynamic(st.leftMs, st.phase); return; }
     this.lastSig = sig;

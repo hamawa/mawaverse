@@ -2,7 +2,8 @@ import { TILE, BUBBLE_MS, EMOTE_MS } from '../shared/config';
 import type { Dir, RoomState } from '../shared/types';
 import { wrapText } from '../shared/util';
 import type { Engine } from './engine';
-import { G, TALL_OBJECTS, waterDepth, type MapData, type Zone } from './map';
+import { G, O, TALL_OBJECTS, waterDepth, type MapData, type Zone } from './map';
+import type { DayTint } from '../shared/daylight';
 import { groundTile, objectSprite } from './tiles';
 import { goldNugget, drawGoldSparks } from './goldart';
 import { getSprite, FRAME_W, FRAME_H, type Pose } from './sprites';
@@ -65,6 +66,8 @@ export interface RenderState {
   snow?: SnowView[];  // 겨울 맵의 눈덩이·눈사람 (내 화면에만 있는 장난감, 클라이언트 로컬)
   objAt?: (x: number, y: number, id: number) => number; // 그 칸에 실제로 그릴 오브젝트 (벤 나무는 그루터기·덤불로. 맵 데이터는 그대로라 길은 계속 막힌다)
   plaques?: { x: number; y: number; icon: string; text: string }[]; // 집 벽에 건 물고기 박제 (타일 좌표)
+  roamers?: PetView[]; // 집 안을 돌아다니는 펫 (homepets.ts)
+  night?: DayTint | null; // 낮밤 덧칠 (바깥 맵만. shared/daylight.ts)
 }
 
 const EMOTE_ICON: Record<number, string> = { 1: '👋', 2: '', 3: '😆', 4: '💧', 5: '💤', 6: '🥱', 7: '💢', 8: '❤', 9: '♪', 10: '💥', 11: '🥅', 12: '🧸', 13: '⛏', 14: '🧲', 15: '🐤' }; // 15: 삐약 (예전 병아리 스킬. 이모트 자리는 남겨 둔다)
@@ -244,6 +247,8 @@ export function render(eng: Engine, st: RenderState): void {
       },
     });
   }
+  // 집 안을 돌아다니는 펫: 따라다니는 펫과 같은 그림, 자기 칸의 y 순서로
+  for (const p of st.roamers ?? []) items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale) });
   // 눈덩이·눈사람: 칸 아랫줄 기준으로 정렬해 사람과 앞뒤가 맞는다
   for (const sv of st.snow || []) {
     if (!eng.isTileVisible(sv.x, sv.y, TILE)) continue;
@@ -286,6 +291,9 @@ export function render(eng: Engine, st: RenderState): void {
     ctx.font = `${t.icon ? 16 : 13}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(t.icon || '🧸', x, y);
   }
+
+  // ---- 낮과 밤: 이름표·말풍선·안내보다 먼저 덧칠한다 (글자는 어두워지지 않는다) ----
+  if (st.night && st.night.a > 0.005) drawNight(eng, map, vis, st.night);
 
   // ---- 화면 좌표 오버레이 ----
   eng.beginScreen();
@@ -420,6 +428,42 @@ function drawPickaxe(ctx: CanvasRenderingContext2D, e: Entity, now: number): voi
     ctx.fillStyle = `rgba(255, 226, 110, ${a})`;
     for (let i = 0; i < 4; i++) { const d = (1 - a) * 7 + 2, th = ang + (i - 1.5) * 0.7; ctx.fillRect(Math.round(sx + Math.cos(th) * d), Math.round(sy + Math.sin(th) * d - (1 - a) * 3), 2, 2); }
   }
+}
+// 낮과 밤 (2026-11-18): 화면 전체에 그 시각의 빛깔을 덧칠하고, 가로등·창문 둘레는 덜 어둡게 남긴 뒤 따뜻한 불빛을 살짝 더한다.
+// 불빛이 화면에 없으면 한 번 칠하는 것으로 끝난다. 있으면 따로 둔 캔버스에 어둠을 칠하고 불빛 자리를 도려내 얹는다
+let nightCv: HTMLCanvasElement | null = null;
+function drawNight(eng: Engine, map: MapData, vis: { x0: number; y0: number; x1: number; y1: number }, n: DayTint): void {
+  const { ctx, canvas } = eng;
+  const k = eng.scale * eng.dpr;
+  const lights: { x: number; y: number; r: number; s: number }[] = [];
+  if (n.lamp > 0.02) for (let y = Math.max(0, vis.y0 - 3); y <= Math.min(map.h - 1, vis.y1 + 3); y++) for (let x = Math.max(0, vis.x0 - 3); x <= Math.min(map.w - 1, vis.x1 + 3); x++) {
+    const o = map.objects[y * map.w + x];
+    if (o === O.LAMP) lights.push({ x: ((x + 0.5) * TILE - eng.cam.x) * k, y: ((y - 0.4) * TILE - eng.cam.y) * k, r: 3 * TILE * k, s: 1 }); // 가로등 머리는 한 칸 위에 그려진다
+    else if (o === O.WALL_WINDOW) lights.push({ x: ((x + 0.5) * TILE - eng.cam.x) * k, y: ((y + 0.5) * TILE - eng.cam.y) * k, r: 1.4 * TILE * k, s: 0.6 });
+  }
+  const fill = `rgba(${n.r},${n.g},${n.b},${n.a})`;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  if (!lights.length) { ctx.fillStyle = fill; ctx.fillRect(0, 0, canvas.width, canvas.height); return; }
+  if (!nightCv) nightCv = document.createElement('canvas');
+  if (nightCv.width !== canvas.width || nightCv.height !== canvas.height) { nightCv.width = canvas.width; nightCv.height = canvas.height; }
+  const nc = nightCv.getContext('2d')!;
+  nc.globalCompositeOperation = 'source-over';
+  nc.clearRect(0, 0, nightCv.width, nightCv.height);
+  nc.fillStyle = fill; nc.fillRect(0, 0, nightCv.width, nightCv.height);
+  nc.globalCompositeOperation = 'destination-out';
+  for (const l of lights) {
+    const g = nc.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
+    g.addColorStop(0, `rgba(0,0,0,${0.8 * n.lamp * l.s})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    nc.fillStyle = g; nc.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
+  }
+  ctx.drawImage(nightCv, 0, 0);
+  ctx.globalCompositeOperation = 'lighter';
+  for (const l of lights) {
+    const r = l.r * 0.75, g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, r);
+    g.addColorStop(0, `rgba(255,190,110,${0.2 * n.lamp * l.s})`); g.addColorStop(1, 'rgba(255,190,110,0)');
+    ctx.fillStyle = g; ctx.fillRect(l.x - r, l.y - r, r * 2, r * 2);
+  }
+  ctx.globalCompositeOperation = 'source-over';
 }
 // 찌 위치. 던진 직후 0.3초 동안 손에서 물까지 포물선, 그 뒤 둥실거림. 입질 중이면 푹 잠기며 흔들린다
 function bobberPos(e: Entity, fv: FishingView, now: number): [number, number, number] {

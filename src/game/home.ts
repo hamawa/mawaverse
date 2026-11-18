@@ -13,6 +13,7 @@ import { itemById, priceOf } from '../shared/shop';
 import type { Net } from './net';
 import type { TreeMgr } from './trees';
 import type { WorldCtx } from './state';
+import { sfx } from './audio';
 
 // 내 집 (2026-11-17, shared/home.ts 머리말에 설계). 이 클래스는 내 homes/{uid} 를 구독하고, 나무 캐기·짓기·창고·겨울잠과 "지금 들어와 있는 집"의 상태를 맡는다.
 // 맵 이동(들어가기·나가기)은 world.ts 가 포탈과 같은 길(usePortal)로 한다.
@@ -138,6 +139,7 @@ export class HomeMgr {
     if (!t) return false;
     const me = this.w.me, now = performance.now();
     this.chop = { x: me.x, y: me.y, tx: t.x, ty: t.y, mapId: this.w.mapId, left: CHOP_SWINGS, done: 0, gained: 0, start: now, until: now + CHOP_MS, saving: false };
+    sfx('chop');
     return true;
   }
   private stopChop(why: string): void {
@@ -169,7 +171,7 @@ export class HomeMgr {
     let ok = await this.writeWood(n, mark);
     // 통신이 밀려 앞 쓰기와 간격이 좁게 도착하면 규칙이 거부한다: 한 번만 조금 뒤에 다시
     if (!ok && this.chop === c) { await new Promise((r) => setTimeout(r, 700)); if (this.chop === c) ok = await this.writeWood(n, mark); }
-    if (ok) { c.done++; c.left--; c.gained += n; w.catchNote('etc', `🌳 나무 +${n} (${c.done}/${CHOP_SWINGS}번째 · 보유 ${fmtWood(this.wood)})`); }
+    if (ok) { sfx('wood'); c.done++; c.left--; c.gained += n; w.catchNote('etc', `🌳 나무 +${n} (${c.done}/${CHOP_SWINGS}번째 · 보유 ${fmtWood(this.wood)})`); }
     else w.toast(mark ? '나무를 받지 못했습니다. 다른 사람이 먼저 벤 나무일 수 있어요.' : '나무를 받지 못했습니다. 잠시 후 다시 캐 보세요.', true);
     if (this.chop !== c) return;
     if (!ok || c.left <= 0) {
@@ -179,7 +181,7 @@ export class HomeMgr {
     }
     const now = performance.now();
     c.start = now; c.until = now + CHOP_MS; c.saving = false;
-    this.h.swing();
+    this.h.swing(); sfx('chop');
   }
 
   // ---- 집 짓기·올리기 ----

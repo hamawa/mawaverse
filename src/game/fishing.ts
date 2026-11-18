@@ -13,6 +13,7 @@ import {
   BITE_WAIT_MIN_MS, BITE_WAIT_MAX_MS, type FishDef, type FishBookEntry, type FishBest, type FishFeed,
 } from '../shared/fish';
 import { MYTHIC } from '../shared/collection';
+import { sfx } from './audio';
 
 // 뒤쪽 탭에서도 멈추지 않는 주기 타이머 (워커). 워커를 못 만들면 setInterval 로 대신한다
 function makeTicker(ms: number, fn: () => void): () => void {
@@ -121,6 +122,7 @@ export class Fishing {
     this.state = 'cast';
     this.castAt = performance.now();
     this.show(t, wallet.autoReelActive(), rod, wallet.shownStarsFor(fam));
+    if (!auto) sfx('cast'); // 자동 낚시는 던질 때마다 소리를 내지 않는다 (잡을 때만 작게)
     if (baited) {
       const left = wallet.bait - 1;
       void wallet.takeBait();
@@ -165,6 +167,7 @@ export class Fishing {
     this.state = 'bite';
     // 자동 회수 버프: 입질 직후 알아서 당긴다
     if (this.w.wallet.autoReelActive()) { this.catchAt = performance.now() + 250; this.timer = window.setTimeout(() => { void this.catchFish(); }, 250); return; }
+    sfx('bite');
     this.timer = window.setTimeout(() => this.miss(), reactWindowMs(this.fish));
   }
 
@@ -200,6 +203,7 @@ export class Fishing {
     const f = this.fish;
     this.cancel();
     if (!f) return;
+    sfx('miss');
     const big = !f.junk && f.rarity >= 1;
     this.w.catchNote('fish', big ? '🎣 큰 녀석이었는데… 놓쳤다!' : '🎣 놓쳤다…');
   }
@@ -222,6 +226,7 @@ export class Fishing {
     // 채팅·말풍선 대신 화면 아래 한 줄 알림 + 내 기록 (2026-11-09)
     w.catchNote('fish', f.junk ? `🎣 ${f.icon} ${f.name}… 꽝!` : `🎣 ${king ? '👑 킹 사이즈! ' : ''}${f.icon} ${RARITY_NAME[f.rarity]} 등급 ${f.name}${sizeTxt}를 낚았다! (+${pts}점 · 💰+${pts}${mult > 1 ? ' · 대회 ' + mult + '배' : ''})`);
     if (size > 0) w.fishCaught(size); // 낚시 내기 중이면 내 최고 크기로 적힌다
+    sfx(f.junk ? 'junk' : 'catch', { k: f.rarity, vol: w.wallet.autoReelActive() ? 0.45 : 1 });
     this.saving = true;
     try {
       const wk = weekKey();

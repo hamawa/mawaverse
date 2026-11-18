@@ -10,6 +10,7 @@ import { INSTANT_MIN, JACKPOT_MIN_BET, SLOT_TIERS, slotReels, slotResult, oddEve
 import type { RouletteFeed } from '../shared/roulette';
 import type { WalletMgr } from './wallet';
 import type { ServerConfig } from '../shared/types';
+import { sfx } from './audio';
 
 export interface SlotHost { uid: string; profile: { nick: string }; wallet: WalletMgr; config: ServerConfig; toast(msg: string, err?: boolean): void; leaveCasino(): Promise<void>; chat: { systemMessage(text: string): void } }
 
@@ -144,6 +145,7 @@ export class SlotPanel {
     const at = await this.h.wallet.instantBet('s', bet);
     if (at === null) { this.busy = false; this.msg = '베팅하지 못했어요. (코인이 모자라거나 너무 빨리 눌렀어요)'; this.render(); return; }
     const final = slotReels(at, bet);
+    sfx('spin');
     // 그림 돌리기: 칸마다 차례로 멈춘다
     const spans = [...(this.root?.querySelectorAll('.reels span') || [])] as HTMLElement[];
     const start = performance.now();
@@ -167,6 +169,7 @@ export class SlotPanel {
     const at = await this.h.wallet.instantBet('o', this.amount, pick);
     if (at === null) { this.busy = false; this.msg = '베팅하지 못했어요. (코인이 모자라거나 너무 빨리 눌렀어요)'; this.render(); return; }
     const face = oddEvenFace(at);
+    sfx('spin');
     const sp = this.root?.querySelector('.reels span') as HTMLElement | null;
     const start = performance.now();
     while (performance.now() - start < SPIN_MS * 0.7) { if (sp) sp.textContent = DICE[1 + Math.floor(Math.random() * 6)]; await wait(80); }
@@ -180,6 +183,7 @@ export class SlotPanel {
     const r = await h.wallet.instantSettle();
     this.busy = false;
     if (!r) { if (fresh) this.msg = '정산하지 못했어요. 다시 들어오면 받을 수 있어요.'; this.render(); return; }
+    if (fresh) sfx(r.win > 0 ? 'win' : 'lose', { k: r.win >= r.bet * 10 ? 2 : 0 });
     if (r.kind === 's') {
       const res = slotResult(r.at, r.bet);
       this.reels = slotReels(r.at, r.bet);
