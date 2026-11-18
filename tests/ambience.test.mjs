@@ -161,3 +161,12 @@ test('소리: 곡마다 화음 진행이 음계 안에 있고, 같은 씨앗이�
     assert.ok(m1.every((row) => row.length === tu.beats && row.every((d) => d === null || (d >= 0 && d <= 9))), key);
   }
 });
+
+// 전송량 (2026-11-18 사용량 검토): 화면은 신화 배너에만 소식을 쓴다. 영웅·전설까지 보내면 쓰이지 않는 전송이 낚을 때마다 전원에게 나간다
+test('소식: 낚시·채집 소식은 신화만 보낸다 (화면이 쓰지 않는 전송을 되살리지 않는다)', async () => {
+  const { MYTHIC } = await import('../src/shared/collection.ts');
+  const { ANNOUNCE_RARITY } = await import('../src/shared/fish.ts');
+  const { BUG_ANNOUNCE_RARITY } = await import('../src/shared/bugs.ts');
+  assert.equal(ANNOUNCE_RARITY, MYTHIC);
+  assert.equal(BUG_ANNOUNCE_RARITY, MYTHIC);
+});

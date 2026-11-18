@@ -1,7 +1,7 @@
 // 낚시 데이터. 게임과 관리자 페이지가 같이 쓴다 (DOM/Firebase 의존 없음)
 // 종류 목록은 DB `fish/defs` 가 우선(관리자가 추가·수정·비활성화)이고, 비어 있으면 DEFAULT_FISH 를 쓴다.
 // 공용 로직은 collection.ts 의 Collection. 아래 함수들은 fishColl 에 위임하는 얇은 이름들이다.
-import { Collection, TIME_LABEL, timeActive, RARITY_POINTS, type CollDef, type CollDefRecord, type PickOpt, type DefTime, type BookEntry, type WeekEntry, type BestEntry, type FeedEntry } from './collection';
+import { Collection, TIME_LABEL, timeActive, RARITY_POINTS, MYTHIC, type CollDef, type CollDefRecord, type PickOpt, type DefTime, type BookEntry, type WeekEntry, type BestEntry, type FeedEntry } from './collection';
 export { RARITY_NAME, RARITY_POINTS, RARITY_COLOR } from './collection';
 export type { Rarity, PickOpt } from './collection';
 
@@ -14,8 +14,9 @@ export function bobberNear(px: number, py: number, bx: number, by: number): bool
 export const BOBBER_FIX_GAP_MS = 10000; // 서버에 올라간 내 찌가 어긋났을 때 다시 쓰는 간격 (fishing.ts guard)
 export const BITE_WAIT_MIN_MS = 3000;
 export const BITE_WAIT_MAX_MS = 10000;
-// 영웅 등급 이상을 낚으면 모두에게 공지
-export const ANNOUNCE_RARITY = 2;
+// 신화를 낚았을 때만 모두에게 알린다 (fish/feed). 2026-11-18 까지는 영웅 이상(2)이었다: 남의 전설 알림을 없앤 뒤(v33)로 화면은 신화만 쓰는데
+// 영웅·전설 소식이 계속 전원에게 전송되고 있었다 (걷는 사람이 없는 시간대 전송량의 16%). 다시 낮추지 말 것
+export const ANNOUNCE_RARITY = MYTHIC;
 
 export type FishTime = DefTime;
 export const FISH_TIME_LABEL = TIME_LABEL;

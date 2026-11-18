@@ -1,6 +1,6 @@
 // 곤충 채집 데이터. 게임과 관리자 페이지가 같이 쓴다 (DOM/Firebase 의존 없음)
 // 종류 목록은 DB `bug/defs` 가 우선이고 비어 있으면 DEFAULT_BUGS. 공용 로직은 collection.ts
-import { Collection, RARITY_POINTS, type CollDef } from './collection';
+import { Collection, RARITY_POINTS, MYTHIC, type CollDef } from './collection';
 
 // 잠자리채를 휘둘렀을 때 잡힐 확률 (등급별). 꽝은 항상. 신화는 절반 (황금 잠자리채면 무조건)
 export const CATCH_CHANCE = [1, 0.7, 0.5, 0.35, 0.5] as const;
@@ -9,7 +9,7 @@ export const BUG_SPAWN_MS = 3000;        // 새 벌레가 나타나는 간격
 export const BUG_LIFE_MIN_MS = 20000;    // 벌레가 머무는 시간 범위
 export const BUG_LIFE_MAX_MS = 40000;
 export const BUG_SCARE_DIST = 3;         // 이 거리 안에서 달리면 날아간다
-export const BUG_ANNOUNCE_RARITY = 2;    // 영웅 이상은 전체 공지
+export const BUG_ANNOUNCE_RARITY = MYTHIC; // 신화만 전체 공지 (bug/feed). 2026-11-18 까지는 영웅 이상(2): 화면이 신화만 쓰게 된 뒤로는 쓰이지 않는 전송이었다 (fish.ts ANNOUNCE_RARITY 와 같은 이유)
 export const BUG_SAVE_GAP_MS = 350;      // 기록 쓰기 간격 (주간 기록 규칙 0.3초). 채집 자체에는 쿨타임이 없다
 export const BUG_AUTO_GAP_MS = 250;      // 자동 채집 버프: 휘두르는 간격
 
