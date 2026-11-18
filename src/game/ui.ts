@@ -11,16 +11,20 @@ import type { Input } from './input';
 const TOAST_MAX = 3;
 let toastRoot: HTMLElement | null = null;
 export function toast(msg: string, err = false): void {
+  const root = toastHome();
+  const t = el('div', { class: 'toast' + (err ? ' err' : ''), text: msg });
+  const life = err ? 3500 : 2500;
+  t.dataset.until = String(Date.now() + life);
+  root.append(t);
+  pruneToasts(false);
+  setTimeout(() => fadeToast(t), life);
+}
+function toastHome(): HTMLElement {
   if (!toastRoot) {
     toastRoot = el('div', { id: 'toasts' }); document.body.append(toastRoot);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pruneToasts(true); });
   }
-  const t = el('div', { class: 'toast' + (err ? ' err' : ''), text: msg });
-  const life = err ? 3500 : 2500;
-  t.dataset.until = String(Date.now() + life);
-  toastRoot.append(t);
-  pruneToasts(false);
-  setTimeout(() => fadeToast(t), life);
+  return toastRoot;
 }
 function fadeToast(t: HTMLElement): void { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; setTimeout(() => t.remove(), 300); }
 function pruneToasts(expired: boolean): void {
@@ -28,7 +32,7 @@ function pruneToasts(expired: boolean): void {
   const list = [...toastRoot.children] as HTMLElement[];
   const now = Date.now();
   for (const t of list) if (expired && Number(t.dataset.until) <= now) t.remove();
-  const left = [...toastRoot.children] as HTMLElement[];
+  const left = ([...toastRoot.children] as HTMLElement[]).filter((t) => !t.classList.contains('note')); // 맨 윗줄의 내 소식(.note)은 개수에 넣지 않는다
   for (let i = 0; i < left.length - TOAST_MAX; i++) left[i].remove();
 }
 
@@ -47,18 +51,19 @@ export function banner(title: string, sub = '', ms = 4500): void {
 }
 
 // ---------- 낚시·채집 한 줄 알림 ----------
-// 잡음·놓침·꽝·미끼 같은 내 낚시·채집 소식은 채팅 대신 화면 아래 가운데 한 자리에만 뜬다 (새 것이 오면 교체, 겹치지 않음). 기록은 도감의 "내 기록" 탭
+// 잡음·놓침·꽝·미끼·나무 같은 내 낚시·채집 소식은 채팅 대신 화면 왼쪽 위(토스트 자리)의 맨 윗줄 한 자리에만 뜬다 (새 것이 오면 교체, 쌓이지 않음). 기록은 도감의 "내 기록" 탭
+// 2026-11-18: 화면 아래 가운데에서 옮겼다 (사용자 요청. 남이 낚은 소식이 뜨던 자리에 내 것이 뜬다. 아래쪽 F 안내도 가리지 않는다)
 let noteEl: HTMLElement | null = null;
 let noteTimer = 0;
+const NOTE_MS = 2500;
 export function catchNote(text: string): void {
-  if (!noteEl) { noteEl = el('div', { id: 'catch-note' }); document.body.append(noteEl); }
+  const root = toastHome();
+  if (!noteEl) noteEl = el('div', { class: 'toast note' });
   noteEl.textContent = text;
-  noteEl.classList.remove('on');
-  void noteEl.offsetWidth; // 애니메이션 재시작
-  noteEl.classList.add('on');
-  document.body.classList.add('note-on'); // 같은 자리의 상호작용 안내(#hint)는 그동안 숨긴다
+  noteEl.dataset.until = String(Date.now() + NOTE_MS); // 폰에서 다른 앱에 갔다 오면 타이머가 멈춰 있다: 돌아올 때 지난 것은 pruneToasts 가 지운다
+  noteEl.remove(); root.prepend(noteEl); // 다시 끼워 넣어 등장 애니메이션을 처음부터
   clearTimeout(noteTimer);
-  noteTimer = window.setTimeout(() => { noteEl?.classList.remove('on'); document.body.classList.remove('note-on'); }, 2500);
+  noteTimer = window.setTimeout(() => noteEl?.remove(), NOTE_MS);
 }
 
 // ---------- 모달 ----------

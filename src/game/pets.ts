@@ -38,10 +38,20 @@ export class Pets {
         s.fromX = cur.x; s.fromY = cur.y; s.x = tx; s.y = ty; s.moveStart = now; s.moveDur = Math.max(80, o.moveDur);
         if (tx > cur.x + 0.01) s.dir = 2; else if (tx < cur.x - 0.01) s.dir = 1; else s.dir = ty > cur.y ? 0 : 3;
       }
-    } else if (!o.moving && Math.abs(o.x - s.x) + Math.abs(o.y - s.y) > 3) {
-      // 주인이 멀리 있다(순간이동·리스폰): 바로 뒤에 붙는다
-      const [dx, dy] = dirVec(o.dir);
-      s.x = o.x - dx; s.y = o.y - dy; s.fromX = s.x; s.fromY = s.y; s.moveStart = 0; s.dir = o.dir;
+    } else if (!o.moving) {
+      const gx = o.x - s.x, gy = o.y - s.y, far = Math.abs(gx) + Math.abs(gy);
+      if (far > 3) {
+        // 주인이 멀리 있다(순간이동·리스폰): 바로 뒤에 붙는다
+        const [dx, dy] = dirVec(o.dir);
+        s.x = o.x - dx; s.y = o.y - dy; s.fromX = s.x; s.fromY = s.y; s.moveStart = 0; s.dir = o.dir;
+      } else if (far > 1) {
+        // 주인이 두세 칸을 한 번에 옮겨졌다(갈고리에 끌려감): 펫이 옛 자리에 남지 않고 주인 옆 칸으로 달려온다 (2026-11-18)
+        const cur = this.pos(s, now);
+        const alongX = Math.abs(gx) >= Math.abs(gy);
+        s.fromX = cur.x; s.fromY = cur.y; s.x = alongX ? o.x - Math.sign(gx) : o.x; s.y = alongX ? o.y : o.y - Math.sign(gy);
+        s.moveStart = now; s.moveDur = 120 * far;
+        s.dir = alongX ? (gx > 0 ? 2 : 1) : (gy > 0 ? 0 : 3);
+      }
     }
     const p = this.pos(s, now);
     const moving = s.moveStart > 0;

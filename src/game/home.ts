@@ -366,6 +366,8 @@ export class HomeMgr {
       else if (!this.eating && Date.now() - this.sleepAt >= SLEEP_MS) void this.eat();
     }
     if (this.pending > 0 && Date.now() - this.lastFlush >= STORE_FLUSH_MS) void this.flush();
+    // 하던 도끼질은 화면이 뒤에 있어도(다른 창·탭을 보는 중) 이어진다 (2026-11-18 사용자 요청. 화면 갱신이 도는 동안에는 world 의 tick 이 먼저 처리해 여기서는 할 일이 없다)
+    if (this.chop) this.tick(performance.now());
   }
 }
 

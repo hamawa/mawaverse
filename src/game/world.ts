@@ -43,7 +43,7 @@ import { HomeMgr, homeOpen } from './home';
 import { openHome, openFurniturePicker } from './homeui';
 import { TreeMgr } from './trees';
 import { type HomeData, homeTier, furnitureOf, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
-import { fishById, fmtSize } from '../shared/fish';
+import { fishById, fmtSize, bobberNear } from '../shared/fish';
 import { winterFishById } from '../shared/winter';
 import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
@@ -395,7 +395,7 @@ export class World implements WorldCtx {
     this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
     this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.canvasHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques() });
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques() });
   }
 
   // 마피아 미션 자리 표시 (2026-11-10): 시민·유령은 내 미완료 미션(금색 테두리 + 화면 밖 화살표), 마피아는 모든 자리(흐린 테두리)
@@ -431,7 +431,7 @@ export class World implements WorldCtx {
         uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: rp.x, y: rp.y, dir: rp.st.d ?? 0, moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
         pose: rp.pose, poseAt: rp.poseAt, emoteId: rp.emoteId, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
-        fishing: rp.st.f ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
+        fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
         hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null,
         pet: this.pets.view(rp.uid, rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0, !!rp.st.nr),
         ghost, mining: !!rp.st.mn, snowBrokenAt: rp.st.sn || 0,
@@ -890,7 +890,7 @@ export class World implements WorldCtx {
     if (this.mine.target()) return { x: me.x, y: me.y - 1, text: 'F 금 캐기', kind: 'mine' };
     // 내 집 (2026-11-17): 하던 도끼질·겨울잠 안내가 먼저, 그다음 침대·창고 상자 (주인만). 나무 캐기 시작은 맨 아래 (다른 F 가 전부 먼저)
     const cv = this.home.chopView();
-    if (cv) return { x: me.x, y: me.y - 1, text: `🌳 나무 캐는 중… ${cv.done}/${cv.total} (움직이면 취소)`, kind: 'chopping' };
+    if (cv) return { x: me.x, y: me.y - 1, text: '', kind: 'chopping' }; // 안내는 띄우지 않는다 (2026-11-18 사용자 요청. 몇 번째인지는 왼쪽 위 알림에 나온다). 치는 동안 다른 F 를 막는 것은 그대로
     if (this.home.sleeping) { const s = Math.ceil(this.home.sleepLeftMs() / 1000); return { x: me.x, y: me.y - 1, text: `😴 겨울잠 중… ${Math.floor(s / 60)}:${s % 60 < 10 ? '0' : ''}${s % 60} (움직이면 깨요)`, kind: 'sleeping' }; }
     const hf = this.home.facing();
     if (hf === 'bed') return { x: me.x, y: me.y - 1, text: `F 겨울잠 (${SLEEP_MS / 60000}분)`, kind: 'bed' };
@@ -925,6 +925,8 @@ export class World implements WorldCtx {
     if (tree) return { x: tree.x, y: tree.y, text: `F 나무 캐기 (${CHOP_SWINGS}번)`, kind: 'chop' };
     return null;
   }
+  // 화면에 그릴 안내: 글이 없는 것(나무 캐는 중)은 그리지 않는다
+  private shownHint(): ReturnType<World['canvasHint']> { const ch = this.canvasHint(); return ch && ch.text ? ch : null; }
   private updateHint(): void {
     let hint: string | null = null;
     const me = this.me;
@@ -933,7 +935,7 @@ export class World implements WorldCtx {
       const z = this.roomMgr.zoneOf(me.roomId);
       const n = rs?.members ? Object.keys(rs.members).length : 1;
       hint = this.hud.mobile ? null : `${z?.label || '방'} ${n}/${z?.cap || '?'} · 오른쪽 판에서 배팅 · 나가려면 판의 나가기${me.roomId === 'poker' ? '' : ' (F 로 판 열기/닫기)'}`; // 모바일은 판이 화면을 덮는다
-    } else { const ch = this.canvasHint(); if (ch) hint = ch.text; }
+    } else { const ch = this.canvasHint(); if (ch && ch.text) hint = ch.text; }
     if (hint !== this.lastHint) { this.lastHint = hint; this.hud.setHint(hint); }
   }
   // 방 안에 있는 동안 그 방의 판을 띄운다 (나가면 닫힘). F 로 잠깐 닫을 수 있다. 방 id 마다 판이 정해져 있다: casino 경마장 · slots 슬롯 방 · poker 포커 방

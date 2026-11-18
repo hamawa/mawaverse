@@ -9,7 +9,7 @@ import type { RodFamily } from '../shared/shop';
 import type { Net } from './net';
 import type { WorldCtx } from './state';
 import {
-  pickFish, rollSize, rollKingSize, fmtSize, reactWindowMs, fishPoints, weekKey, fishById, setFishDefs, defsFromDb, RARITY_NAME, ANNOUNCE_RARITY,
+  pickFish, rollSize, rollKingSize, fmtSize, reactWindowMs, fishPoints, weekKey, fishById, setFishDefs, defsFromDb, RARITY_NAME, ANNOUNCE_RARITY, BOBBER_FIX_GAP_MS,
   BITE_WAIT_MIN_MS, BITE_WAIT_MAX_MS, type FishDef, type FishBookEntry, type FishBest, type FishFeed,
 } from '../shared/fish';
 import { MYTHIC } from '../shared/collection';
@@ -50,6 +50,10 @@ export class Fishing {
   // 지금 presence(players/{uid}/f)에 올라가 있는 찌. 자동 낚시 중에는 잡을 때마다 거두고 다시 던지는 걸 알리지 않고 그대로 둔다:
   // 낚시의 90% 가 자동이라, 매번 알리면 그것만으로 전체 전송의 5분의 1 이었다 (2026-11-10). 남의 화면에서는 찌가 계속 떠 있다
   private shown: string | null = null;
+  private shownAt: { x: number; y: number; auto: boolean; rod: number; stars: number } | null = null; // shown 의 내용 (어긋났을 때 다시 쓰려고)
+  private from = { x: 0, y: 0 }; // 던질 때 서 있던 자리
+  private drift = 0;             // 서버의 내 찌가 내 상태와 다르게 보인 횟수 (autoTick 마다)
+  private lastFix = -1e9;
   // 종류별 서버 최고 기록 중 내가 마지막으로 본 값: 이보다 클 때만 트랜잭션을 건다 (안 그러면 잡을 때마다 왕복 3번을 쓰고 취소된다)
   private bestSeen = new Map<string, number>();
 
@@ -64,10 +68,9 @@ export class Fishing {
       const e = s.val() as FishFeed;
       const f = fishById(e.f) ?? winterFishById(e.f);
       if (!f) return;
-      // 남의 대어 소식은 채팅에 안 남기고 전설만 모두에게 토스트 한 줄 (2026-11-09). 신화는 모두에게 큰 배너
+      // 남의 대어 소식: 전설 토스트는 없앴다 (2026-11-18 사용자 요청: 누가 무엇을 낚았다는 알림은 띄우지 않는다). 신화만 모두에게 큰 배너
       const crown = e.k ? '👑 킹 사이즈 ' : '';
       if (f.rarity >= MYTHIC) this.w.banner(`${f.icon} ${e.n} 님이 신화 등급 ${f.name}을(를) 낚았습니다!`, `${crown}${fmtSize(e.s)} · 서버 전체에 단 하나의 순간`);
-      else if (f.rarity >= 3) this.w.toast(`🎣 ${e.n} 님이 ${RARITY_NAME[f.rarity]} 등급 ${crown}${f.name}(${fmtSize(e.s)})를 낚았습니다!`);
     });
   }
   stop(): void {
@@ -104,6 +107,7 @@ export class Fishing {
     if (fam === 'ice' && !rodTierOf(this.w.profile.own, 'ice')) { if (!auto) this.w.toast('겨울 낚시터에서는 얼음 낚싯대가 있어야 낚을 수 있어요. 상점 장비 탭에서 살 수 있습니다.', true); return false; }
     this.castFamily = fam;
     this.target = t;
+    this.from = { x: this.w.me.x, y: this.w.me.y };
     const wallet = this.w.wallet;
     // 미끼: 가지고 있고 자동 사용이 켜져 있으면 하나 쓴다
     const baited = wallet.bait > 0 && wallet.baitOn;
@@ -131,6 +135,7 @@ export class Fishing {
   // 자동 낚시 버프 중: 물가에 서 있으면 알아서 던지고, 입질·회수 시각이 지났으면 처리한다 (타이머가 늦어도 여기서 잡힌다)
   private autoTick(): void {
     if (this.w.switching) return; // 포탈로 맵을 옮기는 중 (목적지를 읽는 동안 옛 맵에 다시 던지지 않게). 끝나면 다음 주기에 새 맵 기준으로
+    this.guard();
     const auto = this.w.wallet.autoReelActive();
     // 띄워 둔 찌 정리: 자동 버프가 끝났거나, 자리를 뜨거나 돌아서서 다음에 던질 곳이 달라졌으면 거둔다
     if (this.state === 'idle' && this.shown && !this.saving) { const t = auto ? this.targetTile() : null; if (!t || t.x !== this.target.x || t.y !== this.target.y) this.show(null); }
@@ -139,6 +144,20 @@ export class Fishing {
     if (this.state === 'cast' && this.biteAt && now >= this.biteAt) this.bite();
     else if (this.state === 'bite' && this.catchAt && now >= this.catchAt) void this.catchFish();
     else if (this.state === 'idle' && !this.saving && now >= this.autoNextCast && this.targetTile()) this.cast(true);
+  }
+
+  // 찌 지킴이 (2026-11-18, 제보: 물에서 멀리 떨어진 사람의 낚싯대가 물까지 뻗어 보였다). 0.5초마다, 뒤쪽 탭에서도 두 가지를 본다
+  // ① 던져 둔 채로 서 있는 자리가 바뀌었으면 거둔다. 걸음·밀림은 world 가 거두지만, 그 길을 거치지 않고 자리가 바뀌는 경우(순간이동을 기다리는 사이 자동으로 다시 던진 찌 등)도 여기서 잡힌다
+  // ② 서버에 올라가 있는 내 찌(net.seenFishing)가 내가 띄운 것과 1초 넘게 다르면 다시 쓴다: 쓰기가 거부됐거나, 재등록으로 노드가 새로 쓰이며 찌가 빠졌을 때. 다시 쓰기는 BOBBER_FIX_GAP_MS 에 한 번까지만
+  private guard(): void {
+    const me = this.w.me;
+    if (this.active && (me.x !== this.from.x || me.y !== this.from.y)) this.cancel();
+    const seen = this.net.seenFishing(), s = this.shownAt;
+    if (seen === undefined || seen === (s ? `${s.x},${s.y}` : null)) { this.drift = 0; return; }
+    const now = performance.now();
+    if (++this.drift < 3 || now - this.lastFix < BOBBER_FIX_GAP_MS) return;
+    this.drift = 0; this.lastFix = now;
+    this.net.setFishing(s ? { x: s.x, y: s.y } : null, s?.auto, s?.rod, s?.stars);
   }
 
   private bite(): void {
@@ -173,6 +192,7 @@ export class Fishing {
     const key = t ? `${t.x},${t.y},${auto ? 1 : 0},${rod},${stars}` : null;
     if (key === this.shown) return;
     this.shown = key;
+    this.shownAt = t ? { x: t.x, y: t.y, auto, rod, stars } : null;
     this.net.setFishing(t, auto, rod, stars);
   }
 

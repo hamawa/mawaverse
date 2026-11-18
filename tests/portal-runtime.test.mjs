@@ -144,7 +144,7 @@ function fishingRig() {
     catchNote() {}, toast() {},
   };
   const writes = [];
-  const net = { setFishing: (t) => writes.push(t), stat() {} };
+  const net = { setFishing: (t) => writes.push(t), seenFishing: () => undefined, stat() {} };
   return { w, writes, fishing: new Fishing(w, net) };
 }
 

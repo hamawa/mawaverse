@@ -8,7 +8,7 @@ import { el, escapeHtml, fmtDateTime, fmtBytes, dayKey, nickKey, safeKey, idKey,
 import { APP_NAME, CLIENT_VERSION } from '../shared/config';
 import type { PlayerState, UserProfile, ServerConfig, RoomState, ConnLog, ChatLog, Post } from '../shared/types';
 import { buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, sanitizeMap, labelAt, G, G_GOLD, O, GROUND_NAMES, OBJECT_NAMES, type MapData, type Zone, type PortalDest, emptyMap, validateZone, isReservedMapId, portalDests, PORTAL_MAX_DESTS } from '../game/map';
-import { isMapId, playerMapId, MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID } from '../shared/maps';
+import { isMapId, isHomeMapId, homeOwnerOf, playerMapId, MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID } from '../shared/maps';
 import { MAP_INFO } from '../game/portal';
 import { groundTile, objectSprite } from '../game/tiles';
 import { catLabel } from '../game/board';
@@ -256,9 +256,21 @@ function tabDash(main: HTMLElement): void {
     for (const p of Object.values(players)) ensureView(playerMapId(p));
     for (const v of views.values()) drawView(v);
   };
+  // 집 안에 있는 사람 (맵 id 가 h-{주인 uid}): 누구 집인지 이름으로 보여 준다 (2026-11-18. 전에는 맵 id 가 그대로 찍혔다). 주인이 접속해 있지 않으면 닉네임을 한 번 읽어 온다
+  const homeNicks = new Map<string, string>();
+  const homeName = (uid: string, id: string): string => {
+    const owner = homeOwnerOf(id);
+    if (owner === uid) return '🏠 자기 집';
+    if (!players[owner] && !homeNicks.has(owner)) {
+      homeNicks.set(owner, '');
+      get(ref(db, `users/${owner}/nick`)).then((s) => { homeNicks.set(owner, String(s.val() || '')); renderPlayers(); }).catch(() => {});
+    }
+    return `🏠 ${players[owner]?.n || homeNicks.get(owner) || '다른 사람'}의 집`;
+  };
   // 접속자 표의 위치: 기본 맵이 아니면 맵 이름을 앞에 붙인다
-  const whereOf = (p: PlayerState): string => {
+  const whereOf = (uid: string, p: PlayerState): string => {
     const id = playerMapId(p), v = views.get(id);
+    if (isHomeMapId(id)) return `[${homeName(uid, id)}] (${p.x}, ${p.y})`;
     const label = (v && labelAt(v.map, p.x, p.y)) || '';
     if (id === MAIN_MAP_ID) return `${label || '-'} (${p.x}, ${p.y})`;
     const name = mapName(id);
@@ -299,7 +311,7 @@ function tabDash(main: HTMLElement): void {
     const tb = el('tbody');
     for (const [uid, p] of Object.entries(players).sort((a, b) => (a[1].j || 0) - (b[1].j || 0))) {
       const tr = el('tr');
-      tr.append(el('td', { text: p.n + (uid === myUid ? ' (나)' : '') }), el('td', { text: whereOf(p) }), el('td', { text: p.pt ? `${itemById(p.pt)?.icon || p.pt} Lv.${petLevel(p.pl || 0)}` : '-' }), el('td', { text: p.r || '-' }), el('td', { text: p.j ? fmtDateTime(p.j) : '-' }));
+      tr.append(el('td', { text: p.n + (uid === myUid ? ' (나)' : '') }), el('td', { text: whereOf(uid, p) }), el('td', { text: p.pt ? `${itemById(p.pt)?.icon || p.pt} Lv.${petLevel(p.pl || 0)}` : '-' }), el('td', { text: p.r || '-' }), el('td', { text: p.j ? fmtDateTime(p.j) : '-' }));
       const td = el('td');
       const k = el('button', { class: 'btn small', text: '강퇴' }); k.onclick = async () => { if (await confirmModal(`${p.n} 님을 강퇴할까요?`)) { await kickUser(uid); toast('강퇴했습니다.'); } };
       const b = el('button', { class: 'btn small danger', text: '차단' }); b.onclick = async () => { if (await confirmModal(`${p.n} 님을 차단할까요? 다시 접속할 수 없게 됩니다.`)) { await banUser(uid); toast('차단했습니다.'); } };

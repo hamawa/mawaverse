@@ -76,6 +76,9 @@ export class Net {
   // 눈사람 벌칙 중이면 갑옷·펫 방어가 없다 (World.guardBroken 과 같은 뜻. 월드가 못 알려도 받는 쪽에서 한 번 더 막는다)
   private snowOpen(): boolean { return snowActive(this.w.snowBrokenAt, serverNow()); }
   private guardOpen(): boolean { return this.snowOpen() || this.w.guardBroken(); }
+  // 서버에 올라가 있는 내 찌 (내 presence 노드의 f, "x,y"). 내 노드가 없으면(재등록 전) undefined. 낚시가 자기 상태와 견줘 어긋나면 다시 쓴다 (fishing.ts guard)
+  private myF: string | null | undefined = undefined;
+  seenFishing(): string | null | undefined { return this.myF; }
   private pendingSteps = 0;  // 서버 답을 기다리는 걸음 수
   private changing = false;  // 맵 이동 쓰기 중 (재등록이 옛 맵 상태로 덮어쓰지 않게)
   // 지금 칸의 occ 가 내 것인가. 입장·재등록 때 자리를 못 잡았으면(남이 먼저) false: 그 칸을 지우려 하면 규칙이 쓰기를 통째로 거부한다
@@ -209,7 +212,7 @@ export class Net {
     const w = this.w;
     const playersRef = ref(db, 'players');
     const apply = (uid: string, st: PlayerState) => {
-      if (uid === w.uid) return;
+      if (uid === w.uid) { this.myF = st?.f ? `${st.f.x},${st.f.y}` : null; return; }
       if (!st || typeof st.x !== 'number' || typeof st.n !== 'string') return; // 나간 사람에게 날아간 밀치기·말랑이가 만든 반쪽 노드는 무시 (정리는 sweepStale 이)
       let rp = w.players.get(uid);
       const now = performance.now();
@@ -252,7 +255,7 @@ export class Net {
     this.unsubs.push(onChildChanged(playersRef, (s) => apply(s.key!, s.val() as PlayerState)));
     this.unsubs.push(onChildRemoved(playersRef, (s) => {
       const uid = s.key!;
-      if (uid === w.uid) { this.reclaim(); return; }
+      if (uid === w.uid) { this.myF = undefined; this.reclaim(); return; }
       const rp = w.players.get(uid);
       if (!rp) return;
       w.players.delete(uid);

@@ -9,6 +9,9 @@ export type { Rarity, PickOpt } from './collection';
 export const REACT_MS = [1200, 900, 600, 400, 400] as const;
 export const JUNK_REACT_MS = 1500;
 // 던진 뒤 입질까지 기다리는 시간 범위(ms)
+// 찌는 낚는 사람의 바로 옆 칸(상하좌우)에만 있을 수 있다. 서 있는 자리와 떨어진 찌는 그리지 않는다 (2026-11-18: 멀리 간 사람의 낚싯대가 물까지 뻗어 보이던 일)
+export function bobberNear(px: number, py: number, bx: number, by: number): boolean { return Math.abs(px - bx) + Math.abs(py - by) === 1; }
+export const BOBBER_FIX_GAP_MS = 10000; // 서버에 올라간 내 찌가 어긋났을 때 다시 쓰는 간격 (fishing.ts guard)
 export const BITE_WAIT_MIN_MS = 3000;
 export const BITE_WAIT_MAX_MS = 10000;
 // 영웅 등급 이상을 낚으면 모두에게 공지

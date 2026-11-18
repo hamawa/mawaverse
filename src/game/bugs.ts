@@ -37,7 +37,7 @@ export class BugHunt {
       const f = bugColl.byId(e.f);
       if (!f) return;
       if (f.rarity >= MYTHIC) this.w.banner(`${f.icon} ${e.n} 님이 신화 등급 ${f.name}을(를) 잡았습니다!`, `${fmtBugSize(e.s)} · 서버 전체에 단 하나의 순간`); // 신화는 모두에게 큰 배너
-      else if (f.rarity >= 3) this.w.toast(`🐛 ${e.n} 님이 ${RARITY_NAME[f.rarity]} 등급 ${f.name}(${fmtBugSize(e.s)})를 잡았습니다!`); // 전설만 토스트, 채팅에는 안 남김 (2026-11-09)
+      // 전설 토스트는 없앴다 (2026-11-18 사용자 요청). 신화 배너만 남는다
     });
     this.lastSpawn = performance.now() - BUG_SPAWN_MS + 1500; // 입장 1.5초 뒤 첫 벌레
   }

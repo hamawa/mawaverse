@@ -48,6 +48,14 @@ export function drawCreature(p: CreatureParams, dir: Dir, frame: number, pose: P
     if (side) { b.rect(19, 24 + bob, 3, 2, color); b.rect(21, 20 + bob, 2, 5, color); if (tip) b.rect(21, 20 + bob, 2, 2, tip); }
     if (back) { b.rect(11, 28 + bob, 2, 5, color); b.rect(12, 26 + bob, 2, 3, color); if (tip) b.rect(12, 26 + bob, 2, 2, tip); }
   };
+  // 달걀 한 덩어리 (2026-11-18): 가장 넓은 줄(cy)에서 위쪽은 길게, 아래쪽은 짧게 좁아지는 매끈한 곡선 하나. 가운데는 눈·입과 같은 11|12 칸 사이
+  const egg = (cy: number, rx: number, up: number, down: number, color: string) => {
+    for (let y = cy - up + 1; y < cy + down; y++) {
+      const t = (y - cy) / (y < cy ? up : down);
+      const half = Math.max(1, Math.round(rx * Math.sqrt(1 - t * t)));
+      b.hline(12 - half, y, half * 2, color);
+    }
+  };
   const headBody = (headColor = c1, bodyColor = c1) => {
     b.ellipse(12, by + 6, 7, 6, bodyColor);
     b.circle(12, hy + 8, 8, headColor);
@@ -314,20 +322,19 @@ export function drawCreature(p: CreatureParams, dir: Dir, frame: number, pose: P
     }
     case 'boiledegg': {
       // 삶은 계란 (2026-11-17 건의 반영): 흰 달걀, 배에 노른자가 비쳐 보인다. c1 흰자 · c2 노른자 · c3 그늘
-      b.ellipse(12, hy + 18, 8, 10, c1); b.ellipse(12, hy + 11, 6.5, 7, c1);
-      b.ellipse(12, hy + 26, 6, 2, c3);
-      b.px(8, hy + 7, '#ffffff'); b.px(8, hy + 8, '#ffffff'); b.px(9, hy + 6, '#ffffff');
-      if (!back) { b.circle(12, hy + 23, 3.5, c2); b.px(11, hy + 22, '#ffe59a'); }
+      // 2026-11-18: 타원 둘을 겹친 몸이 울퉁불퉁해 보여서 매끈한 달걀 한 덩어리로 다시 그렸다 (아래 두 줄만 그늘)
+      egg(hy + 19, 9, 13, 10, c3); egg(hy + 19, 9, 13, 8, c1);
+      b.px(7, hy + 11, '#ffffff'); b.px(7, hy + 12, '#ffffff'); b.px(8, hy + 10, '#ffffff');
+      if (!back) { b.ellipse(11.5, hy + 23.5, 3, 2.5, c2); b.px(10, hy + 22, '#ffe59a'); }
       eyes(9, hy + 13, 14, '#222'); mouth(11, hy + 17, shade(c3, -0.25)); blush(hy + 15);
       feet(shade(c3, -0.15));
       break;
     }
     case 'smokedegg': {
       // 훈제 계란: 갈색으로 익은 달걀, 윤기와 짙은 반점. c1 껍데기 · c2 윤기 · c3 반점·그늘
-      b.ellipse(12, hy + 18, 8, 10, c1); b.ellipse(12, hy + 11, 6.5, 7, c1);
-      b.ellipse(12, hy + 26, 6, 2, c3);
-      b.ellipse(8, hy + 9, 1.5, 2.5, c2);
-      for (const [x, y] of [[15, hy + 7], [17, hy + 14], [6, hy + 19], [15, hy + 24], [9, hy + 25], [18, hy + 21]]) b.px(x, y, c3);
+      egg(hy + 19, 9, 13, 10, c3); egg(hy + 19, 9, 13, 8, c1);
+      b.ellipse(7.5, hy + 12, 1, 2.5, c2); b.px(9, hy + 9, c2);
+      for (const [x, y] of [[16, hy + 11], [18, hy + 17], [5, hy + 20], [15, hy + 24], [8, hy + 25]]) b.px(x, y, c3);
       eyes(9, hy + 13, 14, '#222'); mouth(11, hy + 17, c3); blush(hy + 15);
       feet(c3);
       break;
