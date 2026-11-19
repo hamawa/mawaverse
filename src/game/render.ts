@@ -4,7 +4,8 @@ import { wrapText } from '../shared/util';
 import type { Engine } from './engine';
 import { G, O, G_DANCE, TALL_OBJECTS, waterDepth, type MapData, type Zone } from './map';
 import type { DayTint } from '../shared/daylight';
-import { groundTile, objectSprite } from './tiles';
+import { groundTile, objectSprite, seasonTree } from './tiles';
+import { PARROT_ID, parrotEcho } from '../shared/shop';
 import { goldNugget, drawGoldSparks } from './goldart';
 import { getSprite, FRAME_W, FRAME_H, type Pose } from './sprites';
 import type { FishingView } from './fishing';
@@ -72,6 +73,7 @@ export interface RenderState {
   plaques?: { x: number; y: number; icon: string; text: string }[]; // 집 벽에 건 물고기 박제 (타일 좌표)
   roamers?: PetView[]; // 집 안을 돌아다니는 펫 (homepets.ts)
   night?: DayTint | null; // 낮밤 덧칠 (바깥 맵만. shared/daylight.ts)
+  treeLook?: 'autumn' | 'blossom' | null; // 계절 나무: 단풍·벚꽃 (shared/season.ts. 소나무는 그대로)
   rain?: { level: number; snow: boolean } | null; // 비 (0~1. 겨울 맵에서는 눈으로 그린다. shared/weather.ts)
   club?: { x: number; y: number; w: number; h: number; bpm: number; dancers: PetView[] } | null; // 클럽: 춤추는 바닥의 자리, 박자, 춤추는 펫 (어둡게 깔고 색 조명을 돌린다)
 }
@@ -147,7 +149,8 @@ export function render(eng: Engine, st: RenderState): void {
     const raw = map.objects[y * map.w + x];
     if (!raw) continue;
     const id = st.objAt ? st.objAt(x, y, raw) : raw;
-    const spr = objectSprite(id);
+    const spr = id === O.TREE && st.treeLook ? seasonTree(st.treeLook, (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0) // 계절 나무: 칸마다 빛깔이 조금 다르다
+      : objectSprite(id, map.dirs?.[y * map.w + x] ?? 0); // 집 안의 돌려 놓은 가구는 그 방향 그림으로
     if (!spr) continue;
     const tall = TALL_OBJECTS.has(id);
     items.push({ sortY: y + 0.9, order: 0, draw: () => ctx.drawImage(spr.cv, x * TILE, y * TILE - (tall ? TILE : 0)) });
@@ -400,8 +403,27 @@ export function render(eng: Engine, st: RenderState): void {
       ctx.globalAlpha = 1;
     }
     // 말풍선
-    if (e.bubble && st.now - e.bubble.at < BUBBLE_MS) drawBubble(ctx, e.bubble, sx, top - 2, s);
+    const box = e.bubble && st.now - e.bubble.at < BUBBLE_MS ? drawBubble(ctx, e.bubble, sx, top - 2, s) : null;
+    // 앵무새 (2026-11-19): 주인이 말하면 조금 뒤에 끝말을 따라 한다. 이 화면에 뜬 말풍선에서 만드는 것이라 서버로 가는 것은 없다 (귓속말은 따라 하지 않는다)
+    if (box && e.pet?.id === PARROT_ID && e.bubble && e.bubble.kind !== 'w') {
+      const age = st.now - e.bubble.at;
+      const echo = age > PARROT_DELAY_MS && age < PARROT_DELAY_MS + PARROT_ECHO_MS ? parrotEcho(e.bubble.text) : '';
+      // 주인 말풍선의 오른쪽 위에 작은 딱지로 붙인다 (앵무새는 주인 뒤·옆 어디에나 있어서, 앵무새 머리 위에 띄우면 주인 말풍선과 겹친다)
+      if (echo) drawEcho(ctx, `🦜 ${echo}`, box.x + box.w - 6, box.y + 4, s);
+    }
   }
+}
+const PARROT_DELAY_MS = 900, PARROT_ECHO_MS = 2600;
+// 앵무새의 작은 말풍선: (left, bottom) 이 왼쪽 아래 모서리
+function drawEcho(ctx: CanvasRenderingContext2D, text: string, left: number, bottom: number, s: number): void {
+  const size = 10 + (s >= 2 ? 1 : 0);
+  ctx.font = `${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
+  const w = Math.min(150, ctx.measureText(text).width) + 10, h = size + 7;
+  const x = left, y = bottom - h;
+  ctx.fillStyle = 'rgba(240,255,240,0.96)'; ctx.strokeStyle = '#3fbf5a'; ctx.lineWidth = 1.2;
+  roundRect(ctx, x, y, w, h, 5); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#1f5c2e'; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  ctx.fillText(text, x + 5, y + 3, 150);
 }
 
 // ---- 눈덩이·눈사람 (픽셀 원: 가로줄 하나씩 채운다) ----
@@ -512,14 +534,16 @@ function drawRain(eng: Engine, now: number, level: number, snow: boolean): void 
   const frac = (v: number) => v - Math.floor(v);
   ctx.fillStyle = snow ? `rgba(220,230,245,${0.06 * level})` : `rgba(50,70,100,${0.12 * level})`;
   ctx.fillRect(0, 0, W, H);
-  const n = Math.round((snow ? 70 : 110) * level * Math.max(1, (W * H) / 480000));
+  const n = Math.round(110 * level * Math.max(1, (W * H) / 480000));
   if (snow) {
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    // 눈송이: 2~4px. 밝은 잔디·광장 돌 위에서도 보이게 옅은 그림자를 먼저 깐다 (2026-11-19: 눈이 오는 철에는 어느 맵에서나 내린다)
+    const flakes: [number, number, number][] = [];
     for (let i = 0; i < n; i++) {
       const sp = 0.03 + frac(i * 0.137) * 0.03;
-      const x = frac(i * 0.6180339 + Math.sin(now / 1700 + i) * 0.01) * W, y = frac(i * 0.3819 + (now * sp) / H) * H, r = 1 + frac(i * 0.71) * 1.5;
-      ctx.fillRect(Math.round(x), Math.round(y), r, r);
+      flakes.push([Math.round(frac(i * 0.6180339 + Math.sin(now / 1700 + i) * 0.01) * W), Math.round(frac(i * 0.3819 + (now * sp) / H) * H), Math.round(2 + frac(i * 0.71) * 2.2)]);
     }
+    ctx.fillStyle = 'rgba(60,80,110,0.3)'; for (const [x, y, r] of flakes) ctx.fillRect(x + 1, y + 1, r, r);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)'; for (const [x, y, r] of flakes) ctx.fillRect(x, y, r, r);
     return;
   }
   ctx.strokeStyle = 'rgba(200,222,255,0.42)'; ctx.lineWidth = 1;
@@ -712,7 +736,7 @@ const BUBBLE_STYLE: Record<BubbleKind, { fill: string; stroke: string; text: str
   w: { fill: '#f3e9ff', stroke: '#6b3fa0', text: '#3b1f5e' },
 };
 
-export function drawBubble(ctx: CanvasRenderingContext2D, b: Bubble, cx: number, bottom: number, s: number): void {
+export function drawBubble(ctx: CanvasRenderingContext2D, b: Bubble, cx: number, bottom: number, s: number): { x: number; y: number; w: number } {
   const st = BUBBLE_STYLE[b.kind];
   const size = 12 + (s >= 2 ? 1 : 0);
   ctx.font = `${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
@@ -734,6 +758,7 @@ export function drawBubble(ctx: CanvasRenderingContext2D, b: Bubble, cx: number,
   ctx.setLineDash([]);
   ctx.fillStyle = st.text; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   lines.forEach((l, i) => ctx.fillText(l, cx, y + 5 + i * lh));
+  return { x, y, w };
 }
 
 // 방(카지노) 간판: 이름 · 인원/정원, 안에 있는 사람들

@@ -2,7 +2,7 @@ import { ref, get } from 'firebase/database';
 import { db } from '../firebase/app';
 import { el } from '../shared/util';
 import { modal, withCloseX, confirmModal } from './ui';
-import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, GUEST_MAX, TROPHY_MIN_RARITY } from '../shared/home';
+import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, GUEST_MAX, TROPHY_MIN_RARITY, furnitureOf, TURN_NAMES, TURN_ORDER } from '../shared/home';
 import { fishById, fmtSize, RARITY_NAME, type FishBookEntry } from '../shared/fish';
 import { winterFishById } from '../shared/winter';
 import { itemById, priceOf, fmtCoins, GOLD_COST } from '../shared/shop';
@@ -238,6 +238,47 @@ export function openFurniturePicker(w: World): void {
   const m = modal('🛋 가구 놓기', body, [{ label: '닫기', onClick: () => {} }], false, () => { off(); picker = null; close = null; });
   withCloseX(m);
   picker = m; close = m.close;
+}
+
+// 놓은 가구 손보기 (2026-11-19, 사용자 요청): 꾸미기 모드에서 돌릴 수 있는 가구를 보고 F. 어느 쪽을 볼지 고르거나 치운다.
+// 창은 화면 아래쪽에 띄우고 뒤를 어둡게 덮지 않는다: 가운데에 뜨면 바로 옆의 가구를 가려 돌린 모습이 안 보인다. 방향을 골라도 창은 그대로 둔다 (여러 번 돌려 보게)
+const TURN_ARROW = ['↓', '←', '→', '↑'];
+export function openFurnitureEdit(w: World, x: number, y: number, o: number): void {
+  if (picker) return;
+  const h = w.home;
+  const body = el('div', { style: 'min-width:240px;line-height:1.5' });
+  let close: (() => void) | null = null;
+  let busy = false;
+  const render = (): void => {
+    if (h.decoAt(x, y) !== o) { close?.(); return; } // 그새 치워졌다
+    body.innerHTML = '';
+    const cur = h.turnAt(x, y);
+    body.append(el('div', { style: 'opacity:.8;font-size:12px;margin-bottom:6px', text: '어느 쪽을 보게 할까요?' }));
+    const box = el('div', { style: 'display:grid;grid-template-columns:repeat(4,1fr);gap:6px' });
+    for (const d of TURN_ORDER) {
+      const b = el('button', { class: 'btn small' + (d === cur ? ' primary' : ''), text: `${TURN_ARROW[d]} ${TURN_NAMES[d]}` });
+      b.disabled = busy || d === cur;
+      b.onclick = async () => {
+        busy = true; render();
+        const ok = await h.setTurn(x, y, o, d);
+        busy = false;
+        if (!ok) w.toast('돌리지 못했습니다.', true);
+        render();
+      };
+      box.append(b);
+    }
+    body.append(box);
+  };
+  const off = h.listen(render);
+  const m = modal(`🛋 ${furnitureOf(o)?.name ?? '가구'}`, body, [
+    { label: '치우기', danger: true, onClick: async () => { if (!(await h.removeAt(x, y, o))) w.toast('치우지 못했습니다.', true); } },
+    { label: '닫기', onClick: () => {} },
+  ], false, () => { off(); picker = null; close = null; });
+  withCloseX(m);
+  const bg = m.root.parentElement;
+  if (bg) { bg.style.alignItems = 'flex-end'; bg.style.background = 'transparent'; bg.style.paddingBottom = '14vh'; }
+  picker = m; close = m.close;
+  render();
 }
 
 // 박제할 물고기 고르기: 내 도감에서 전설·신화만

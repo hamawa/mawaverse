@@ -2,6 +2,7 @@
 // 처음에는 꺼져 있고(사용자 결정: 회사·공공장소에서 갑자기 소리가 나지 않게) 화면 위 🔇 버튼으로 켠다. 설정은 이 브라우저에만 적는다 (mv-sound).
 // 어디서든 sfx('catch') 처럼 부른다: 꺼져 있거나 화면이 뒤에 있으면 아무 일도 하지 않는다. 테스트(Node)에서도 불러올 수 있게 모듈을 읽을 때는 아무것도 만들지 않는다.
 import { mulberry32, cyrb53 } from '../shared/hash';
+import { EDM_BARS, drawEdmBar, type EdmSong } from './edm';
 
 export type Sfx =
   | 'push' | 'wave' | 'hook' | 'pull' | 'toss' | 'hit' | 'block' | 'bat' | 'snow'
@@ -14,7 +15,7 @@ export type Scene = 'main' | 'home' | 'mine' | 'winter' | 'race' | 'slots' | 'po
 export interface SoundPrefs { on: boolean; music: number; sfx: number }
 const KEY = 'mv-sound';
 const DEFAULTS: SoundPrefs = { on: false, music: 0.6, sfx: 0.7 };
-const MUSIC_GAIN = 1.5, SFX_GAIN = 1; // 음량 설정에 곱하는 값 (오프라인으로 그려 잰 크기에 맞췄다: 기본 설정에서 배경음악은 작게 깔리고 효과음은 그보다 또렷하게)
+const MUSIC_GAIN = 1.5, SFX_GAIN = 1, CLUB_GAIN = 0.5; // 음량 설정에 곱하는 값 (오프라인으로 그려 잰 크기에 맞췄다: 기본 설정에서 배경음악은 작게 깔리고 효과음은 그보다 또렷하게)
 
 const midi = (n: number): number => 440 * 2 ** ((n - 69) / 12);
 
@@ -28,6 +29,7 @@ export interface Tune {
   lead?: { vol: number; oct: number; dens: number; wave: Wave };          // 가락: 박마다 dens 확률로 한 음
   bass?: { vol: number; walk?: boolean; off?: boolean }; // off: 박 사이(엇박)에 짧게 친다 (클럽)
   drums?: Drums; swing?: number; drone?: boolean; rev?: number;           // rev: 울림(잔향)으로 보내는 양
+  edm?: EdmSong;                                             // 클럽 곡: 구간이 있는 편곡 (edm.ts 가 그린다. 위의 악기 칸은 쓰지 않는다)
 }
 const MAJOR = [0, 2, 4, 5, 7, 9, 11], MINOR = [0, 2, 3, 5, 7, 8, 10], DORIAN = [0, 2, 3, 5, 7, 9, 10], LYDIAN = [0, 2, 4, 6, 7, 9, 11], PHRYG = [0, 1, 3, 5, 7, 8, 10];
 
@@ -53,11 +55,18 @@ export const TUNES: Record<string, Tune> = {
   poker2: { name: '늦은 밤 테이블', bpm: 76, beats: 4, root: 45, scale: MINOR, prog: [0, 3, 4, 0], bars: 32, arp: { vol: 0.34, oct: 2, pat: [-1, 0, -1, 2, -1, 1, -1, 2], wave: 'rhodes' }, lead: { vol: 0.3, oct: 2, dens: 0.22, wave: 'rhodes' }, bass: { vol: 0.45, walk: true }, drums: 'swing', swing: 0.3, rev: 0.4 },
   mafia2: { name: '그림자', bpm: 54, beats: 4, root: 43, scale: PHRYG, prog: [0, 5, 1, 0], bars: 24, pad: 0.5, lead: { vol: 0.28, oct: 3, dens: 0.18, wave: 'bell' }, bass: { vol: 0.35 }, drums: 'heart', drone: true, rev: 0.8 },
   // 클럽 (2026-11-18): 박마다 킥이 들어가는 빠른 전자 음악. 다른 곡과 달리 쉬지 않고 이어진다
-  club1: { name: '네온 플로어', bpm: 126, beats: 4, root: 57, scale: MINOR, prog: [0, 5, 2, 6], bars: 64, pad: 0.3, arp: { vol: 0.24, oct: 1, pat: [0, 2, 1, 2, 3, 2, 1, 2, 0, 2, 1, 2, 3, 2, 1, 3], wave: 'saw' }, lead: { vol: 0.26, oct: 1, dens: 0.5, wave: 'square' }, bass: { vol: 0.5, off: true }, drums: 'four', rev: 0.2 },
-  club2: { name: '미러볼', bpm: 128, beats: 4, root: 50, scale: MINOR, prog: [0, 3, 5, 4], bars: 64, pad: 0.3, arp: { vol: 0.24, oct: 2, pat: [0, -1, 2, 0, -1, 2, 0, 3, 0, -1, 2, 0, -1, 2, 1, 3], wave: 'saw' }, lead: { vol: 0.24, oct: 2, dens: 0.45, wave: 'brass' }, bass: { vol: 0.5, off: true }, drums: 'four', rev: 0.2 },
-  club3: { name: '밤새 춤을', bpm: 124, beats: 4, root: 55, scale: DORIAN, prog: [0, 0, 3, 4], bars: 64, pad: 0.25, arp: { vol: 0.22, oct: 1, pat: [0, 1, 2, 3, 2, 1, 0, 1, 2, 3, 2, 1, 0, 2, 1, 3], wave: 'square' }, lead: { vol: 0.26, oct: 1, dens: 0.55, wave: 'saw' }, bass: { vol: 0.5, off: true }, drums: 'four', rev: 0.2 },
+  // 클럽 (2026-11-19 다시 만듦): 구간이 있는 EDM 세 곡 (edm.ts). 빅룸 하우스 · 퓨처 하우스 · 트랜스. 가락(hook)은 한 마디 16칸: 숫자·글자 = 음계의 몇 번째 음, '-' = 잇기, '.' = 쉼
+  club1: edmTune('네온 드롭', { bpm: 128, root: 65, scale: MINOR, prog: [0, 5, 2, 6, 0, 5, 3, 4], bass: 'offbeat', lead: 'saw', gain: 1,
+    hook: ['7--7--7-9-7-6-4-', '5--5--5-6-5-4-2-', '4--4--4-6-4-2-4-', '6--6--6-7-6-4-6-', '7--7--7-9-7-6-4-', '5--5--5-6-5-4-2-', '7--7--7-5-7-9-a-', 'b---b-a-8---6-4-'] }),
+  club2: edmTune('바운스 하우스', { bpm: 126, root: 57, scale: MINOR, prog: [0, 0, 5, 6, 0, 0, 3, 4], bass: 'bounce', lead: 'pluck', gain: 1, swing: 0.12,
+    bounce: [0, null, null, 0, null, null, 12, null, null, 0, null, null, 7, null, 12, null], stabs: '..x...x..x....x.',
+    hook: ['b-e-g---e-b-e---', 'g-i-g-e-----b-d-', 'g-e-c---e-g-j---', 'h-f-d---f-h-k---', 'b-e-g---e-b-e---', 'g-i-g-e-----i-j-', 'h-e-c---e-h-j---', 'i-f-d-b-d-f-i-k-'] }),
+  club3: edmTune('새벽 질주', { bpm: 138, root: 62, scale: MINOR, prog: [0, 5, 2, 6, 0, 5, 3, 4], bass: 'roll', lead: 'saw', gain: 1, arp: true,
+    hook: ['4---7---9--8--7-', '9---7---5--7--9-', 'b---9---b--9--8-', '8---a---8--6--4-', '4---7---9--b--9-', 'c---9---7--9--c-', 'a---c---a--9--7-', 'b---d---b-d-e---'] }),
   mafia: { name: '마피아', bpm: 60, beats: 4, root: 45, scale: PHRYG, prog: [0, 1, 0, 5], bars: 24, pad: 0.5, lead: { vol: 0.3, oct: 3, dens: 0.2, wave: 'bell' }, bass: { vol: 0.35 }, drums: 'heart', drone: true, rev: 0.8 },
 };
+// 클럽 곡 하나: 마디 수는 편곡의 길이, 나머지 악기 칸은 쓰지 않는다 (Synth.bar 가 edm 이 있으면 edm.ts 로 넘긴다)
+function edmTune(name: string, edm: EdmSong): Tune { return { name, bpm: edm.bpm, beats: 4, root: edm.root, scale: edm.scale, prog: edm.prog, bars: EDM_BARS, edm }; }
 const SCENE_TUNES: Record<Scene, { day: string[]; night?: string[]; gap: [number, number] }> = {
   main: { day: ['morning', 'noon', 'meadow', 'dusk'], night: ['stars', 'lake'], gap: [15, 40] },
   home: { day: ['home', 'home2'], gap: [8, 20] },
@@ -179,6 +188,7 @@ export class Synth {
 
   // 곡의 한 마디를 그린다. t0: 마디가 시작하는 시각, bar: 몇 번째 마디, melody: 미리 지어 둔 가락 (마디 → 박 → 음 또는 null)
   bar(tu: Tune, dry: AudioNode, wet: AudioNode, t0: number, bar: number, melody: (number | null)[][]): void {
+    if (tu.edm) { drawEdmBar(this.ac, tu.edm, dry, wet, t0, bar); return; }
     const beat = 60 / tu.bpm, len = beat * tu.beats;
     const deg = tu.prog[bar % tu.prog.length];
     const at = (d: number): number => tu.root + tu.scale[((d % 7) + 7) % 7] + 12 * Math.floor(d / 7); // 음계의 d 번째 음
@@ -251,7 +261,7 @@ function load(): SoundPrefs {
 }
 function save(): void { try { localStorage.setItem(KEY, JSON.stringify(load())); } catch { /* ignore */ } }
 
-interface Live { ac: AudioContext; synth: Synth; sfxBus: GainNode; musicBus: GainNode; wetIn: GainNode }
+interface Live { ac: AudioContext; synth: Synth; sfxBus: GainNode; musicBus: GainNode; clubBus: GainNode; wetIn: GainNode }
 let live: Live | null = null;
 let unlockArmed = false;
 function impulse(ac: BaseAudioContext, seconds: number): AudioBuffer {
@@ -260,13 +270,16 @@ function impulse(ac: BaseAudioContext, seconds: number): AudioBuffer {
   return buf;
 }
 // 소리가 나가는 길: (효과음 | 배경음악 + 울림) → 누르개(갑자기 큰 소리 방지) → 스피커
-export function buildGraph(ac: BaseAudioContext, p: SoundPrefs): { sfxBus: GainNode; musicBus: GainNode; wetIn: GainNode } {
+// 클럽 곡은 따로 나간다 (clubBus): 위의 누르개는 조용한 곡에 맞춰 낮게 걸려 있어서 킥이 뭉개진다. 클럽 길은 넘치는 것만 막는다
+export function buildGraph(ac: BaseAudioContext, p: SoundPrefs): { sfxBus: GainNode; musicBus: GainNode; clubBus: GainNode; wetIn: GainNode } {
   const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6; comp.connect(ac.destination);
   const sfxBus = ac.createGain(); sfxBus.gain.value = p.sfx * SFX_GAIN; sfxBus.connect(comp);
   const musicBus = ac.createGain(); musicBus.gain.value = p.music * MUSIC_GAIN; musicBus.connect(comp);
   const rev = ac.createConvolver(); rev.buffer = impulse(ac, 2.6);
   const wetIn = ac.createGain(); wetIn.gain.value = 0.55; wetIn.connect(rev); rev.connect(musicBus);
-  return { sfxBus, musicBus, wetIn };
+  const lim = ac.createDynamicsCompressor(); lim.threshold.value = -4; lim.knee.value = 2; lim.ratio.value = 14; lim.attack.value = 0.002; lim.release.value = 0.12; lim.connect(ac.destination);
+  const clubBus = ac.createGain(); clubBus.gain.value = p.music * CLUB_GAIN; clubBus.connect(lim);
+  return { sfxBus, musicBus, clubBus, wetIn };
 }
 // ---- 아이폰 (2026-11-18 제보: 아이폰에서는 소리가 나지 않는다. 실제 기기로는 확인하지 못하고 넣었다) ----
 // 아이폰은 옆의 무음 스위치가 켜져 있으면 Web Audio 소리를 내지 않는다(동영상·음악은 나는데 웹의 효과음 취급이라 꺼진다). 재생 종류를 playback 으로 바꾸면 무음 스위치와 상관없이 난다.
@@ -341,6 +354,7 @@ export function setVolume(kind: 'music' | 'sfx', v: number): void {
   if (!live) return;
   const g = kind === 'music' ? live.musicBus : live.sfxBus;
   g.gain.setTargetAtTime(p[kind] * (kind === 'music' ? MUSIC_GAIN : SFX_GAIN), live.ac.currentTime, 0.05);
+  if (kind === 'music') live.clubBus.gain.setTargetAtTime(p.music * CLUB_GAIN, live.ac.currentTime, 0.05);
 }
 
 // 효과음. vol: 0~1 (멀리서 난 남의 소리는 작게), k: 세기·등급. 같은 소리가 한순간(60ms)에 또 오면 한 번만 낸다 (장풍이 여러 명을 치는 경우 등)
@@ -418,7 +432,7 @@ function pump(): void {
     const key = pool[Math.floor(Math.random() * pool.length)];
     const tune = TUNES[key];
     const dry = l.ac.createGain(), wet = l.ac.createGain();
-    dry.connect(l.musicBus); wet.connect(l.wetIn);
+    dry.connect(tune.edm ? l.clubBus : l.musicBus); wet.connect(l.wetIn);
     playing = { key, tune, dry, wet, next: now + 0.25, bar: 0, melody: composeMelody(tune, cyrb53(`${key}|${plays++}|${Math.floor(Date.now() / 3600000)}`)) };
     playingGroup = group; lastKey = key;
   }

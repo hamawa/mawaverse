@@ -407,6 +407,7 @@ test('펫 목록이 규칙 생성기와 같고, 햄스터 캐릭터는 기존 �
   assert.equal(new Set(PET_GOODS.map((p) => p.price)).size, 1, '펫 값은 모두 같다');
   const rules = readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8');
   assert.ok(rules.includes("px/pethamster"), '규칙 원본에 새 펫이 들어 있어야 한다 (node tools/gen-rules.cjs final)');
+  assert.ok(PET_IDS.includes('petparrot') && rules.includes("px/petparrot"), '앵무새도 규칙 원본에 들어 있어야 한다');
   const { PRESETS, presetById } = await import('../src/game/sprites/presets.ts');
   assert.equal(PRESETS.length, 161);
   assert.ok(PRESETS.slice(0, 150).every((p) => p.params.kind !== 'creature' || p.params.species !== 'hamster'), '앞 150종은 그대로');

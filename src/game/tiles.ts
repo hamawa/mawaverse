@@ -143,18 +143,159 @@ function drawGround(id: number, variant: number, frame: number): PixelBuf {
   return b;
 }
 
-export function objectSprite(id: number): { cv: HTMLCanvasElement; h: number } | null {
+// dir: 가구 방향 (0 앞 · 1 왼쪽 · 2 오른쪽 · 3 뒤. 집 안에 놓은 가구만 돌릴 수 있다). 돌린 그림이 없는 것은 앞 그림을 쓴다
+export function objectSprite(id: number, dir = 0): { cv: HTMLCanvasElement; h: number } | null {
   if (id === O.NONE) return null;
-  let s = objectCache.get(id);
+  const key = dir ? id + dir * 1000 : id;
+  let s = objectCache.get(key);
   if (s) return s;
-  const buf = drawObject(id);
+  const buf = (dir ? drawTurned(id, dir) : null) ?? drawObject(id);
   if (!buf) return null;
   s = { cv: buf.toCanvas(), h: buf.h };
-  objectCache.set(id, s);
+  objectCache.set(key, s);
   return s;
 }
 
-function tree(b: PixelBuf, leaf: string, light: string, dark: string, round: boolean): void {
+function flipX(b: PixelBuf): PixelBuf {
+  const o = new PixelBuf(b.w, b.h);
+  for (let y = 0; y < b.h; y++) for (let x = 0; x < b.w; x++) o.data[y * b.w + (b.w - 1 - x)] = b.data[y * b.w + x];
+  return o;
+}
+// 돌린 가구 (2026-11-19, 사용자 요청: 가구가 전부 앞만 봐서 꾸미기가 답답하다). 여기서는 "왼쪽을 본다"와 "뒤를 본다"만 그리고, 오른쪽은 왼쪽 그림을 뒤집는다.
+// 앞 그림은 보는 사람 쪽(아래)을 향한 모습이다: 의자·소파의 등받이가 위쪽에 있다. 옆 그림은 등받이가 오른쪽, 뒤 그림은 등판이 앞을 가린다. 목록은 shared/home.ts TURNABLE
+function drawTurned(id: number, dir: number): PixelBuf | null {
+  if (dir === 2) { const l = drawTurned(id, 1); return l ? flipX(l) : null; }
+  const back = dir === 3;
+  const tall = new PixelBuf(TILE, TILE * 2);
+  const one = new PixelBuf(TILE, TILE);
+  switch (id) {
+    case O.CHAIR:
+      if (back) {
+        one.rect(8, 6, 16, 17, P.chair); one.rect(10, 8, 12, 12, shade(P.chair, -0.12)); one.rect(15, 8, 2, 12, shade(P.chair, -0.25));
+        one.rect(8, 21, 16, 2, shade(P.chair, -0.25)); one.rect(9, 23, 3, 5, P.chair); one.rect(20, 23, 3, 5, P.chair);
+      } else {
+        one.rect(19, 5, 4, 18, shade(P.chair, -0.2)); one.rect(20, 5, 2, 18, P.chair);
+        one.rect(8, 15, 12, 6, shade(P.chair, 0.15)); one.rect(8, 20, 12, 2, shade(P.chair, -0.1));
+        one.rect(9, 22, 3, 6, P.chair); one.rect(19, 22, 3, 6, P.chair);
+      }
+      return one.outline(P.outline);
+    case O.BENCH:
+      if (back) {
+        one.rect(3, 9, 26, 4, P.benchWood); one.rect(3, 14, 26, 4, P.benchWood); one.rect(3, 13, 26, 1, P.benchDark); one.rect(3, 18, 26, 2, P.benchDark);
+        one.rect(5, 9, 2, 12, P.metal); one.rect(25, 9, 2, 12, P.metal); one.rect(5, 20, 3, 7, P.metal); one.rect(24, 20, 3, 7, P.metal);
+      } else {
+        one.rect(8, 4, 12, 22, P.benchWood); for (let y = 9; y < 26; y += 6) one.hline(8, y, 12, P.benchDark);
+        one.rect(8, 26, 12, 2, P.benchDark);
+        one.rect(20, 2, 4, 25, shade(P.benchWood, -0.15)); one.rect(20, 2, 4, 2, P.benchWood);
+        one.rect(9, 28, 2, 2, P.metal); one.rect(21, 27, 2, 3, P.metal);
+      }
+      return one.outline(P.outline);
+    case O.SOFA:
+      if (back) {
+        one.rect(2, 6, 28, 20, P.sofaDark); one.rect(2, 6, 28, 3, P.sofa); one.rect(5, 11, 22, 11, shade(P.sofaDark, -0.1)); one.rect(4, 26, 24, 2, '#3a4b7a');
+      } else {
+        one.rect(4, 5, 24, 23, P.sofaDark); one.rect(4, 9, 17, 15, shade(P.sofa, 0.12));
+        one.rect(21, 5, 7, 23, P.sofaDark); one.rect(22, 5, 5, 2, P.sofa);
+        one.rect(4, 5, 18, 4, P.sofa); one.rect(4, 24, 18, 4, P.sofa); one.rect(4, 27, 24, 1, '#3a4b7a');
+      }
+      return one.outline(P.outline);
+    case O.TABLE:
+      if (back) return null; // 앞뒤가 같다
+      one.rect(8, 3, 16, 21, P.tableTop); one.rect(8, 24, 16, 3, P.table); one.rect(9, 27, 3, 3, P.table); one.rect(20, 27, 3, 3, P.table);
+      one.rect(12, 9, 8, 6, '#fff'); one.rect(13, 10, 6, 4, '#ffd27f');
+      return one.outline(P.outline);
+    case O.COUNTER:
+      if (back) { // 안쪽: 선반이 보인다
+        one.rect(1, 6, 30, 22, P.counter); one.rect(1, 6, 30, 6, P.counterTop); one.rect(1, 11, 30, 1, shade(P.counterTop, -0.2));
+        one.rect(4, 14, 24, 12, shade(P.counter, -0.35)); one.hline(4, 20, 24, P.counter); one.rect(7, 16, 4, 4, '#fff'); one.rect(13, 17, 3, 3, '#ffd27f'); one.rect(20, 22, 5, 4, '#c97b4a');
+      } else { // 세로로 놓인 모습
+        one.rect(7, 1, 18, 22, P.counterTop); one.vline(7, 1, 22, shade(P.counterTop, 0.15)); one.rect(7, 22, 18, 1, shade(P.counterTop, -0.2));
+        one.rect(7, 23, 18, 7, P.counter); one.rect(12, 25, 8, 3, shade(P.counter, -0.2));
+      }
+      return one.outline(P.outline);
+    case O.BOOKSHELF:
+      if (back) {
+        tall.rect(2, 4, 28, 58, shade(P.shelf, -0.15)); for (let x = 9; x < 30; x += 7) tall.vline(x, 6, 54, shade(P.shelf, -0.3));
+        tall.rect(2, 4, 28, 3, P.shelf); tall.rect(2, 59, 28, 3, shade(P.shelf, -0.3));
+      } else { // 옆면: 왼쪽 모서리에 책등이 조금 보인다
+        tall.rect(10, 4, 13, 58, P.shelf); tall.rect(18, 4, 5, 58, shade(P.shelf, -0.2)); tall.rect(10, 4, 13, 3, shade(P.shelf, 0.15));
+        for (let s = 0; s < 3; s++) { const y = 8 + s * 18; tall.rect(10, y, 4, 14, '#4a3321'); tall.rect(10, y + 2, 2, 12, [P.book1, P.book2, P.book3][s]); tall.rect(12, y + 4, 2, 10, [P.book4, P.book1, P.book2][s]); tall.hline(10, y + 14, 13, shade(P.shelf, -0.25)); }
+      }
+      return tall.outline(P.outline);
+    case O.VENDING:
+      if (back) {
+        tall.rect(4, 8, 24, 54, P.vendingDark); tall.rect(4, 8, 24, 3, P.vending); for (let y = 18; y < 36; y += 4) tall.hline(9, y, 14, shade(P.vendingDark, -0.3));
+        tall.rect(13, 44, 6, 8, shade(P.vendingDark, -0.3)); tall.rect(15, 52, 2, 10, '#222');
+      } else {
+        tall.rect(9, 8, 15, 54, P.vending); tall.rect(17, 8, 7, 54, P.vendingDark); tall.rect(9, 8, 15, 3, shade(P.vending, 0.15));
+        tall.rect(9, 12, 3, 28, P.vendingGlass); tall.rect(9, 44, 3, 8, '#333'); tall.rect(14, 22, 2, 14, shade(P.vending, 0.2));
+      }
+      return tall.outline(P.outline);
+    case O.ARCADE:
+      if (back) {
+        tall.rect(4, 6, 24, 56, '#15215a'); tall.rect(4, 6, 24, 8, '#a3262c'); for (let y = 22; y < 40; y += 4) tall.hline(9, y, 14, '#0b1340');
+        tall.rect(12, 46, 8, 8, '#0b1340'); tall.rect(15, 54, 2, 8, '#222');
+      } else { // 옆면: 왼쪽으로 화면 빛과 조작판이 나와 있다
+        tall.rect(11, 6, 14, 56, '#1f2d6b'); tall.rect(19, 6, 6, 56, '#15215a'); tall.rect(11, 6, 14, 8, '#d1343b');
+        tall.rect(9, 17, 3, 15, '#2e9e4f'); tall.rect(6, 35, 7, 6, '#2c3f8f'); tall.rect(7, 32, 2, 4, '#222'); tall.rect(6, 30, 4, 3, '#ff6b6b');
+        tall.rect(14, 46, 4, 10, '#ffd84d');
+      }
+      return tall.outline(P.outline);
+    case O_TV:
+      if (back) {
+        one.rect(5, 22, 22, 7, P.benchDark); one.rect(5, 22, 22, 2, P.benchWood); one.rect(13, 19, 6, 3, '#333');
+        one.rect(3, 5, 26, 15, '#22222a'); one.rect(9, 8, 14, 9, '#33333d'); for (let x = 11; x < 22; x += 3) one.vline(x, 10, 5, '#1a1a20'); one.px(25, 17, '#e74c3c');
+      } else { // 옆면: 얇은 화면, 왼쪽으로 빛이 샌다
+        one.rect(8, 22, 16, 7, P.benchDark); one.rect(8, 22, 16, 2, P.benchWood); one.rect(14, 19, 5, 3, '#333');
+        one.rect(14, 5, 5, 15, '#22222a'); one.rect(13, 6, 1, 13, '#7fb7f2'); one.rect(19, 9, 2, 7, '#33333d');
+      }
+      return one.outline(P.outline);
+    case O_FIREPLACE:
+      if (back) { // 벽돌 뒷면과 굴뚝 밑동
+        one.rect(3, 4, 26, 25, '#8f4433'); one.rect(1, 2, 30, 3, '#d9c7a0');
+        for (let y = 9; y < 28; y += 5) { one.hline(3, y, 26, '#6b2e21'); const off = ((y - 9) / 5) % 2 ? 6 : 0; for (let x = 3 + off; x < 29; x += 12) one.vline(x, y - 4, 4, '#6b2e21'); }
+        one.rect(12, 0, 8, 3, '#6b2e21');
+      } else { // 옆면: 왼쪽으로 불빛이 새어 나온다
+        one.rect(8, 4, 17, 25, '#a8503c'); one.rect(17, 4, 8, 25, '#8f4433'); one.rect(6, 2, 21, 3, '#d9c7a0'); for (let y = 9; y < 28; y += 5) one.hline(8, y, 17, '#7a3526');
+        one.rect(8, 12, 3, 15, '#241512'); one.rect(8, 19, 2, 8, '#ff7b2e'); one.px(8, 17, '#ffb84d'); one.rect(5, 27, 6, 2, '#5a3a22'); one.px(6, 24, '#ffb84d');
+      }
+      return one.outline(P.outline);
+    case O_AQUARIUM: {
+      if (back) { const f = drawObject(id); return f ? flipX(f) : null; } // 유리라 뒤에서도 같은 것이 뒤집혀 보인다
+      one.rect(9, 22, 14, 7, P.benchDark); one.rect(9, 22, 14, 2, P.benchWood);
+      one.rect(9, 6, 14, 17, '#6fc3ec'); one.rect(9, 6, 14, 3, '#b9e6fb'); one.rect(9, 20, 14, 3, '#e8d9a0');
+      one.rect(13, 13, 5, 3, '#ff8a3c'); one.px(12, 14, '#ff8a3c'); one.px(17, 14, '#222'); one.vline(20, 13, 7, '#3fa85c'); one.px(15, 9, '#ffffff');
+      one.vline(9, 6, 17, '#dff4ff'); one.vline(22, 6, 17, '#4b9cc9');
+      return one.outline(P.outline);
+    }
+    case O_PIANO:
+      if (back) {
+        one.rect(3, 6, 26, 22, '#1c1c24'); one.rect(3, 6, 26, 3, '#3a3a4a'); one.rect(6, 11, 20, 13, '#26262f'); one.vline(16, 11, 13, '#1c1c24');
+        one.rect(5, 26, 3, 3, '#1c1c24'); one.rect(24, 26, 3, 3, '#1c1c24');
+      } else { // 옆면: 건반이 왼쪽으로 나와 있다
+        one.rect(12, 6, 13, 22, '#1c1c24'); one.rect(12, 6, 13, 3, '#3a3a4a'); one.rect(19, 9, 6, 19, '#15151b');
+        one.rect(6, 16, 7, 4, '#f6f1e4'); one.hline(6, 19, 7, '#b9b2a0'); one.rect(6, 16, 2, 2, '#1c1c24'); one.rect(10, 16, 2, 2, '#1c1c24'); one.rect(6, 20, 7, 3, '#2a2a36');
+        one.rect(7, 23, 2, 6, '#1c1c24'); one.rect(13, 27, 3, 2, '#1c1c24'); one.rect(21, 27, 3, 2, '#1c1c24');
+      }
+      return one.outline(P.outline);
+    case O_GOLD_STATUE:
+      tall.rect(6, 52, 20, 9, '#8a8a8a'); tall.rect(6, 52, 20, 2, '#b5b5b5'); tall.rect(4, 59, 24, 3, '#6b6b6b');
+      if (back) { // 뒷모습: 얼굴이 없고 낚싯대는 반대쪽 어깨 너머로
+        tall.rect(12, 34, 8, 18, '#ffd84d'); tall.rect(11, 44, 4, 8, '#ffd84d'); tall.rect(17, 44, 4, 8, '#ffd84d'); tall.circle(16, 27, 6, '#ffd84d');
+        tall.rect(9, 34, 3, 8, '#ffd84d'); tall.rect(8, 20, 2, 15, '#c9952a'); tall.rect(20, 36, 3, 9, '#ffd84d');
+        tall.rect(6, 14, 8, 5, '#fff2a8'); tall.px(14, 16, '#fff2a8'); tall.px(5, 14, '#fff2a8'); tall.px(5, 18, '#fff2a8');
+        tall.rect(18, 34, 2, 18, '#c9952a'); tall.rect(13, 23, 6, 2, '#c9952a');
+      } else { // 옆모습: 왼쪽을 보고 낚싯대를 앞으로 든다
+        tall.rect(13, 34, 6, 18, '#ffd84d'); tall.circle(15, 27, 6, '#ffd84d'); tall.px(8, 27, '#ffd84d'); tall.px(12, 26, '#c9952a');
+        tall.rect(8, 36, 6, 3, '#ffd84d'); tall.rect(7, 18, 2, 20, '#c9952a'); tall.rect(2, 13, 8, 5, '#fff2a8'); tall.px(10, 15, '#fff2a8'); tall.px(4, 14, '#c9952a');
+        tall.rect(13, 34, 2, 18, '#fff2a8'); tall.rect(17, 36, 2, 16, '#c9952a');
+      }
+      return tall.outline(P.outline);
+    default: return null;
+  }
+}
+
+function tree(b: PixelBuf, leaf: string, light: string, dark: string, round: boolean, spark = '#9be28a'): void {
   // 64 높이: 위 32px 캐노피, 아래 트렁크
   b.rect(13, 44, 6, 16, P.trunk); b.rect(16, 44, 3, 16, P.trunkDark);
   b.rect(10, 58, 12, 2, P.trunkDark);
@@ -163,7 +304,7 @@ function tree(b: PixelBuf, leaf: string, light: string, dark: string, round: boo
     b.circle(10, 20, 7, light); b.circle(21, 18, 8, light);
     b.circle(20, 32, 8, dark);
     b.circle(11, 33, 6, dark);
-    b.circle(9, 19, 3, '#9be28a');
+    b.circle(9, 19, 3, spark);
   } else {
     for (let i = 0; i < 3; i++) {
       const top = 6 + i * 11, w = 10 + i * 6, y = top;
@@ -174,6 +315,26 @@ function tree(b: PixelBuf, leaf: string, light: string, dark: string, round: boo
       b.hline(16 - w / 4, top + 3, w / 4, light);
     }
   }
+}
+
+// 계절 나무 (2026-11-19, 사용자 요청): 단풍(11/15~1/31)과 벚꽃(4~5월). 칸마다 빛깔을 조금씩 달리한다 (v: 칸에서 뽑은 수). 언제인지는 shared/season.ts
+const SEASON_TREES: Record<'autumn' | 'blossom', readonly (readonly [string, string, string, string])[]> = {
+  autumn: [['#d9482b', '#f2814f', '#a8321f', '#ffb38a'], ['#e8882c', '#f7b55a', '#b9611c', '#ffd89a'], ['#e2b83a', '#f6dd72', '#b08a24', '#fff0a8'], ['#c9612e', '#e58a52', '#964320', '#f7b98a']],
+  blossom: [['#f7a9c9', '#ffd3e4', '#e07ba8', '#ffffff'], ['#fbc6da', '#ffe6ef', '#ea97b8', '#ffffff'], ['#f190b8', '#ffc0d9', '#d1659a', '#ffe9f2']],
+};
+const seasonTreeCache = new Map<string, { cv: HTMLCanvasElement; h: number }>();
+export function seasonTree(look: 'autumn' | 'blossom', v: number): { cv: HTMLCanvasElement; h: number } {
+  const list = SEASON_TREES[look], k = ((v % list.length) + list.length) % list.length, key = look + k;
+  let s = seasonTreeCache.get(key);
+  if (!s) {
+    const [leaf, light, dark, spark] = list[k];
+    const b = new PixelBuf(TILE, TILE * 2);
+    tree(b, leaf, light, dark, true, spark);
+    const o = b.outline(P.outline);
+    s = { cv: o.toCanvas(), h: o.h };
+    seasonTreeCache.set(key, s);
+  }
+  return s;
 }
 
 // 벽지 빛깔: 기본 벽 그림의 색을 이 빛깔 쪽으로 섞는다 (벽돌 줄눈·창문 모양은 그대로)

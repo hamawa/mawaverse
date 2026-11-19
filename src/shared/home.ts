@@ -10,7 +10,7 @@
 // - 겨울잠: 내 집 침대에서 SLEEP_MS 를 자면 물고기 SHIELD_FISH 마리를 먹고 든든함 +1 (최대 SHIELD_MAX). 든든함 하나가 빠따 한 번을 막는다 (상대 빠따는 그대로 소모)
 //   "하루 동안 빠따 면역"은 넣지 않았다: 갑옷·펫 방어를 대부분 갖춰 빠따가 유일한 공격 수단이라, 집 있는 사람이 전부 면역이 되면 빠따가 쓸모없어진다
 // 꾸미기 (2026-11-17 저녁, 사용자 요청): fu 만든 가구 종류(오브젝트 id → true. 한 번 만들면 몇 개든 놓는다), d 놓은 가구("x_y" → 오브젝트 id), fl 바닥재(바닥 id), tr 박제(자리 번호 → { id 물고기, s 크기 })
-export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number; fu?: Record<string, true>; d?: Record<string, number>; fl?: number; wl?: number; tr?: Record<string, { id: string; s?: number }>; gb?: Record<string, GuestNote> }
+export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number; fu?: Record<string, true>; d?: Record<string, number>; dr?: Record<string, number>; fl?: number; wl?: number; tr?: Record<string, { id: string; s?: number }>; gb?: Record<string, GuestNote> }
 // 방명록 (2026-11-18): homes/{주인}/gb/{쓴 사람 uid} = 한 사람이 한 집에 한 줄 (다시 쓰면 바뀐다). 쓴 사람과 집주인이 지울 수 있다
 export interface GuestNote { n: string; t: string; at: number }
 export const GUEST_MAX = 60; // 한 줄의 글자 수 (규칙과 같아야 한다)
@@ -92,14 +92,24 @@ export const FURNITURE: readonly Furniture[] = [
 // 벽지 (2026-11-18): 보관함 품목 wall{n} 을 사면 집 벽을 그 빛깔로 바꿀 수 있다 (homes 의 wl = n. 0 또는 없음 = 기본 벽). 규칙이 그 품목을 가졌는지 본다
 export const WALLS: readonly { n: number; name: string; item: string }[] = [{ n: 1, name: '분홍 벽지', item: 'wall1' }, { n: 2, name: '민트 벽지', item: 'wall2' }, { n: 3, name: '밤하늘 벽지', item: 'wall3' }];
 export function furnitureOf(o: unknown): Furniture | undefined { return FURNITURE.find((f) => f.o === o); }
+// 가구 방향 (2026-11-19, 사용자 요청): 놓은 가구를 돌릴 수 있다. homes/{uid}/dr/{x_y} = 1 왼쪽 · 2 오른쪽 · 3 뒤 (캐릭터 방향 Dir 과 같은 번호. 앞을 보면 칸이 없다).
+// 돌릴 수 있는 것은 앞뒤·옆이 다르게 생긴 가구뿐이다 (화분·화초·원탁·가로등·파라솔·황금 화분은 어느 쪽에서 봐도 같다). 그림은 tiles.ts drawTurned
+export const TURNABLE: readonly number[] = [6, 4, 22, 21, 23, 33, 39, 36, 38, 27, 5, 37, 41];
+export function canTurn(o: unknown): boolean { return TURNABLE.includes(o as number); }
+export const TURN_NAMES: readonly string[] = ['앞', '왼쪽', '오른쪽', '뒤']; // 방향 번호 → 이름
+export const TURN_ORDER: readonly number[] = [0, 1, 3, 2];                 // 돌리는 순서: 앞 → 왼쪽 → 뒤 → 오른쪽
+export function turnOf(h: HomeData | null | undefined, x: number, y: number): number {
+  const r = h?.dr?.[`${x}_${y}`];
+  return (r === 1 || r === 2 || r === 3) && canTurn(h?.d?.[`${x}_${y}`]) ? r : 0;
+}
 // 바닥재 (g 는 맵 바닥 id, map.ts G). 바꿀 때마다 나무 FLOOR_WOOD 개
 export const FLOORS: readonly { g: number; name: string }[] = [{ g: 7, name: '모래' }, { g: 4, name: '나무 바닥' }, { g: 5, name: '타일' }, { g: 8, name: '카펫' }];
 export const FLOOR_WOOD = 30;
 export const posKey = (x: number, y: number): string => `${x}_${y}`;
-// 놓은 가구 목록 (알 수 없는 값은 버린다)
-export function decoList(h: HomeData | null | undefined): { x: number; y: number; o: number }[] {
-  const out: { x: number; y: number; o: number }[] = [];
-  for (const [k, o] of Object.entries(h?.d || {})) { const m = /^(\d{1,2})_(\d{1,2})$/.exec(k); if (m && furnitureOf(o)) out.push({ x: +m[1], y: +m[2], o }); }
+// 놓은 가구 목록 (알 수 없는 값은 버린다). r: 방향 (0 앞 · 1 왼쪽 · 2 오른쪽 · 3 뒤)
+export function decoList(h: HomeData | null | undefined): { x: number; y: number; o: number; r: number }[] {
+  const out: { x: number; y: number; o: number; r: number }[] = [];
+  for (const [k, o] of Object.entries(h?.d || {})) { const m = /^(\d{1,2})_(\d{1,2})$/.exec(k); if (m && furnitureOf(o)) out.push({ x: +m[1], y: +m[2], o, r: turnOf(h, +m[1], +m[2]) }); }
   return out;
 }
 // 박제: 내가 잡은 적 있는 전설(3)·신화(4) 물고기만 건다. 자리 수는 집 단계의 trophyX 개수

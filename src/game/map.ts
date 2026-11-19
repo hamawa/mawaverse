@@ -133,6 +133,7 @@ export interface MapData {
   h: number;
   ground: number[];
   objects: number[];
+  dirs?: Record<number, number>; // 집 안에 놓은 가구의 방향 (칸 번호 y*w+x → 1 왼쪽 · 2 오른쪽 · 3 뒤. 저장되는 맵에는 없다: buildHomeMap 이 넣는다)
   zones: Zone[];
   spawn: { x: number; y: number };
   version?: number;
@@ -565,7 +566,7 @@ export function buildHomeMap(id: string, tierNo: number, label: string, deco?: H
   setO(door, H - 1, O.MAT);
   setO(1, 1, O_BED); setO(W - 2, 1, O_CHEST);
   if (t.tier === 3 && floor === null) for (let y = 2; y <= H - 3; y++) for (let x = 3; x <= W - 4; x++) setG(x, y, G.CARPET);
-  if (placed.length) for (const p of placed) setO(p.x, p.y, p.o);
+  if (placed.length) for (const p of placed) { setO(p.x, p.y, p.o); if (p.r) (m.dirs ||= {})[p.y * W + p.x] = p.r; }
   else if (t.tier === 2) { setO(4, 2, O.TABLE); setO(5, 2, O.CHAIR); setO(1, H - 2, O.PLANT); }
   else if (t.tier === 3) { setO(4, 1, O.BOOKSHELF); setO(5, 3, O.TABLE_ROUND); setO(4, 3, O.CHAIR); setO(2, H - 2, O.SOFA); setO(W - 2, H - 2, O.PLANT); }
   m.zones.push({ id: 'lbl-home', kind: 'label', x: 1, y: 1, w: W - 2, h: H - 2, label });

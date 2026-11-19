@@ -211,7 +211,19 @@ test('꾸미기: 놓은 가구가 방에 나타나고, 침대·창고 상자·�
   assert.equal(objectAt(m, 2, 2), O.NONE, '가구가 아닌 값은 무시');
   assert.equal(groundAt(m, 2, 2), G.CARPET, '고른 바닥재로 깐다');
   assert.equal(groundAt(buildHomeMap('h-x', 2, '시험', { fl: 99 }), 2, 2), G.WOOD, '모르는 바닥 값이면 기본 바닥');
-  assert.deepEqual(H.decoList({ d: { '3_3': 22, 'x': 6, '4_4': 1 } }), [{ x: 3, y: 3, o: 22 }]);
+  assert.deepEqual(H.decoList({ d: { '3_3': 22, 'x': 6, '4_4': 1 } }), [{ x: 3, y: 3, o: 22, r: 0 }]);
+  // 가구 방향 (2026-11-19): 0 앞 · 1 왼쪽 · 2 오른쪽 · 3 뒤. 앞뒤·옆이 다른 가구만 돌릴 수 있다
+  assert.equal(H.turnOf({ d: { '3_3': 22 }, dr: { '3_3': 2 } }, 3, 3), 2);
+  assert.equal(H.turnOf({ d: { '3_3': 12 }, dr: { '3_3': 2 } }, 3, 3), 0, '화분은 돌릴 수 없다');
+  assert.equal(H.turnOf({ d: { '3_3': 22 }, dr: { '3_3': 7 } }, 3, 3), 0, '모르는 방향은 앞');
+  assert.equal(H.turnOf({ dr: { '3_3': 1 } }, 3, 3), 0, '가구가 없으면 앞');
+  assert.ok(H.TURNABLE.every((o) => H.furnitureOf(o)), '돌릴 수 있는 것은 전부 가구 목록에 있다');
+  assert.deepEqual([...H.TURN_ORDER].sort(), [0, 1, 2, 3]);
+  assert.deepEqual(H.decoList({ d: { '3_3': 22 }, dr: { '3_3': 3 } }), [{ x: 3, y: 3, o: 22, r: 3 }]);
+  const turned = buildHomeMap('h-x', 2, '시험', { t: 2, d: { '3_3': 22, '4_3': 12 }, dr: { '3_3': 3, '4_3': 1, '5_5': 2 } });
+  assert.deepEqual(turned.dirs, { [3 * turned.w + 3]: 3 }, '돌릴 수 있는 놓인 가구만 방향을 싣는다');
+  assert.equal(buildHomeMap('h-x', 2, '시험', { t: 2, d: { '3_3': 22 } }).dirs, undefined);
+  assert.ok(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8').includes('"dr": { "$pos"'), '규칙에 방향 칸이 있어야 한다 (없으면 $other 에 걸려 거부된다)');
 });
 
 test('나무: 베면 그루터기, 자라는 중에는 덤불, 5분 뒤 다시 나무', () => {

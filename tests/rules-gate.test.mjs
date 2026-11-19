@@ -952,6 +952,14 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('꾸미기: 만든 가구 놓기', 'allow', () => ok.ref(H + '/d').update({ '3_3': 22 }));
   await expect('꾸미기: 안 만든 가구 놓기', 'deny', () => ok.ref(H + '/d').update({ '4_3': 23 }));
   await expect('꾸미기: 이상한 자리 이름', 'deny', () => ok.ref(H + '/d').update({ 'abc': 22 }));
+  // 가구 방향 (2026-11-19): homes/{uid}/dr/{x_y} = 1 왼쪽 · 2 오른쪽 · 3 뒤
+  await expect('꾸미기: 놓은 가구 돌리기 (왼쪽)', 'allow', () => ok.ref(H + '/dr').update({ '3_3': 1 }));
+  await expect('꾸미기: 없는 방향 번호', 'deny', () => ok.ref(H + '/dr').update({ '3_3': 4 }));
+  await expect('꾸미기: 방향에 글자', 'deny', () => ok.ref(H + '/dr').update({ '3_3': 'x' }));
+  await expect('꾸미기: 이상한 자리 이름의 방향', 'deny', () => ok.ref(H + '/dr').update({ abc: 1 }));
+  await expect('꾸미기: 남의 집 가구 돌리기', 'deny', () => other.ref(H + '/dr').update({ '3_3': 2 }));
+  await expect('꾸미기: 가구와 방향을 같이 치우기', 'allow', () => ok.ref(H).update({ 'd/3_3': null, 'dr/3_3': null }));
+  await expect('꾸미기: 다시 놓으면서 옛 방향 지우기', 'allow', () => ok.ref(H).update({ 'd/3_3': 22, 'dr/3_3': null }));
   await expect('꾸미기: 놓은 가구 치우기', 'allow', () => ok.ref(H + '/d/3_3').remove());
   await expect('꾸미기: 남의 집에 가구 놓기', 'deny', () => other.ref(H + '/d').update({ '3_3': 22 }));
   await expect('꾸미기: 나무를 안 내고 바닥 바꾸기', 'deny', () => ok.ref(H).update({ fl: 8 }));

@@ -63,6 +63,7 @@ export const PET_GOODS: ShopItem[] = [
   { id: 'petslime', kind: 'pet', name: '슬라임', price: 5000, icon: '🟢', desc: PET_DESC },
   { id: 'petturtle', kind: 'pet', name: '거북이', price: 5000, icon: '🐢', desc: PET_DESC },
   { id: 'pethamster', kind: 'pet', name: '햄스터', price: 5000, icon: '🐹', desc: PET_DESC }, // 2026-11-16 건의 반영
+  { id: 'petparrot', kind: 'pet', name: '앵무새', price: 5000, icon: '🦜', desc: PET_DESC + ' 주인이 한 말을 따라 해요.' }, // 2026-11-19 사용자 요청
 ];
 export const PET_IDS = PET_GOODS.map((p) => p.id); // 규칙 생성기(tools/gen-rules.cjs)의 PET_IDS 와 같아야 한다
 
@@ -89,6 +90,13 @@ export const PET_GUARD_LEVEL = 8;        // 100% 막기 (+80% 반사). 남들은
 export const PET_GUARD_XP = PET_LEVEL_XP[PET_GUARD_LEVEL - 1]; // 170
 export const PET_REFLECT_CHANCE = 0.8;
 export const PET_SPEED_PER_LEVEL = 0.025;
+// 앵무새 (2026-11-19): 주인이 말하면 조금 뒤에 마지막 낱말을 두 번 따라 한다 (길면 끝 여섯 글자). 화면에만 그리는 장난이라 서버로 가는 것은 없다 (render.ts)
+export const PARROT_ID = 'petparrot';
+export function parrotEcho(text: string): string {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const w = [...(words[words.length - 1] || '').replace(/[.!?~,…ㅋㅎㅠㅜ]+$/u, '')].slice(-6).join('');
+  return w ? `${w}! ${w}!` : '';
+}
 export function petLevel(xp: number): number { let lv = 1; for (let i = 1; i < PET_LEVEL_XP.length; i++) if (xp >= PET_LEVEL_XP[i]) lv = i + 1; return lv; }
 export function petNextXp(xp: number): number | null { const lv = petLevel(xp); return lv >= PET_MAX_LEVEL ? null : PET_LEVEL_XP[lv]; }
 export function petScale(xp: number): number { return 1 + 0.08 * (petLevel(xp) - 1); } // 따라다닐 때 크기 (Lv10 1.72배). 탑승 모습은 cosmetics MOUNT_ART 가 따로

@@ -9,7 +9,7 @@ export const MYTHIC: Rarity = 4;
 
 // dawn·rain (2026-11-18): 새벽(5시~7시 반: 낮밤 효과에서 동이 트는 시간)과 비 오는 동안(shared/weather.ts)
 export type DefTime = 'lunch' | 'night' | 'contest' | 'dawn' | 'rain';
-export const TIME_LABEL: Record<DefTime, string> = { lunch: '점심시간(12~13시)에만', night: '퇴근 후(18시 이후)에만', contest: '낚시 대회 중에만', dawn: '새벽(5시~7시 반)에만', rain: '비 오는 동안에만' };
+export const TIME_LABEL: Record<DefTime, string> = { lunch: '점심시간(12~13시)에만', night: '퇴근 후(18시 이후)에만', contest: '낚시 대회 중에만', dawn: '새벽(5시~7시 반)에만', rain: '비·눈이 오는 동안에만' };
 export const DEF_TIMES: readonly DefTime[] = ['lunch', 'night', 'contest', 'dawn', 'rain'];
 
 export interface CollDef {

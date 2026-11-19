@@ -15,7 +15,7 @@ import type { TreeMgr } from './trees';
 import type { WorldCtx } from './state';
 import { sfx } from './audio';
 import { GOLD_COST } from '../shared/shop';
-import { WALLS, GUEST_MAX } from '../shared/home';
+import { WALLS, GUEST_MAX, canTurn, turnOf } from '../shared/home';
 
 // 내 집 (2026-11-17, shared/home.ts 머리말에 설계). 이 클래스는 내 homes/{uid} 를 구독하고, 나무 캐기·짓기·창고·겨울잠과 "지금 들어와 있는 집"의 상태를 맡는다.
 // 맵 이동(들어가기·나가기)은 world.ts 가 포탈과 같은 길(usePortal)로 한다.
@@ -273,12 +273,25 @@ export class HomeMgr {
     const f = this.facingDeco();
     if (!f || f.kind !== 'place' || !this.made(o)) return 'spot';
     if (this.decoCount >= this.decoLimit) return 'limit';
-    try { await update(ref(db, `homes/${this.w.uid}/d`), { [posKey(f.x, f.y)]: o }); return 'ok'; } catch (e) { console.warn('가구 놓기 실패', e); return 'fail'; }
+    // 전에 그 칸에 있던 가구의 방향이 남아 있으면 같이 지운다 (새 가구는 앞을 보고 놓인다)
+    try { await update(ref(db, `homes/${this.w.uid}`), { [`d/${posKey(f.x, f.y)}`]: o, [`dr/${posKey(f.x, f.y)}`]: null }); return 'ok'; } catch (e) { console.warn('가구 놓기 실패', e); return 'fail'; }
   }
   async removeFront(): Promise<boolean> {
     const f = this.facingDeco();
-    if (!f || f.kind !== 'remove') return false;
-    try { await update(ref(db, `homes/${this.w.uid}/d`), { [posKey(f.x, f.y)]: null }); return true; } catch { return false; }
+    return !!f && f.kind === 'remove' && this.removeAt(f.x, f.y, f.o);
+  }
+  // 그 칸에 내가 놓은 가구 (없으면 null)
+  decoAt(x: number, y: number): number | null { const o = this.data?.d?.[posKey(x, y)]; return typeof o === 'number' ? o : null; }
+  // 놓은 가구 하나를 치운다 (방향도 같이 지운다). o: 그 칸에 있다고 본 가구 (그새 바뀌었으면 건드리지 않는다)
+  async removeAt(x: number, y: number, o: number): Promise<boolean> {
+    if (!this.inMine() || this.decoAt(x, y) !== o) return false;
+    try { await update(ref(db, `homes/${this.w.uid}`), { [`d/${posKey(x, y)}`]: null, [`dr/${posKey(x, y)}`]: null }); return true; } catch { return false; }
+  }
+  // 가구 방향 (2026-11-19, 사용자 요청): 0 앞 · 1 왼쪽 · 2 오른쪽 · 3 뒤. 앞이면 칸을 지운다 (shared/home.ts TURNABLE 만 돌릴 수 있다)
+  turnAt(x: number, y: number): number { return turnOf(this.data, x, y); }
+  async setTurn(x: number, y: number, o: number, dir: number): Promise<boolean> {
+    if (!this.inMine() || !canTurn(o) || this.decoAt(x, y) !== o || ![0, 1, 2, 3].includes(dir)) return false;
+    try { await update(ref(db, `homes/${this.w.uid}/dr`), { [posKey(x, y)]: dir || null }); return true; } catch (e) { console.warn('가구 돌리기 실패', e); return false; }
   }
   // 방명록: 지금 있는 집(또는 내 집)에 한 줄 남긴다. 한 사람이 한 집에 한 줄이라 다시 쓰면 바뀐다
   async signGuestbook(owner: string, text: string): Promise<boolean> {
@@ -421,4 +434,4 @@ export function homeOpen(h: HomeData | null | undefined): 'ok' | 'none' | 'locke
 }
 
 // 방 모양에 영향을 주는 값만 뽑은 글자 (나무·물고기 수가 바뀔 때마다 방을 다시 만들지 않으려고)
-function sigOf(h: HomeData | null): string { return JSON.stringify([h?.t ?? 0, h?.d ?? null, h?.fl ?? null, h?.tr ?? null, h?.wl ?? null]); }
+function sigOf(h: HomeData | null): string { return JSON.stringify([h?.t ?? 0, h?.d ?? null, h?.fl ?? null, h?.tr ?? null, h?.wl ?? null, h?.dr ?? null]); }

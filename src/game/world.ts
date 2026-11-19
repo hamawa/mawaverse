@@ -40,9 +40,9 @@ import { openMole } from './moleui';
 import { DigMgr } from './dig';
 import { MineMgr } from './mine';
 import { HomeMgr, homeOpen } from './home';
-import { openHome, openFurniturePicker, openGuestbook } from './homeui';
+import { openHome, openFurniturePicker, openFurnitureEdit, openGuestbook } from './homeui';
 import { TreeMgr } from './trees';
-import { type HomeData, homeTier, furnitureOf, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
+import { type HomeData, homeTier, furnitureOf, canTurn, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
 import { fishById, fmtSize, bobberNear } from '../shared/fish';
 import { winterFishById } from '../shared/winter';
 import { fmtGold } from '../shared/mine';
@@ -60,6 +60,7 @@ import { snowActive, SNOW_BREAK_NOTICE } from '../shared/snowpenalty';
 import { Fishing } from './fishing';
 import { sfx, setScene, setRain, stopSound, soundOn, setSoundOn, soundPrefs, setVolume, type Scene } from './audio';
 import { rainLevel } from '../shared/weather';
+import { snowSeason, treeLook, type TreeLook } from '../shared/season';
 import { dayTint, isNight, kstMinuteOfDay, type DayTint } from '../shared/daylight';
 import { HomePets, ownedPets, type RoamPet } from './homepets';
 import { wakeLockSupported, wakeLockOn, setWakeLock, startWakeLock } from './wakelock';
@@ -412,7 +413,7 @@ export class World implements WorldCtx {
     this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
     this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView(), club: this.clubView() });
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView(), treeLook: this.treeTint, club: this.clubView() });
     if (now - this.sceneAt > 1000) { this.sceneAt = now; setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow()))); this.weatherTick(); } // 배경음악: 지금 상황에 맞는 곡 (1초에 한 번 본다)
   }
 
@@ -435,7 +436,7 @@ export class World implements WorldCtx {
     const mySeat = this.sitAt;
     const myDance = this.danceOf(me.emoteId, me.poseAt, now);
     const list: Entity[] = [{
-      uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: mySeat ? mySeat.x : me.dispX, y: mySeat ? mySeat.y : me.dispY, dir: mySeat ? 0 : me.dir, moving: me.moving, sit: !!mySeat,
+      uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: mySeat ? mySeat.x : me.dispX, y: mySeat ? mySeat.y : me.dispY, dir: mySeat ? this.seatFace(mySeat) : me.dir, moving: me.moving, sit: !!mySeat,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: myDance ? 'dance' : me.pose, poseAt: myDance ? now : me.poseAt, emoteId: myDance ? 0 : me.emoteId, dance: myDance || undefined, bubble: me.bubble,
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null, title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null,
@@ -452,7 +453,7 @@ export class World implements WorldCtx {
       const seat = rp.st.si ? this.seatOf(rp.toX, rp.toY, rp.st.d ?? 0) : null; // 앉아 있는 사람: 바라보는 쪽 옆 칸의 가구 위에 그린다
       const dance = this.danceOf(rp.emoteId, rp.poseAt, now);
       list.push({
-        uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat ? seat.x : rp.x, y: seat ? seat.y : rp.y, dir: seat ? 0 : rp.st.d ?? 0, sit: !!seat, moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
+        uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat ? seat.x : rp.x, y: seat ? seat.y : rp.y, dir: seat ? this.seatFace(seat) : rp.st.d ?? 0, sit: !!seat, moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
         pose: dance ? 'dance' : rp.pose, poseAt: dance ? now : rp.poseAt, emoteId: dance ? 0 : rp.emoteId, dance: dance || undefined, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
@@ -798,6 +799,8 @@ export class World implements WorldCtx {
   }
   // ---- 앉기 (2026-11-18, 사용자 요청): 벤치·의자·소파를 보고 F. 보이는 모습만 그 가구 위로 옮긴다: 실제 자리는 그대로라 밀치기·끌기는 평소처럼 통하고, 움직이거나 돌아서면 일어난다 ----
   private sitAt: { x: number; y: number } | null = null;
+  // 앉은 사람이 보는 쪽 = 그 가구가 보는 쪽 (집 안에서 돌려 놓은 의자·소파·벤치. 그 밖에는 앞)
+  private seatFace(s: { x: number; y: number }): Dir { return (this.map.dirs?.[s.y * this.map.w + s.x] ?? 0) as Dir; }
   sitting(): boolean { return !!this.sitAt; }
   // (x, y)에서 dir 쪽 옆 칸이 앉을 수 있는 가구면 그 칸
   private seatOf(x: number, y: number, dir: number): { x: number; y: number } | null {
@@ -819,14 +822,21 @@ export class World implements WorldCtx {
   private outdoors(): boolean { return !isHomeMapId(this.mapId) && this.mapId !== GOLD_MINE_MAP_ID && this.mapId !== CLUB_MAP_ID; }
   private rainHere(): number { return this.outdoors() ? rainLevel(serverNow()) : 0; }
   raining(): boolean { return this.mapId !== WINTER_MAP_ID && this.rainHere() > 0; }
-  private rainView(): { level: number; snow: boolean } | null { const level = this.dayOff ? 0 : this.rainHere(); return level > 0 ? { level, snow: this.mapId === WINTER_MAP_ID } : null; }
+  // 눈이 오는 철(11/15~1/31)에는 어느 맵에서나 비를 눈으로 그린다 (겨울 낚시터는 언제나 눈)
+  private snowy(): boolean { return this.mapId === WINTER_MAP_ID || snowSeason(serverNow()); }
+  private rainView(): { level: number; snow: boolean } | null { const level = this.dayOff ? 0 : this.rainHere(); return level > 0 ? { level, snow: this.snowy() } : null; }
+  private treeTint: TreeLook = null; // 지금 나무의 빛깔 (단풍·벚꽃. 1초에 한 번 본다)
   private wasRaining: boolean | null = null;
   // 1초에 한 번: 빗소리를 맞추고, 비가 시작하고 그칠 때 한 줄 알린다 (처음 들어왔을 때는 알리지 않는다)
   private weatherTick(): void {
-    const level = this.rainHere(), snow = this.mapId === WINTER_MAP_ID;
-    setRain(snow ? 0 : level);
+    const level = this.rainHere(), winterMap = this.mapId === WINTER_MAP_ID, snow = this.snowy();
+    setRain(snow ? 0 : level); // 눈은 소리 없이 내린다
+    this.treeTint = this.outdoors() && !winterMap ? treeLook(serverNow()) : null;
     const now = rainLevel(serverNow()) > 0;
-    if (this.wasRaining !== null && now !== this.wasRaining && this.outdoors() && !snow) this.toast(now ? '🌧 비가 내리기 시작합니다. 비 오는 동안에만 낚이는 물고기가 있어요.' : '🌤 비가 그쳤습니다.');
+    if (this.wasRaining !== null && now !== this.wasRaining && this.outdoors() && !winterMap) {
+      if (snow) this.toast(now ? '❄ 눈이 내리기 시작합니다. 눈 오는 동안에만 낚이는 물고기가 있어요.' : '🌤 눈이 그쳤습니다.');
+      else this.toast(now ? '🌧 비가 내리기 시작합니다. 비 오는 동안에만 낚이는 물고기가 있어요.' : '🌤 비가 그쳤습니다.');
+    }
     this.wasRaining = now;
   }
   // ---- 배경음악이 달라지는 상황 (audio.ts) ----
@@ -1048,7 +1058,7 @@ export class World implements WorldCtx {
     if (hf === 'chest') return { x: me.x, y: me.y - 1, text: 'F 창고 열기', kind: 'chest' };
     // 꾸미기 모드: 놓은 가구를 보면 치우기, 놓을 수 있는 빈 칸을 보면 놓기 (문 옆에서도 포탈보다 먼저)
     const fd = this.home.facingDeco();
-    if (fd) return fd.kind === 'remove' ? { x: fd.x, y: fd.y, text: `F ${furnitureOf(fd.o)?.name ?? '가구'} 치우기`, kind: 'decoRemove' } : { x: fd.x, y: fd.y, text: `F 가구 놓기 (${this.home.decoCount}/${this.home.decoLimit})`, kind: 'decoPlace' };
+    if (fd) return fd.kind === 'remove' ? { x: fd.x, y: fd.y, text: `F ${furnitureOf(fd.o)?.name ?? '가구'} ${canTurn(fd.o) ? '돌리기·치우기' : '치우기'}`, kind: 'decoRemove' } : { x: fd.x, y: fd.y, text: `F 가구 놓기 (${this.home.decoCount}/${this.home.decoLimit})`, kind: 'decoPlace' };
     const fv = this.fishing.view();
     const bug = this.bugs.targetView();
     // 포탈 옆이라도 하던 낚시·바로 옆 벌레·삽질·발밑 보물 자리가 먼저다 (2026-11-11: 포탈 옆에 잡힌 보물 자리를 팔 수 없던 문제). 그 일이 끝나면 다시 포탈 안내가 뜬다
@@ -1122,7 +1132,12 @@ export class World implements WorldCtx {
     else if (ch.kind === 'sitting') this.standUp();
     else if (ch.kind === 'chest') { this.input.releaseAll(); openHome(this); }
     else if (ch.kind === 'decoPlace') { this.input.releaseAll(); openFurniturePicker(this); }
-    else if (ch.kind === 'decoRemove') void this.home.removeFront().then((ok) => { if (!ok) this.toast('치우지 못했습니다.', true); });
+    else if (ch.kind === 'decoRemove') {
+      // 돌릴 수 있는 가구는 방향 고르기·치우기 창을 띄우고, 방향이 없는 가구(화분 등)는 전처럼 바로 치운다
+      const fd = this.home.facingDeco();
+      if (fd && fd.kind === 'remove' && canTurn(fd.o)) { this.input.releaseAll(); openFurnitureEdit(this, fd.x, fd.y, fd.o); }
+      else void this.home.removeFront().then((ok) => { if (!ok) this.toast('치우지 못했습니다.', true); });
+    }
     else if (ch.kind === 'snowman') this.smashStep(ch);
     else if (ch.kind === 'snowfight') this.snowfightF();
     else if (ch.kind === 'arcade') { this.input.releaseAll(); openMole({ uid: this.uid, nick: this.profile.nick, wallet: this.wallet, input: this.input, toast: (m, e) => this.toast(m, e), stat: (k) => this.net.stat(k) }); }

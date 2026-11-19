@@ -170,3 +170,63 @@ test('소식: 낚시·채집 소식은 신화만 보낸다 (화면이 쓰지 않
   assert.equal(ANNOUNCE_RARITY, MYTHIC);
   assert.equal(BUG_ANNOUNCE_RARITY, MYTHIC);
 });
+
+// ---------- 2026-11-19: 계절, 클럽 음악, 앵무새 ----------
+test('계절: 11/15~1/31 은 눈과 단풍, 4~5월은 벚꽃 (한국 날짜로 가른다)', async () => {
+  const { snowSeason, treeLook, kstMonthDay } = await import('../src/shared/season.ts');
+  const kst = (y, m, d, h = 0, mi = 0) => Date.UTC(y, m - 1, d, h - 9, mi);
+  assert.deepEqual(kstMonthDay(kst(2026, 11, 15)), { m: 11, d: 15 });
+  assert.equal(snowSeason(kst(2026, 11, 14, 23, 59)), false);
+  assert.equal(snowSeason(kst(2026, 11, 15, 0, 0)), true);
+  assert.equal(snowSeason(kst(2026, 12, 25, 12)), true);
+  assert.equal(snowSeason(kst(2027, 1, 31, 23, 59)), true);
+  assert.equal(snowSeason(kst(2027, 2, 1, 0, 0)), false);
+  assert.equal(treeLook(kst(2026, 11, 19, 12)), 'autumn');
+  assert.equal(treeLook(kst(2027, 2, 1)), null);
+  assert.equal(treeLook(kst(2027, 3, 31, 23, 59)), null);
+  assert.equal(treeLook(kst(2027, 4, 1, 0, 0)), 'blossom');
+  assert.equal(treeLook(kst(2027, 5, 31, 23, 59)), 'blossom');
+  assert.equal(treeLook(kst(2027, 6, 1, 0, 0)), null);
+  assert.equal(treeLook(kst(2027, 8, 15)), null);
+});
+
+test('클럽 음악: 구간이 있는 편곡이고(인트로·빌드업·드롭·브레이크), 가락이 마디 길이와 화음에 맞는다', async () => {
+  const { EDM_FORM, EDM_BARS, edmSection, hookNotes } = await import('../src/game/edm.ts');
+  assert.deepEqual(EDM_FORM.map(([k]) => k), ['intro', 'build', 'drop', 'break', 'build', 'drop', 'outro']);
+  assert.equal(EDM_BARS, 68);
+  assert.deepEqual(edmSection(0), { kind: 'intro', i: 0, n: 8, rep: 0 });
+  assert.deepEqual(edmSection(16), { kind: 'drop', i: 0, n: 16, rep: 0 });
+  assert.deepEqual(edmSection(47), { kind: 'build', i: 7, n: 8, rep: 1 });
+  assert.deepEqual(edmSection(48), { kind: 'drop', i: 0, n: 16, rep: 1 });
+  assert.deepEqual(edmSection(67), { kind: 'outro', i: 3, n: 4, rep: 0 });
+  assert.deepEqual(hookNotes('7--7..9-'), [{ step: 0, deg: 7, len: 3 }, { step: 3, deg: 7, len: 1 }, { step: 6, deg: 9, len: 2 }]);
+  const clubs = ['club1', 'club2', 'club3'].map((k) => audio.TUNES[k]);
+  assert.equal(new Set(clubs.map((t) => t.edm.bass)).size, 3, '세 곡의 베이스 방식이 다 다르다');
+  for (const t of clubs) {
+    const e = t.edm;
+    assert.equal(t.bars, EDM_BARS); assert.equal(t.bpm, e.bpm);
+    assert.ok(e.bpm >= 120 && e.bpm <= 140);
+    assert.equal(e.prog.length, 8); assert.equal(e.hook.length, 8);
+    for (const row of e.hook) {
+      assert.equal(row.length, 16, row);
+      assert.match(row, /^[0-9a-z.-]+$/);
+      const ns = hookNotes(row);
+      assert.ok(ns.length >= 3, '마디마다 음이 셋 이상');
+      for (const n of ns) assert.ok(n.deg >= 0 && n.deg <= 21 && n.step + n.len <= 16);
+    }
+    // 마디의 첫 음은 그 마디 화음의 음이다 (가락이 화음과 어긋나지 않게)
+    e.hook.forEach((row, b) => { const first = hookNotes(row)[0].deg; assert.ok([0, 2, 4].includes((((first - e.prog[b]) % 7) + 7) % 7), `${t.name} ${b + 1}마디 첫 음`); });
+    if (e.bass === 'bounce') assert.equal(e.bounce.length, 16);
+    if (e.stabs) assert.equal(e.stabs.length, 16);
+  }
+});
+
+test('앵무새: 주인의 마지막 낱말을 두 번 따라 한다 (길면 끝 여섯 글자, 웃음·기호만이면 조용히)', async () => {
+  const { parrotEcho, PARROT_ID, itemById } = await import('../src/shared/shop.ts');
+  assert.equal(itemById(PARROT_ID)?.kind, 'pet');
+  assert.equal(parrotEcho('오늘 점심 뭐 먹지?'), '먹지! 먹지!');
+  assert.equal(parrotEcho('  안녕  '), '안녕! 안녕!');
+  assert.equal(parrotEcho('아주아주긴한낱말입니다'), '한낱말입니다! 한낱말입니다!');
+  assert.equal(parrotEcho('ㅋㅋㅋㅋ'), '');
+  assert.equal(parrotEcho(''), '');
+});
