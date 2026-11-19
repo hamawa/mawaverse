@@ -38,10 +38,12 @@ export function tierOf(h: HomeData | null | undefined): number { return homeTier
 // ---- 나무 ----
 export const CHOP_MS = 3000;        // 한 번 휘두르는 시간
 export const CHOP_GAP_MS = 2500;    // 규칙이 보는 최소 간격 (통신 지연으로 정상 쓰기가 거부되지 않게 조금 짧게)
-export const CHOP_MAX = 2;          // 한 번에 나오는 최대 개수
+export const CHOP_MAX = 2;          // 한 번에 나오는 최대 개수 (곡괭이 보너스 빼고. 규칙: 늘어난 양이 이보다 많으면 (늘어난 양 - CHOP_MAX) * 2 <= 지갑의 pi 여야 한다)
 export const CHOP_SWINGS = 5;       // F 한 번에 이어서 휘두르는 횟수 (자동으로 계속 캐지는 않는다)
 export const WOOD_MAX = 2000;       // 들고 있을 수 있는 나무
-export function rollWood(rand: () => number = Math.random): number { return rand() < 0.5 ? 1 : 2; }
+// pick: 곡괭이 단계. 단계의 절반만큼 더 나온다 (2026-11-19, 건의 반영: 금광의 금덩이와 같은 식. 10단계면 한 번에 6~7개)
+export function woodBonus(pick: number): number { return Math.max(0, Math.floor((pick || 0) / 2)); }
+export function rollWood(rand: () => number = Math.random, pick = 0): number { return (rand() < 0.5 ? 1 : 2) + woodBonus(pick); }
 
 // ---- 창고 ----
 export const SLOT_FISH = 100;       // 한 칸에 들어가는 물고기

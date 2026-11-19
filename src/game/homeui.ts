@@ -2,7 +2,7 @@ import { ref, get } from 'firebase/database';
 import { db } from '../firebase/app';
 import { el } from '../shared/util';
 import { modal, withCloseX, confirmModal } from './ui';
-import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, GUEST_MAX, TROPHY_MIN_RARITY, furnitureOf, TURN_NAMES, TURN_ORDER } from '../shared/home';
+import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, GUEST_MAX, TROPHY_MIN_RARITY, furnitureOf, TURN_NAMES, TURN_ORDER, woodBonus } from '../shared/home';
 import { fishById, fmtSize, RARITY_NAME, type FishBookEntry } from '../shared/fish';
 import { winterFishById } from '../shared/winter';
 import { itemById, priceOf, fmtCoins, GOLD_COST } from '../shared/shop';
@@ -33,7 +33,8 @@ export function openHome(w: World): void {
     const t = homeTier(h.data?.t), next = nextTier(h.data);
     body.append(el('div', { style: 'font-size:16px;font-weight:700', text: t ? `${t.icon} ${t.name}` : '아직 집이 없어요' }));
     body.append(line(`${fmtWood(h.wood)} · ${fmtCoins(w.wallet.balance)}`));
-    body.append(line(`나무는 어느 맵이든 나무를 보고 F (한 번에 ${CHOP_SWINGS}번 휘두르고 1~2개씩 나와요).`, true));
+    const wb = woodBonus(w.wallet.pickLevel);
+    body.append(line(`나무는 어느 맵이든 나무를 보고 F (한 번에 ${CHOP_SWINGS}번 휘두르고 ${1 + wb}~${2 + wb}개씩 나와요. 곡괭이를 강화하면 더 나와요).`, true));
 
     if (next) {
       const paid = !next.item || w.wallet.owns(next.item);

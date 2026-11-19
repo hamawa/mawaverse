@@ -889,6 +889,15 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('집: 바로 또 캐기 (간격 2.5초)', 'deny', () => ok.ref(H).update({ w: 4, wa: SV }));
   await root.ref(H).set({ w: 10, wa: 1 });
   await expect('집: 한 번에 3개', 'deny', () => ok.ref(H).update({ w: 13, wa: SV }));
+  // 곡괭이 단계의 절반만큼 더 (2026-11-19): 지갑의 pi 로 상한을 본다
+  await root.ref('wallet/OK/pi').set(4);
+  await expect('집: 곡괭이 4단계면 한 번에 4개 (2 + 2)', 'allow', () => ok.ref(H).update({ w: 14, wa: SV }));
+  await root.ref(H).set({ w: 10, wa: 1 });
+  await expect('집: 곡괭이 4단계인데 한 번에 5개', 'deny', () => ok.ref(H).update({ w: 15, wa: SV }));
+  await root.ref('wallet/OK/pi').set(5);
+  await expect('집: 곡괭이 5단계도 보너스는 2개 (5개는 거부)', 'deny', () => ok.ref(H).update({ w: 15, wa: SV }));
+  await root.ref('wallet/OK/pi').remove();
+  await root.ref(H).set({ w: 10, wa: 1 });
   await expect('집: 시각 없이 나무 늘리기', 'deny', () => ok.ref(H).update({ w: 11 }));
   await expect('집: 남의 나무 늘리기', 'deny', () => other.ref(H).update({ w: 12, wa: SV }));
   await expect('집: 대기 중인 계정이 나무 캐기', 'deny', () => pend.ref('homes/PEND').update({ w: 1, wa: SV }));

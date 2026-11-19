@@ -232,3 +232,17 @@ test('앵무새: 주인의 마지막 낱말을 두 번 따라 한다 (길면 끝
   assert.equal(parrotEcho('ㅋㅋㅋㅋ'), '');
   assert.equal(parrotEcho(''), '');
 });
+
+test('rings: five kinds by rarity, and together they raise the expected score only a little', async () => {
+  const { DEFAULT_FISH } = await import('../src/shared/fish.ts');
+  const { RARITY_POINTS } = await import('../src/shared/collection.ts');
+  const rings = DEFAULT_FISH.filter((f) => f.id.startsWith('ring'));
+  assert.deepEqual(rings.map((f) => [f.id, f.rarity]), [['ringtoy', 1], ['ringsilver', 2], ['ringgold', 3], ['ringdia', 3], ['ringgerma', 4]]);
+  assert.ok(rings.every((f) => !f.time && !f.junk && f.name.length <= 20 && f.desc.length <= 80 && f.min > 0 && f.max < 10));
+  const base = DEFAULT_FISH.filter((f) => !f.time && !f.id.startsWith('ring'));
+  const ev = (list) => list.reduce((s, f) => s + (f.junk ? 0 : f.w * RARITY_POINTS[f.rarity]), 0) / list.reduce((s, f) => s + f.w, 0);
+  const up = ev([...base, ...rings]) / ev(base);
+  assert.ok(up > 1 && up < 1.05, `expected score x${up.toFixed(3)}`);
+  const dragon = DEFAULT_FISH.find((f) => f.id === 'dragon');
+  assert.ok(rings[4].w <= dragon.w / 2, 'the mythic ring is rarer than the dragon');
+});

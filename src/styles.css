@@ -329,7 +329,9 @@ table tr.off td { opacity: 0.5; }
 .mole-body { position: absolute; left: 50%; bottom: -70%; width: 58%; height: 70%; margin-left: -29%; border-radius: 48% 48% 40% 40%; background: #8b5a2b; transition: bottom 0.08s; pointer-events: none; }
 .mole-body::before, .mole-body::after { content: ''; position: absolute; top: 28%; width: 12%; height: 12%; border-radius: 50%; background: #111; }
 .mole-body::before { left: 26%; } .mole-body::after { right: 26%; }
-.mole-body.gold { background: #ffd84d; box-shadow: 0 0 10px #ffd84d; }
+.mole-body.gold { background: #ffd84d; }
+/* 빛은 올라와 있을 때만 (2026-11-19 건의: 황금 두더지가 내려간 뒤에도 구멍 아래쪽에 금빛이 남았다. 종류 표시를 내려갈 때 지우지 않게 바꾸면서 생긴 일) */
+.hole.up .mole-body.gold { box-shadow: 0 0 10px #ffd84d; }
 .mole-body.bomb { background: #222; border-radius: 50%; }
 .mole-body.bomb::before, .mole-body.bomb::after { background: #ff6b6b; }
 .hole.up .mole-body { bottom: 6%; }

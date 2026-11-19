@@ -50,6 +50,13 @@ export const DEFAULT_FISH: FishDef[] = [
   { id: 'rainloach', name: '빗방울 미꾸라지', icon: '💧', rarity: 1, min: 8, max: 20, w: 2, time: 'rain', desc: '비가 오면 신이 나서 물 위로 튄다.' },
   { id: 'monsooncat', name: '장마 메기', icon: '☔', rarity: 2, min: 50, max: 120, w: 0.6, time: 'rain', desc: '빗소리가 들리면 깨어난다. 수염이 길다.' },
   { id: 'rainbowtrout', name: '무지개 송어', icon: '🌈', rarity: 3, min: 35, max: 80, w: 0.45, time: 'rain', desc: '비가 그치기 전에만 낚인다. 등에 일곱 빛깔이 흐른다.' },
+  // 반지 (2026-11-19, 건의 반영: "낚시하다 반지가 나오게 해 주세요"). 아주 드물게 낚인다: 가중치를 전부 합쳐도 기대 점수는 2% 안쪽으로만 오른다 (라이브 목록으로 계산).
+  // 게르마늄 반지는 신화라 용처럼 장비·미끼와 무관하게 따로 굴린다 (용의 절반 확률). 크기는 지름(cm)
+  { id: 'ringtoy', name: '문방구 반지', icon: '💍', rarity: 1, min: 1.5, max: 2.4, w: 0.3, desc: '문방구 뽑기에서 나온 플라스틱 반지. 그래도 반지는 반지.' },
+  { id: 'ringsilver', name: '은반지', icon: '💍', rarity: 2, min: 1.6, max: 2.3, w: 0.1, desc: '누가 연못에 던진 걸까. 안쪽에 새긴 이름이 지워져 있다.' },
+  { id: 'ringgold', name: '금반지', icon: '💍', rarity: 3, min: 1.6, max: 2.3, w: 0.05, desc: '묵직한 금반지. 주인을 찾아 줄까, 그냥 낄까.' },
+  { id: 'ringdia', name: '다이아 반지', icon: '💎', rarity: 3, min: 1.6, max: 2.2, w: 0.02, desc: '물속에서도 번쩍인다. 청혼하다 빠뜨린 모양이다.' },
+  { id: 'ringgerma', name: '게르마늄 반지', icon: '💍', rarity: 4, min: 1.7, max: 2.2, w: 0.0005, desc: '건강에 좋다는 전설의 반지. 끼면 어깨가 풀린다고 한다.' },
   // 신화 (2026-11-09): 장비·미끼와 무관하게 w/전체 ≈ 1/100,000 로만 뽑힌다 (collection.ts pick)
   { id: 'dragon', name: '용', icon: '🐉', rarity: 4, min: 300, max: 900, w: 0.001, desc: '용궁에서 올라왔다. 비늘 한 장이 월급. 낚은 사람은 회사 전설이 된다.' },
   // 대회 한정

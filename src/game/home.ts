@@ -175,7 +175,7 @@ export class HomeMgr {
   }
   private async finishChop(c: Chop): Promise<void> {
     const w = this.w;
-    const n = Math.min(rollWood(), Math.max(1, this.woodGoal() - this.wood));
+    const n = Math.min(rollWood(Math.random, w.wallet.pickLevel), Math.max(1, this.woodGoal() - this.wood)); // 곡괭이 단계의 절반만큼 더 (규칙이 지갑의 pi 로 상한을 본다)
     const mark = c.done === 0 ? { x: c.tx, y: c.ty } : undefined;
     let ok = await this.writeWood(n, mark);
     // 통신이 밀려 앞 쓰기와 간격이 좁게 도착하면 규칙이 거부한다: 한 번만 조금 뒤에 다시

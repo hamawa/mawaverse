@@ -108,6 +108,8 @@ async function loadSavedMap(id: string): Promise<MapData> {
   return m;
 }
 
+const FX_PREVIEW_MS = 12000;  // 이펙트 미리보기 시간
+const SIT_STEP_MS = 140;      // 앉으러 가구 칸에 오르고 내려서는 걸음의 길이
 const CLUB_BPM = 126;        // 클럽의 바닥·춤추는 펫이 맞추는 박자 (곡은 124~128 이라 거의 맞는다)
 const CLUB_DANCE_MS = 8000;  // 클럽에서 이모트 한 번에 춤추는 시간
 const SMASH_CONFIRM_MS = 6000; // 눈사람 부수기: 첫 F 뒤 이 시간 안에 두 번째 F 를 눌러야 한다
@@ -391,7 +393,7 @@ export class World implements WorldCtx {
         if (this.input.enabled) this.slideOn(); else this.winter.resetSlide(); // 채팅창 등으로 입력이 막히면 멈춘다
       }
     } else if (!me.moving) this.winter.resetSlide(); // 스턴·잠금·마피아 정지·맵 이동 중에는 관성이 이어지지 않는다
-    if (this.sitAt) { const s = this.seatOf(me.x, me.y, me.dir); if (me.moving || !s || s.x !== this.sitAt.x || s.y !== this.sitAt.y) this.standUp(); }
+    this.checkSeat();
     if (me.moving || (this.fishing.active && !this.input.enabled && !this.wallet.autoReelActive())) this.fishing.cancel(); // 밀려났거나 채팅창을 열면 취소 (자동 회수 중엔 채팅해도 유지)
     this.contest.tick(now);
     this.bugs.tick(now);
@@ -436,10 +438,10 @@ export class World implements WorldCtx {
     const mySeat = this.sitAt;
     const myDance = this.danceOf(me.emoteId, me.poseAt, now);
     const list: Entity[] = [{
-      uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: mySeat ? mySeat.x : me.dispX, y: mySeat ? mySeat.y : me.dispY, dir: mySeat ? this.seatFace(mySeat) : me.dir, moving: me.moving, sit: !!mySeat,
+      uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: mySeat ? this.seatFace(mySeat) : me.dir, moving: me.moving, sit: !!mySeat && !me.moving,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: myDance ? 'dance' : me.pose, poseAt: myDance ? now : me.poseAt, emoteId: myDance ? 0 : me.emoteId, dance: myDance || undefined, bubble: me.bubble,
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
-      fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.profile.eq?.fx || null, title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null,
+      fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.myFx(now), title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null,
       pet: this.pets.view(this.uid, loose ? null : this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
       ghost: iGhost, mining: this.mine.active, snowBrokenAt: this.snowBrokenAt, snowReady: this.snowfight.packed,
       progress: this.home.chopProgress(now) ?? this.mine.progress(now), // 나무·금을 캐는 중: 머리 위 진행 막대 (2026-11-18)
@@ -450,10 +452,11 @@ export class World implements WorldCtx {
       // 마피아 유령은 유령에게만 보인다 (산 사람·비참가자 화면에는 아예 안 그린다)
       const ghost = this.mafia.isGhost(rp.uid);
       if (ghost && !iGhost) continue;
-      const seat = rp.st.si ? this.seatOf(rp.toX, rp.toY, rp.st.d ?? 0) : null; // 앉아 있는 사람: 바라보는 쪽 옆 칸의 가구 위에 그린다
+      const onSeat = !!rp.st.si && this.isSeat(rp.toX, rp.toY); // 새 방식: 가구 칸에 실제로 올라가 있다
+      const seat = !rp.st.si ? null : onSeat ? { x: rp.toX, y: rp.toY } : this.seatOf(rp.toX, rp.toY, rp.st.d ?? 0); // 앉아 있는 사람: 바라보는 쪽 옆 칸의 가구 위에 그린다
       const dance = this.danceOf(rp.emoteId, rp.poseAt, now);
       list.push({
-        uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat ? seat.x : rp.x, y: seat ? seat.y : rp.y, dir: seat ? this.seatFace(seat) : rp.st.d ?? 0, sit: !!seat, moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
+        uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat && !onSeat ? seat.x : rp.x, y: seat && !onSeat ? seat.y : rp.y, dir: seat ? this.seatFace(seat) : rp.st.d ?? 0, sit: !!seat && !(onSeat && rp.moveStart > 0), moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
         pose: dance ? 'dance' : rp.pose, poseAt: dance ? now : rp.poseAt, emoteId: dance ? 0 : rp.emoteId, dance: dance || undefined, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
@@ -577,7 +580,7 @@ export class World implements WorldCtx {
     const me = this.me;
     me.moving = false; me.dispX = me.x; me.dispY = me.y;
     this.winter.resetSlide(); // 뒤쪽 탭에서 끝난 걸음: 관성은 이어 가지 않는다
-    this.standUp();
+    this.checkSeat();
     this.fishing.cancel(); // 밀려났으니 던져 둔 찌는 거둔다 (tick 이 돌 때와 같은 동작)
     this.afterStep();
   }
@@ -798,26 +801,66 @@ export class World implements WorldCtx {
     return this.mapId === CLUB_MAP_ID && emoteId >= 1 && emoteId <= 9 && now - poseAt < CLUB_DANCE_MS ? emoteId : 0;
   }
   // ---- 앉기 (2026-11-18, 사용자 요청): 벤치·의자·소파를 보고 F. 보이는 모습만 그 가구 위로 옮긴다: 실제 자리는 그대로라 밀치기·끌기는 평소처럼 통하고, 움직이거나 돌아서면 일어난다 ----
+  // ---- 이펙트 미리보기 (2026-11-19, 건의 반영): 사기 전에 내 캐릭터에 잠깐 입혀 본다. 이 화면에만 그린다 (서버로 가는 것은 없어 남에게는 안 보인다) ----
+  private fxTry: { id: string; until: number } | null = null;
+  previewFx(id: string): void {
+    this.fxTry = { id, until: performance.now() + FX_PREVIEW_MS };
+    this.note(`✨ ${itemById(id)?.name ?? '이펙트'} 미리보기: ${FX_PREVIEW_MS / 1000}초 동안 걸어 보세요 (내 화면에만 보여요)`);
+  }
+  private myFx(now: number): string | null {
+    const t = this.fxTry;
+    if (t && now < t.until) return t.id;
+    if (t) { this.fxTry = null; this.note('✨ 미리보기가 끝났어요.'); }
+    return this.profile.eq?.fx || null;
+  }
+  // 앉으면 그 가구 칸으로 실제로 옮겨 간다 (2026-11-19 수정, 사용자 제보). 전에는 모습만 가구 위로 옮기고 자리는 가구 앞에 그대로 둬서,
+  // 앉은 사람이 서 있던 칸을 남들이 지나갈 수 없었다. sitAt: 내가 앉은 가구 칸, sitFrom: 앉기 전에 서 있던 칸 (일어날 때 먼저 그리로 돌아간다)
   private sitAt: { x: number; y: number } | null = null;
+  private sitFrom: { x: number; y: number } | null = null;
+  private isSeat(x: number, y: number): boolean { const o = objectAt(this.map, x, y); return o === O.BENCH || o === O.CHAIR || o === O.SOFA; }
+  // 앉은 자리를 떠났거나(걸어 나감·밀려남·걸음 거부) 그 가구가 없어졌으면 앉은 상태를 푼다
+  private checkSeat(): void { const s = this.sitAt; if (s && (this.me.x !== s.x || this.me.y !== s.y || !this.isSeat(s.x, s.y))) this.standUp(); }
   // 앉은 사람이 보는 쪽 = 그 가구가 보는 쪽 (집 안에서 돌려 놓은 의자·소파·벤치. 그 밖에는 앞)
   private seatFace(s: { x: number; y: number }): Dir { return (this.map.dirs?.[s.y * this.map.w + s.x] ?? 0) as Dir; }
   sitting(): boolean { return !!this.sitAt; }
   // (x, y)에서 dir 쪽 옆 칸이 앉을 수 있는 가구면 그 칸
   private seatOf(x: number, y: number, dir: number): { x: number; y: number } | null {
-    const [dx, dy] = dirVec(dir as Dir), sx = x + dx, sy = y + dy, o = objectAt(this.map, sx, sy);
-    return o === O.BENCH || o === O.CHAIR || o === O.SOFA ? { x: sx, y: sy } : null;
+    const [dx, dy] = dirVec(dir as Dir), sx = x + dx, sy = y + dy;
+    return this.isSeat(sx, sy) ? { x: sx, y: sy } : null;
   }
   private seatAhead(): { x: number; y: number } | null {
     const me = this.me;
-    if (me.moving || me.locked || me.roomId || this.switching) return null;
+    if (me.moving || me.locked || me.roomId || this.switching || this.sitAt) return null;
     const s = this.seatOf(me.x, me.y, me.dir);
-    if (!s) return null;
-    // 누가 이미 앉아 있는 자리는 비켜 준다
-    for (const rp of this.players.values()) if (rp.st.si && this.onMyMap(rp.st)) { const o = this.seatOf(rp.toX, rp.toY, rp.st.d ?? 0); if (o && o.x === s.x && o.y === s.y) return null; }
+    if (!s || this.occupied(s.x, s.y)) return null; // 누가 이미 앉아 있는 자리는 비켜 준다
+    // 옛 화면(v39 이하)으로 앉은 사람: 가구 앞에 서서 표시만 켜 둔다
+    for (const rp of this.players.values()) if (rp.st.si && this.onMyMap(rp.st) && !this.isSeat(rp.toX, rp.toY)) { const o = this.seatOf(rp.toX, rp.toY, rp.st.d ?? 0); if (o && o.x === s.x && o.y === s.y) return null; }
     return s;
   }
-  private sit(): void { const s = this.seatAhead(); if (!s) return; this.sitAt = s; this.net.setSit(true); sfx('door', { vol: 0.5 }); }
-  private standUp(): void { if (!this.sitAt) return; this.sitAt = null; this.net.setSit(false); }
+  private sit(): void {
+    const s = this.seatAhead();
+    if (!s) return;
+    const me = this.me;
+    this.fishing.cancel(); this.mine.cancel();
+    this.sitAt = s; this.sitFrom = { x: me.x, y: me.y };
+    me.dir = this.seatFace(s); // 가구가 보는 쪽을 본다 (걸음에 실려 간다)
+    // 가구 칸은 걸어서는 못 들어가는 칸이라 canStep 을 거치지 않고 바로 옮긴다. 누가 먼저 앉았으면 걸음이 거부돼 제자리로 돌아온다 (checkSeat 이 푼다)
+    this.startStep(s.x, s.y, undefined, { dur: SIT_STEP_MS, onDone: (ok) => { if (ok && this.sitAt === s) this.net.setSit(true); } });
+    sfx('door', { vol: 0.5 });
+  }
+  // 앉은 상태를 푼다 (자리는 건드리지 않는다: 이미 자리를 떠났거나 가구가 없어진 뒤에 부른다)
+  private standUp(): void { if (!this.sitAt) return; this.sitAt = null; this.sitFrom = null; this.net.setSit(false); }
+  // F 로 일어나기: 가구 칸에서 옆 칸으로 내려선다. 앉기 전에 서 있던 칸 → 가구가 보는 쪽 → 그 밖의 옆 칸 순서로 빈 곳을 찾는다
+  private leaveSeat(): void {
+    const me = this.me, s = this.sitAt;
+    if (!s || me.moving || me.locked) return;
+    const [fx, fy] = dirVec(this.seatFace(s));
+    const around = [this.sitFrom, { x: s.x + fx, y: s.y + fy }, { x: s.x, y: s.y + 1 }, { x: s.x - 1, y: s.y }, { x: s.x + 1, y: s.y }, { x: s.x, y: s.y - 1 }];
+    const t = around.find((p) => !!p && Math.abs(p.x - s.x) + Math.abs(p.y - s.y) === 1 && this.canStep(p.x, p.y));
+    if (!t) { this.toast('일어설 자리가 없어요. 둘레가 막혀 있어요.', true); return; }
+    me.dir = t.x < s.x ? 1 : t.x > s.x ? 2 : t.y < s.y ? 3 : 0;
+    this.startStep(t.x, t.y, undefined, { dur: SIT_STEP_MS }); // 자리를 떠나면 checkSeat 이 앉은 상태를 푼다
+  }
   // ---- 날씨 (2026-11-18, shared/weather.ts): 바깥 맵에만 비가 온다. 집 안과 금광은 실내. 겨울 맵에서는 눈으로 보이고 비 한정 물고기는 없다 ----
   private outdoors(): boolean { return !isHomeMapId(this.mapId) && this.mapId !== GOLD_MINE_MAP_ID && this.mapId !== CLUB_MAP_ID; }
   private rainHere(): number { return this.outdoors() ? rainLevel(serverNow()) : 0; }
@@ -1129,7 +1172,7 @@ export class World implements WorldCtx {
     else if (ch.kind === 'chop') { if (!this.input.interactRepeat && this.home.beginChop()) this.doEmote(13); } // 도끼질은 삽질 동작으로 남에게도 보인다
     else if (ch.kind === 'bed') this.home.beginSleep();
     else if (ch.kind === 'sit') this.sit();
-    else if (ch.kind === 'sitting') this.standUp();
+    else if (ch.kind === 'sitting') this.leaveSeat();
     else if (ch.kind === 'chest') { this.input.releaseAll(); openHome(this); }
     else if (ch.kind === 'decoPlace') { this.input.releaseAll(); openFurniturePicker(this); }
     else if (ch.kind === 'decoRemove') {
@@ -1357,6 +1400,7 @@ export class World implements WorldCtx {
     openShop({
       uid: this.uid, profile: this.profile, wallet: this.wallet, config: this.config, toast: (m, e) => this.toast(m, e),
       onlineList: () => [...this.players.values()].map((p) => ({ uid: p.uid, nick: p.st.n })),
+      previewFx: (id) => this.previewFx(id),
       // 선물 받을 사람을 아이디로 찾기: ids/{키} → uid → 닉네임
       lookupId: async (id) => {
         const uid = (await get(ref(db, `ids/${idPathKey(id)}`))).val();

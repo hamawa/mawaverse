@@ -86,7 +86,10 @@ test('규칙에 든 숫자가 코드와 같다', () => {
   const v = rules.homes.$uid['.validate'];
   for (const t of H.HOME_TIERS) assert.ok(v.includes(` - ${t.wood})`) || v.includes(` - ${t.wood} &&`), `나무 ${t.wood}`);
   assert.ok(v.includes("/own/house2').val() == true") && v.includes("/own/house3').val() == true"));
-  assert.ok(v.includes(` + ${H.CHOP_MAX} && newData.child('wa').val() == now`) && v.includes(`now - ${H.CHOP_GAP_MS}`));
+  // 나무: 한 번에 CHOP_MAX 개까지, 곡괭이 단계가 있으면 그 절반만큼 더 (2026-11-19)
+  assert.ok(v.includes(` + ${H.CHOP_MAX} || (root.child('wallet/' + $uid + '/pi').isNumber()`) && v.includes(` - ${H.CHOP_MAX}) * 2 <= root.child('wallet/' + $uid + '/pi').val())) && newData.child('wa').val() == now`) && v.includes(`now - ${H.CHOP_GAP_MS}`));
+  assert.deepEqual([0, 1, 2, 3, 9, 10].map((l) => H.woodBonus(l)), [0, 0, 1, 1, 4, 5]);
+  assert.equal(H.rollWood(() => 0.9, 10), 7); assert.equal(H.rollWood(() => 0.1, 0), 1);
   assert.ok(v.includes(` + ${H.STORE_MAX} && `) && v.includes(`${H.SLOT_FISH} * (${H.BASE_SLOTS} + `) && v.includes(`now - ${H.STORE_GAP_MS}`));
   assert.ok(v.includes(`? ${H.HOME_TIERS[2].extraSlots} : (`) && v.includes(`? ${H.HOME_TIERS[1].extraSlots} : ${H.HOME_TIERS[0].extraSlots}`));
   assert.ok(v.includes(` - ${H.SHIELD_FISH}))`));

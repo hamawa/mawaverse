@@ -9,14 +9,16 @@ import {
   BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
 } from '../shared/shop';
 import { fmtGold, PICK_MAX, PICK_TOTAL_COST, pickAttempts, pickBonus } from '../shared/mine';
+import { woodBonus } from '../shared/home';
 import type { WalletMgr } from './wallet';
-import type { UserProfile, ServerConfig } from '../shared/types';
+import type { UserProfile, ServerConfig } from '../shared/types';
 import { sfx } from './audio';
 
 export interface ShopHost {
   uid: string; profile: UserProfile; wallet: WalletMgr; config: ServerConfig; toast(msg: string, err?: boolean): void;
   onlineList?: () => { uid: string; nick: string }[];                 // 선물 받을 사람 고르기 (접속 중)
   lookupId?: (id: string) => Promise<{ uid: string; nick: string } | null>; // 아이디로 찾기
+  previewFx?: (id: string) => void;                                    // 이펙트를 잠깐 입혀 본다 (2026-11-19 건의. 내 화면에만)
 }
 
 // 선물 받을 사람 고르기 (2026-11-09): 접속 중인 사람 목록 + 아이디 입력, 메시지(선택)
@@ -158,6 +160,12 @@ export function openShop(h: ShopHost): void {
     else card.append(el('div', { class: 'ic', text: item.icon }));
     const lv = petLevel(xp);
     card.append(el('div', { class: 'nm', text: kind === 'pet' ? `${item.name} Lv.${lv}${riding ? ' 🏇' : ''}` : item.name }));
+    // 이펙트 미리보기 (2026-11-19 건의): 상점을 닫고 내 캐릭터에 잠깐 입혀 걸어 본다. 사지 않아도 볼 수 있다
+    if (kind === 'fx' && h.previewFx) {
+      const pv = el('button', { class: 'btn small', text: '👀 미리보기' });
+      pv.onclick = () => { m.close(); h.previewFx!(item.id); };
+      card.append(pv);
+    }
     if (kind === 'pet') {
       // 레벨·경험치 바·먹이 주기 (2026-11-10). 먹이는 데리고 있는 펫에게만 (한 번에 1·10개)
       const next = petNextXp(xp);
@@ -358,8 +366,9 @@ export function openShop(h: ShopHost): void {
     const pickRow = () => {
       const lv = h.wallet.pickLevel, next = h.wallet.pickNextCost;
       const row = el('div', { class: 'shop-good enh' });
-      const now = `지금: F 한 번에 ${pickAttempts(lv)}번 연속 · 곡괭이질마다 금덩이 ${goldRange(lv)}`;
-      const after = next === null ? '최고 단계입니다.' : `다음 Lv.${lv + 1}: ${pickAttempts(lv + 1)}번 연속 · 금덩이 ${goldRange(lv + 1)} (${fmtCoins(next)}, 100% 성공)`;
+      const woodRange = (l: number) => `${1 + woodBonus(l)}~${2 + woodBonus(l)}개`; // 나무도 곡괭이 단계의 절반만큼 더 나온다 (2026-11-19)
+      const now = `지금: F 한 번에 ${pickAttempts(lv)}번 연속 · 곡괭이질마다 금덩이 ${goldRange(lv)} · 도끼질마다 나무 ${woodRange(lv)}`;
+      const after = next === null ? '최고 단계입니다.' : `다음 Lv.${lv + 1}: ${pickAttempts(lv + 1)}번 연속 · 금덩이 ${goldRange(lv + 1)} · 나무 ${woodRange(lv + 1)} (${fmtCoins(next)}, 100% 성공)`;
       row.append(el('div', { class: 'ic', text: '⛏' }), el('div', { class: 'txt' }, [
         el('div', { class: 'nm', text: `곡괭이 Lv.${lv}${next === null ? ' (최고)' : ` / ${PICK_MAX}`}` }),
         el('div', { class: 'ds', text: `${now}. ${after} 코인만 들고 실패·하락 없이 한 단계씩 오릅니다(0→${PICK_MAX} 합계 ${fmtCoins(PICK_TOTAL_COST)}). 금광에서 F 한 번에 정해진 횟수만 치고 멈춥니다. 채광 중 업그레이드하면 남은 곡괭이질은 취소됩니다.` }),
