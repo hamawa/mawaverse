@@ -226,16 +226,26 @@ export function render(eng: Engine, st: RenderState): void {
       const mi = mountInfo(e.pet.id, e.dir);
       if (mi) { hide = Math.min(9, Math.round((FRAME_H - spriteTop(spr)) * 0.3)); lift = 2 + mi.h - mi.seat - hide; }
     }
-    if (e.sit && depth <= 0 && !rideShown) { hide = 8; py += 5; } // 앉은 모습: 다리 8줄을 가리고 5px 내려 가구에 얹는다
-    posByUid.set(e.uid, { sink: sink - lift + (e.sit ? 5 : 0), feet: sink + visibleH - FRAME_H, above });
+    // 앉은 모습 (2026-11-19 수정, 사용자 제보: 앉는 위치가 어색하다): 엉덩이가 가구의 앉는 면에 오게 올려 그린다.
+    // 전에는 다리 8줄을 가리고 5px 내려 그려서 가구 앞 바닥에 주저앉은 것처럼 보였다 (보이는 아랫단이 의자 다리 높이에 왔다).
+    // 다리는 몸 높이의 30% 만큼만 가린다 (탑승과 같은 식: 키 작은 동물·음식 캐릭터가 반쯤 잘리지 않게).
+    // 옆을 보는 가구면 등받이 반대쪽(앉는 면)으로 조금 옮기고, 뒤를 보는 가구면 등받이 뒤에 그려 머리만 보이게 한다
+    let sitOff = 0, sitBack = false;
+    if (e.sit && depth <= 0 && !rideShown) {
+      hide = Math.min(8, Math.round((FRAME_H - spriteTop(spr)) * 0.3));
+      sitBack = e.dir === 3;
+      sitOff = (sitBack ? SEAT_BACK_Y : SEAT_Y) - TILE + hide;
+      py += sitOff; ox += e.dir === 1 ? -SEAT_SIDE_X : e.dir === 2 ? SEAT_SIDE_X : 0;
+    }
+    posByUid.set(e.uid, { sink: sink - lift + sitOff, feet: sink + visibleH - FRAME_H, above });
     // 찌는 물 타일 위에, 캐릭터보다 뒤에 그린다
     if (e.fishing) { const fv = e.fishing; items.push({ sortY: fv.y + 0.5, order: 1, draw: () => drawBobber(ctx, e, fv, st.now) }); }
     // 펫: 자기 타일의 y 순서로 (주인과 겹치면 주인보다 앞뒤가 자연스럽게)
     if (e.pet && !ride) { const p = e.pet; items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale, false, !!st.club) }); }
     items.push({
-      sortY: e.y + 1, order: 1, draw: () => {
+      sortY: e.y + (sitBack ? 0.85 : 1), order: 1, draw: () => { // 뒤를 보는 가구에 앉았으면 그 가구(y + 0.9)보다 먼저 그린다
         const cx = e.x * TILE + TILE / 2;
-        if (depth < 1) {
+        if (depth < 1 && !e.sit) { // 앉아 있을 때는 바닥 그림자를 그리지 않는다 (가구 밑에 깔린다)
           ctx.fillStyle = `rgba(0,0,0,${0.22 * (1 - depth)})`;
           ctx.beginPath(); ctx.ellipse(cx, e.y * TILE + TILE - 2, rideShown ? 13 : 9, rideShown ? 4.5 : 3.5, 0, 0, Math.PI * 2); ctx.fill();
           if (e.isMe) { ctx.strokeStyle = `rgba(255,255,255,${0.35 * (1 - depth)})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(cx, e.y * TILE + TILE - 2, rideShown ? 15 : 11, rideShown ? 5.5 : 4.5, 0, 0, Math.PI * 2); ctx.stroke(); }
@@ -413,6 +423,8 @@ export function render(eng: Engine, st: RenderState): void {
     }
   }
 }
+// 앉는 면의 높이: 타일 위에서부터 몇 px 에 엉덩이가 오는가 (tiles.ts 의 의자·소파·벤치 그림 기준). 뒤를 보는 가구는 머리가 등받이 위로 나오게 조금 높인다
+const SEAT_Y = 21, SEAT_BACK_Y = 18, SEAT_SIDE_X = 3;
 const PARROT_DELAY_MS = 900, PARROT_ECHO_MS = 2600;
 // 앵무새의 작은 말풍선: (left, bottom) 이 왼쪽 아래 모서리
 function drawEcho(ctx: CanvasRenderingContext2D, text: string, left: number, bottom: number, s: number): void {
