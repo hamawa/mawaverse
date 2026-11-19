@@ -23,20 +23,36 @@ const breaks = JSON.parse(fs.readFileSync(path.join(ROOT, 'hours.json'), 'utf8')
   return [s, e];
 });
 
+// 규칙 크기 줄이기 (2026-11-19): 한도는 256KB 인데 이 조건이 읽기·쓰기 규칙 145곳에 하나씩 붙는다(693자 × 135곳 ≈ 94KB 였다).
+//  - 식 안의 공백을 전부 없앤다 (compact: 문자열·정규식 안은 그대로). 원본 규칙의 식도 배포 파일에서는 같이 줄인다
+//  - 주말 판정을 날짜 번호 대신 시각으로 한 번에 한다: (KST 시각 / 하루 + 5) % 7 < 2  (토 0~1, 일 1~2. 1970-01-01 은 목요일)
+//  - 배포 파일은 들여쓰기 없이 쓴다
+// 뜻은 그대로다: tests/rules-gate.test.mjs 가 시각별·요일별 허용·거부를 본다 (시험용 규칙도 같은 식으로 만든다)
+function compact(expr) {
+  let out = '', q = null, re = false;
+  for (let i = 0; i < expr.length; i++) {
+    const c = expr[i];
+    if (q) { out += c; if (c === '\\') out += expr[++i]; else if (c === q) q = null; continue; }
+    if (re) { out += c; if (c === '\\') out += expr[++i]; else if (c === '/') re = false; continue; }
+    if (c === "'" || c === '"') { q = c; out += c; continue; }
+    if (c === '/' && out.endsWith('matches(')) { re = true; out += c; continue; } // 정규식은 .matches(/…/) 안에만 있다 (그 밖의 / 는 나눗셈)
+    if (c !== ' ') out += c;
+  }
+  return out;
+}
 const AUTH = 'auth != null';
 function gates(NOW) {
-  const T = `(${NOW} + 32400000)`;                                   // KST 시각
-  const MS = `${T} % 86400000`;                                      // 자정부터 지난 ms
-  const DAY = `((${T} - ${MS}) / 86400000)`;                         // KST 날짜 번호 (1970-01-01 = 0, 목요일)
-  // 주말은 (날짜+4)%7 이 0=일 또는 6=토
+  const T = `(${NOW}+32400000)`;                                     // KST 시각
+  const MS = `${T}%86400000`;                                        // 자정부터 지난 ms
+  const DAY = `((${T}-${MS})/86400000)`;                             // KST 날짜 번호 (1970-01-01 = 0, 목요일): 공휴일 열쇠
   // 차단 설정이 꺼져 있거나(config/hoursBlock != true), 09:00 전이거나 18:00 이후이거나, 쉬는 시간이거나, 주말이거나, 공휴일
-  const BREAK = breaks.map(([s, e]) => ` || (${MS} >= ${s} && ${MS} < ${e})`).join('');             // 쉬는 시간
-  const OPEN = `(root.child('config/hoursBlock').val() != true || ${MS} < 32400000 || ${MS} >= 64800000${BREAK} || ((${DAY} + 4) % 7) % 6 == 0 || root.child('holidays/' + ${DAY}).exists())`;
-  const ADMIN = `root.child('admins/' + auth.uid).val() === true`;
-  const APPROVED = `root.child('approved/' + auth.uid).val() === true`;
+  const BREAK = breaks.map(([s, e]) => `||(${MS}>=${s}&&${MS}<${e})`).join('');                      // 쉬는 시간
+  const OPEN = `(root.child('config/hoursBlock').val()!=true||${MS}<32400000||${MS}>=64800000${BREAK}||(${T}/86400000+5)%7<2||root.child('holidays/'+${DAY}).exists())`;
+  const ADMIN = `root.child('admins/'+auth.uid).val()===true`;
+  const APPROVED = `root.child('approved/'+auth.uid).val()===true`;
   return {
-    FULL: `(${AUTH} && (${ADMIN} || (${APPROVED} && ${OPEN})))`,
-    TIME: `(${AUTH} && (${ADMIN} || ${OPEN}))`,
+    FULL: `(auth!=null&&(${ADMIN}||(${APPROVED}&&${OPEN})))`,
+    TIME: `(auth!=null&&(${ADMIN}||${OPEN}))`,
     NONE: AUTH,
   };
 }
@@ -61,10 +77,10 @@ function build(node, p, G, count) {
       const cls = classOf(p, k);
       if (!v.includes(AUTH)) { if (count) noAuth.push(`${p.join('/')} ${k}: ${v}`); out[k] = v; continue; }
       if (count) stats[cls] += v.split(AUTH).length - 1;
-      out[k] = v.split(AUTH).join(G[cls]);
+      out[k] = compact(v.split(AUTH).join(G[cls]));
       continue;
     }
-    out[k] = v;
+    out[k] = k === '.validate' && typeof v === 'string' ? compact(v) : v;
   }
   return out;
 }
@@ -90,9 +106,9 @@ for (const [k, name] of Object.entries(holidays)) {
   hol[day] = `${k} ${name}`;
 }
 
-const write = (f, o) => fs.writeFileSync(path.join(ROOT, f), JSON.stringify(o, null, 1) + '\n');
+const write = (f, o, pretty) => fs.writeFileSync(path.join(ROOT, f), JSON.stringify(o, null, pretty ? 1 : 0) + '\n');
 write('database.rules.deploy.json', deploy);
 write('database.rules.test.json', test);
-write('holidays.deploy.json', hol);
+write('holidays.deploy.json', hol, true);
 const size = fs.statSync(path.join(ROOT, 'database.rules.deploy.json')).size;
-console.log(`규칙 생성: 전체 조건 ${stats.FULL}곳, 시간 조건 ${stats.TIME}곳, 그대로 ${stats.NONE}곳 · ${(size / 1024).toFixed(0)}KB · 공휴일 ${Object.keys(hol).length}일`);
+console.log(`규칙 생성: 전체 조건 ${stats.FULL}곳, 시간 조건 ${stats.TIME}곳, 그대로 ${stats.NONE}곳 · ${(size / 1024).toFixed(0)}KB (${size}바이트 / 한도 262144, 남은 여유 ${((262144 - size) / 1024).toFixed(1)}KB) · 공휴일 ${Object.keys(hol).length}일`);

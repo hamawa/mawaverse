@@ -4,6 +4,13 @@
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
 import { getDatabase, ServerValue } from 'firebase-admin/database';
+import { registerHooks, stripTypeScriptTypes } from 'node:module';
+import { fileURLToPath } from 'node:url';
+// 거래소 시험은 화면이 쓰는 계산식(src/shared/stock.ts)을 그대로 불러와 규칙과 맞는지 본다
+registerHooks({
+  resolve(spec, ctx, next) { try { return next(spec, ctx); } catch (e) { if (spec.startsWith('.') && !/\.[cm]?[jt]s$/.test(spec)) return next(`${spec}.ts`, ctx); throw e; } },
+  load(url, ctx, next) { if (!url.startsWith('file:') || !url.endsWith('.ts')) return next(url, ctx); return { format: 'module', source: stripTypeScriptTypes(readFileSync(fileURLToPath(url), 'utf8'), { mode: 'transform' }), shortCircuit: true }; },
+});
 
 // 거부되는 쓰기마다 SDK 가 찍는 경고는 시험 결과를 가리므로 숨긴다
 const warn = console.warn; console.warn = (...a) => { if (!String(a[0]).includes('FIREBASE WARNING')) warn(...a); };
@@ -71,6 +78,10 @@ const TIMES = [
   ['금요일 10:00', '2026-11-13 10:00:00', false],
   ['토요일 12:00', '2026-11-14 12:00:00', true],
   ['일요일 12:00', '2026-11-15 12:00:00', true],
+  ['토요일 09:00 (주말의 첫 근무시간)', '2026-11-14 09:00:00', true],
+  ['일요일 17:59:59', '2026-11-15 17:59:59', true],
+  ['월요일 09:00 (주말이 끝난 뒤)', '2026-11-16 09:00:00', false],
+  ['금요일 17:59:59 (주말 직전)', '2026-11-13 17:59:59', false],
   ['공휴일(금) 12:00', '2026-12-25 12:00:00', true],
   ['공휴일 다음 평일 11:00', '2026-12-28 11:00:00', false],
 ];
@@ -1058,6 +1069,78 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('집: 관리자가 지우기 (거절·정리)', 'allow', () => admin.ref('homes/OTHER').remove());
   await expect('집: 내가 지우기 (탈퇴)', 'allow', () => ok.ref(H).remove());
   await root.ref().update({ homes: null, players: null, occ: null, 'approved/OTHER': null, 'approved/NOHOME': null, 'users/OK/own': null });
+}
+
+// ---------- 거래소 (stock, 2026-11-19, shared/stock.ts) ----------
+{
+  const S = await import('../src/shared/stock.ts');
+  const SV = { '.sv': 'timestamp' };
+  await setNow('2026-11-14 12:00:00');
+  const T0 = Date.now();
+  const P = 'stock/p', HO = 'stock/h/OK';
+  const seed = async (over = {}) => root.ref('stock').set({ p: { a: { v: 1000, at: T0 - 400000, sa: T0 - 400000 }, b: { v: 800, at: T0 - 400000, sa: T0 - 400000 }, c: { v: 1500, at: T0 - 1000, sa: T0 - 1000 }, ...over } });
+  await root.ref().update({ 'wallet/OK': { c: 100000, e: 100000 }, 'wallet/OTHER': { c: 5000, e: 5000 }, 'approved/OTHER': true });
+  await seed();
+  // 읽기
+  await expect('거래소: 승인된 사용자가 가격 읽기', 'allow', () => ok.ref(P).get());
+  await expect('거래소: 대기 중인 사용자가 가격 읽기', 'deny', () => pend.ref(P).get());
+  // 굴리기: 간격이 지나야, at 은 서버 시각, 가격·반영 표시는 그대로
+  await expect('굴리기: 아직 5분이 안 됐다', 'deny', () => ok.ref(`${P}/c/at`).set(SV));
+  await expect('굴리기: 시각을 내 마음대로', 'deny', () => ok.ref(`${P}/a/at`).set(T0 + 123));
+  await expect('굴리기: 굴리면서 가격도 바꾸기', 'deny', () => ok.ref(`${P}/a`).update({ at: SV, v: 2000 }));
+  await expect('굴리기: 없는 종목 만들기', 'deny', () => ok.ref(`${P}/z`).set({ v: 1, at: SV, sa: 1 }));
+  await expect('굴리기: 때가 된 종목', 'allow', () => ok.ref(`${P}/a/at`).set(SV));
+  await expect('굴리기: 반영되지 않았는데 또 굴리기', 'deny', () => ok.ref(`${P}/a/at`).set(SV));
+  // 반영: 규칙이 식을 검산한다
+  const a1 = (await root.ref(`${P}/a`).get()).val();
+  const next = S.stepPrice(a1.v, a1.at, 'a');
+  await expect('반영 전에는 그 종목을 사고팔 수 없다', 'deny', () => ok.ref().update({ 'wallet/OK/c': 100000 - S.buyCost(1, 1000), [`${HO}/a/q`]: 1 }));
+  await expect('반영: 다른 가격', 'deny', () => ok.ref(`${P}/a`).update({ v: next + 1, sa: a1.at }));
+  await expect('반영: 가격은 맞는데 표시를 안 맞춤', 'deny', () => ok.ref(`${P}/a`).update({ v: next }));
+  await expect('반영: 식대로', 'allow', () => ok.ref().update({ [`${P}/a/v`]: next, [`${P}/a/sa`]: a1.at, [`stock/hist/a/${S.histIndex(a1.at) % S.HIST_SLOTS}`]: { i: S.histIndex(a1.at), v: next } }));
+  await expect('기록: 지금 가격과 다른 값', 'deny', () => ok.ref(`stock/hist/a/${S.histIndex(a1.at) % S.HIST_SLOTS}`).set({ i: S.histIndex(a1.at), v: next + 5 }));
+  await expect('기록: 엉뚱한 칸', 'deny', () => ok.ref(`stock/hist/a/${(S.histIndex(a1.at) + 1) % S.HIST_SLOTS}`).set({ i: S.histIndex(a1.at), v: next }));
+  // 화면의 계산식과 규칙의 식이 같은가: 아무 값이나 넣어 반영해 본다 (하나라도 어긋나면 그 가격에서 거래소가 멈춘다)
+  let seedN = 4242, agree = 0;
+  const rnd = () => (seedN = (seedN * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const CASES = 150;
+  for (let k = 0; k < CASES; k++) {
+    const sym = 'abc'[k % 3], v = k < 6 ? [100, 101, 9999, 9998, 1000, 5000][k] : 100 + Math.floor(rnd() * 9900), at = T0 - 600000 + Math.floor(rnd() * 500000);
+    await root.ref(`${P}/${sym}`).set({ v, at, sa: at - 300000 });
+    try { await ok.ref(`${P}/${sym}`).update({ v: S.stepPrice(v, at, sym), sa: at }); agree++; } catch { console.error(`  ✖ 식이 어긋남: ${sym} v=${v} at=${at} → ${S.stepPrice(v, at, sym)}`); }
+  }
+  await expect(`계산식 대조: ${CASES}개 값 모두 규칙이 받는다 (${agree})`, 'allow', async () => { if (agree !== CASES) throw new Error('mismatch'); });
+  // 거래: 코인이 바뀐 양 = 가격 × 수량 ∓ 수수료
+  await seed();
+  await root.ref('stock/h').remove();
+  await expect('사기: 1주, 정확한 값', 'allow', () => ok.ref().update({ 'wallet/OK/c': 100000 - S.buyCost(1, 1000), [`${HO}/a/q`]: 1, [`${HO}/a/a`]: S.buyCost(1, 1000) }));
+  await expect('사기: 수수료를 안 냄', 'deny', () => ok.ref().update({ 'wallet/OK/c': 100000 - S.buyCost(1, 1000) - 1000, [`${HO}/a/q`]: 2 }));
+  await expect('사기: 코인은 그대로 두고 보유만 늘리기', 'deny', () => ok.ref(`${HO}/a/q`).set(50));
+  await expect('사기: 보유만 새 종목으로 적기', 'deny', () => ok.ref(`${HO}/b`).set({ q: 10 }));
+  await expect('사기: 한도(100주) 넘기', 'deny', () => ok.ref().update({ 'wallet/OK/c': 100000 - S.buyCost(1, 1000) - S.buyCost(100, 1000), [`${HO}/a/q`]: 101 }));
+  await expect('사기: 소수 주', 'deny', () => ok.ref().update({ 'wallet/OK/c': 100000 - S.buyCost(1, 1000) - 510, [`${HO}/a/q`]: 1.5 }));
+  const c1 = 100000 - S.buyCost(1, 1000);
+  await expect('사기: 다른 종목 10주', 'allow', () => ok.ref().update({ 'wallet/OK/c': c1 - S.buyCost(10, 800), [`${HO}/b/q`]: 10 }));
+  const c2 = c1 - S.buyCost(10, 800);
+  await expect('팔기: 받는 돈을 부풀리기', 'deny', () => ok.ref().update({ 'wallet/OK/c': c2 + 8000, 'wallet/OK/e': 108000, [`${HO}/b/q`]: 9 }));
+  await expect('팔기: 가진 것보다 많이', 'deny', () => ok.ref().update({ 'wallet/OK/c': c2 + S.sellNet(11, 800), 'wallet/OK/e': 100000 + S.sellNet(11, 800), [`${HO}/b/q`]: -1 }));
+  await expect('팔기: 4주, 정확한 값', 'allow', () => ok.ref().update({ 'wallet/OK/c': c2 + S.sellNet(4, 800), 'wallet/OK/e': 100000 + S.sellNet(4, 800), [`${HO}/b/q`]: 6 }));
+  const c3 = c2 + S.sellNet(4, 800);
+  await expect('팔기: 보유를 지우면서 코인 받기 (전부 판 것으로 계산된다)', 'allow', () => ok.ref().update({ 'wallet/OK/c': c3 + S.sellNet(6, 800), 'wallet/OK/e': 100000 + S.sellNet(4, 800) + S.sellNet(6, 800), [`${HO}/b`]: null }));
+  await expect('보유를 지우기만 하기 (지갑이 남아 있다)', 'deny', () => ok.ref(HO).remove());
+  await expect('보유 한 종목을 지우면서 코인을 더 받기', 'deny', () => ok.ref().update({ 'wallet/OK/c': c3 + S.sellNet(6, 800) + 99999, 'wallet/OK/e': 999999, [`${HO}/a`]: null }));
+  await expect('남의 보유 고치기', 'deny', () => other.ref(`${HO}/a/q`).set(0));
+  await expect('남의 보유로 내 코인 받기', 'deny', () => other.ref().update({ 'wallet/OTHER/c': 5000 + S.sellNet(1, 1000), 'wallet/OTHER/e': 5000 + S.sellNet(1, 1000), [`${HO}/a/q`]: 0 }));
+  // 굴려 놓고 반영 전에 옛 가격으로 파는 길 (지우기 포함)
+  await root.ref(`${P}/a`).update({ at: T0 - 5 });
+  await expect('반영 전: 옛 가격으로 팔기', 'deny', () => ok.ref().update({ 'wallet/OK/c': c3 + S.sellNet(6, 800) + S.sellNet(1, 1000), 'wallet/OK/e': 200000, [`${HO}/a/q`]: 0 }));
+  await root.ref(`${HO}/b`).set({ q: 1 });
+  await expect('반영 전: 보유를 지워서 옛 가격으로 팔기', 'deny', () => ok.ref().update({ 'wallet/OK/c': c3 + S.sellNet(6, 800) + S.sellNet(1, 1000), 'wallet/OK/e': 200000, [`${HO}/a`]: null }));
+  // 탈퇴: 지갑과 함께면 지울 수 있다. 관리자는 언제나
+  await expect('탈퇴: 지갑과 보유를 같이 지우기', 'allow', () => ok.ref().update({ 'wallet/OK': null, [HO]: null }));
+  await root.ref('stock/h/OTHER/a').set({ q: 1 });
+  await expect('관리자가 남의 보유 지우기', 'allow', () => admin.ref('stock/h/OTHER').remove());
+  await root.ref().update({ stock: null, 'wallet/OK': null, 'wallet/OTHER': null, 'approved/OTHER': null });
 }
 
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);

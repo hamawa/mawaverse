@@ -297,6 +297,15 @@ table tr.off td { opacity: 0.5; }
 .shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; max-height: 60vh; overflow: auto; padding: 2px; }
 .shop-card { background: #0d1510; border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; align-items: center; text-align: center; }
 .shop-card.eq { border-color: var(--accent2); }
+/* 거래소 (2026-11-19) */
+.stock-row { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: #0d1510; border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+.stock-info { display: flex; flex-direction: column; gap: 2px; min-width: 200px; flex: 1; }
+.stock-info .nm { font-weight: bold; }
+.stock-info .ds { font-size: 12px; color: var(--muted); }
+.stock-price b { font-size: 18px; color: var(--accent); }
+.stock-price .up { color: #ff6b6b; } .stock-price .down { color: #5aa9ff; } .stock-price .flat { color: var(--muted); }
+.stock-side { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+.stock-spark { width: 150px; height: 40px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; }
 .shop-card .ic { font-size: 26px; line-height: 1.2; }
 .shop-card canvas { image-rendering: pixelated; }
 .shop-card .nm { font-weight: bold; font-size: 13px; }

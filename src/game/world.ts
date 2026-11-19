@@ -41,6 +41,8 @@ import { DigMgr } from './dig';
 import { MineMgr } from './mine';
 import { HomeMgr, homeOpen } from './home';
 import { openHome, openFurniturePicker, openFurnitureEdit, openGuestbook } from './homeui';
+import { StockMgr } from './stock';
+import { openStock } from './stockui';
 import { TreeMgr } from './trees';
 import { type HomeData, homeTier, furnitureOf, canTurn, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
 import { fishById, fmtSize, bobberNear } from '../shared/fish';
@@ -148,6 +150,7 @@ export class World implements WorldCtx {
   mafiaHud = new MafiaHud(this); // uid·nick(getter)·mafia·toast
   toss = new TossMgr(this, this.net, { cancelFishing: () => this.fishing.cancel() });
   dig = new DigMgr(this, this.net);
+  stock = new StockMgr(this); // 거래소: 가격 굴리기·사고팔기 (shared/stock.ts)
   mine = new MineMgr(this, this.net);
   trees = new TreeMgr(); // 벤 나무 (그루터기 → 덤불 → 5분 뒤 다시 나무. shared/home.ts)
   home = new HomeMgr(this, this.net, { leave: (why) => this.leaveHome(why), swing: () => this.doEmote(13), refresh: () => this.refreshHome(), trees: this.trees }); // 내 집: 나무·창고·겨울잠 (shared/home.ts)
@@ -255,6 +258,7 @@ export class World implements WorldCtx {
     this.snowPenalty.start();
     this.bugs.start();
     this.dig.start();
+    this.stock.start();
     this.casino.start();
     this.duel.start();
     void this.poker.recover(); // 지난번에 정산하지 못한 포커 판이 있으면 마무리한다
@@ -1331,6 +1335,7 @@ export class World implements WorldCtx {
       { label: `🎨 외모 변경${this.wallet.owns(AVATAR_TICKET.id) ? ' (🎟 교환권 있음)' : ''}`, onClick: () => this.changeAvatarFlow() },
       { label: '📖 도감 · 내 기록', onClick: () => this.openFishBook() },
       { label: '🛍 상점', onClick: () => this.openShop() },
+      { label: '📈 거래소', onClick: () => this.openStock() },
       { label: this.home.tier ? `🏠 내 집 (${homeTier(this.home.tier)?.name})` : '🏠 내 집 짓기', onClick: () => openHome(this) },
       ...(isHomeMapId(this.mapId) ? [{ label: homeOwnerOf(this.mapId) === this.uid ? '📖 내 집 방명록' : '📖 이 집 방명록 쓰기', onClick: () => openGuestbook(this, homeOwnerOf(this.mapId)) }] : []),
       // 만렙 펫: 타고 다닐지 내려서 데리고 다닐지 (2026-11-12 건의 반영). 모습만 바뀌고 펫 효과는 같다
@@ -1394,6 +1399,11 @@ export class World implements WorldCtx {
   openRoulette(): void {
     this.input.releaseAll();
     openRoulette({ uid: this.uid, nick: this.profile.nick, wallet: this.wallet, toast: (m, e) => this.toast(m, e), log: (t) => this.chat.systemMessage(t), stat: (k) => this.net.stat(k) });
+  }
+  // 거래소 (2026-11-19, 건의 반영): 내 메뉴에서 연다
+  openStock(): void {
+    this.input.releaseAll();
+    openStock({ stock: this.stock, balance: () => this.wallet.balance, toast: (m, e) => this.toast(m, e), onWallet: (fn) => this.wallet.listen(fn) });
   }
   openShop(): void {
     this.input.releaseAll();
@@ -1472,7 +1482,7 @@ export class World implements WorldCtx {
     this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
-    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.wallet.stop(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
+    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.wallet.stop(); this.stock.stop(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});
     await this.net.leave(replaced);
     document.body.classList.remove('mobile');
