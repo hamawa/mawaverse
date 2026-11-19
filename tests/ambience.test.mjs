@@ -138,6 +138,8 @@ test('클럽: 코드에 든 맵으로 등록돼 있고, 포탈 정원과 서로 
   assert.ok(out && out.targetMap === GARDEN_MAP_ID && into, '양쪽에 포탈이 있다');
   assert.equal(isWalkable(garden, out.targetSpawn.x, out.targetSpawn.y), true, '돌아갈 자리는 걸을 수 있는 땅');
   for (let x = into.x - 1; x <= into.x + into.w; x++) assert.equal(isWalkable(garden, x, into.y - 1), true, `정원 쪽 포탈 앞 (${x})`);
+  assert.ok(CLUB_DANCERS.length >= PET_IDS.length, '펫 종류마다 한 마리씩 춤춘다 (펫을 더하면 자리도 더한다)');
+  assert.equal(new Set(CLUB_DANCERS.map((d) => `${d.x}_${d.y}`)).size, CLUB_DANCERS.length, '자리가 겹치지 않는다');
   for (const d of CLUB_DANCERS) { assert.equal(groundAt(club, d.x, d.y), G_DANCE, `춤추는 펫 (${d.x},${d.y})`); assert.ok(d.x >= CLUB_FLOOR.x && d.x < CLUB_FLOOR.x + CLUB_FLOOR.w && d.y >= CLUB_FLOOR.y && d.y < CLUB_FLOOR.y + CLUB_FLOOR.h); }
   // 바깥 테두리는 전부 벽이라 밖으로 나갈 수 없다
   for (let x = 0; x < club.w; x++) { assert.equal(isWalkable(club, x, 0), false); assert.equal(isWalkable(club, x, club.h - 1), false); }

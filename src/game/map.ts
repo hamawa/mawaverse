@@ -508,9 +508,9 @@ export function buildWinterMap(): MapData {
 export const HOME_EXIT_ZONE = 'home-exit';
 // 가구를 놓을 수 있는 칸인가: 방 안이고, 침대·창고 상자와 그 앞 칸, 문 앞(들어오는 자리)이 아니어야 한다 (주인이 침대·상자·문을 못 쓰게 막지 않도록)
 // 클럽 (2026-11-18, 사용자 제안): 가운데 춤추는 바닥, 위쪽 디제이 자리와 스피커, 양옆에 소파와 카운터. 실내라 낮밤·비가 없다.
-// 춤추는 펫(CLUB_DANCERS)은 그림만 있고 길을 막지 않는다. 이 맵에서는 이모트 1~9 가 전부 춤이 된다 (world.entities, render)
+// 춤추는 펫(CLUB_DANCERS)은 그림만 있고 길을 막지 않는다. 자리 수는 펫 종류 수 이상이어야 한다: 펫마다 한 마리씩 선다 (펫을 더하면 자리도 더할 것. 2026-11-19 앵무새 자리 추가). 이 맵에서는 이모트 1~9 가 전부 춤이 된다 (world.entities, render)
 export const CLUB_FLOOR = { x: 6, y: 5, w: 10, h: 6 } as const; // 춤추는 바닥
-export const CLUB_DANCERS: readonly { x: number; y: number }[] = [{ x: 7, y: 6 }, { x: 10, y: 5 }, { x: 14, y: 6 }, { x: 8, y: 9 }, { x: 12, y: 8 }, { x: 14, y: 9 }, { x: 11, y: 10 }];
+export const CLUB_DANCERS: readonly { x: number; y: number }[] = [{ x: 7, y: 6 }, { x: 10, y: 5 }, { x: 14, y: 6 }, { x: 8, y: 9 }, { x: 12, y: 8 }, { x: 14, y: 9 }, { x: 11, y: 10 }, { x: 9, y: 7 }];
 export function buildClubMap(): MapData {
   const W = 22, H = 16;
   const m = emptyMap(CLUB_MAP_ID, '클럽', W, H);
