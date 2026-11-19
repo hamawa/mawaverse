@@ -292,6 +292,18 @@
       },
       "$other": { ".validate": false }
     },
+    "club": {
+      "dj": {
+        ".read": "auth != null",
+        ".write": "auth != null && (root.child('admins/' + auth.uid).val() === true || (root.child('players/' + auth.uid + '/m').val() == 'club' && root.child('players/' + auth.uid + '/y').val() == 1 && (root.child('players/' + auth.uid + '/x').val() == 10 || root.child('players/' + auth.uid + '/x').val() == 11)) || (!newData.exists() && data.child('u').val() == auth.uid))",
+        ".validate": "newData.hasChildren(['v', 'at', 'u', 'n']) && newData.child('v').isString() && newData.child('v').val().matches(/^[A-Za-z0-9_-]{11}$/) && newData.child('at').val() == now && newData.child('u').val() == auth.uid && newData.child('n').isString() && newData.child('n').val().length <= 20 && (!data.exists() || now >= data.child('at').val() + 5000)",
+        "v": { ".validate": "newData.isString()" },
+        "at": { ".validate": "newData.isNumber()" },
+        "u": { ".validate": "newData.isString()" },
+        "n": { ".validate": "newData.isString()" },
+        "$other": { ".validate": false }
+      }
+    },
     "duel": {
       ".read": "auth != null",
       ".indexOn": ["o"],

@@ -246,3 +246,29 @@ test('rings: five kinds by rarity, and together they raise the expected score on
   const dragon = DEFAULT_FISH.find((f) => f.id === 'dragon');
   assert.ok(rings[4].w <= dragon.w / 2, 'the mythic ring is rarer than the dragon');
 });
+
+// ---------- 클럽 DJ (2026-11-19) ----------
+test('유튜브 링크: 여러 모양의 주소에서 영상 id 를 뽑고, 다른 사이트·잘못된 주소는 받지 않는다', async () => {
+  const { youtubeId } = await import('../src/shared/youtube.ts');
+  const ID = 'dQw4w9WgXcQ';
+  for (const u of [ID, `https://youtu.be/${ID}`, `https://youtu.be/${ID}?t=42`, `https://www.youtube.com/watch?v=${ID}`, `https://www.youtube.com/watch?v=${ID}&list=PL123&t=10s`,
+    `youtube.com/watch?v=${ID}`, `https://m.youtube.com/watch?v=${ID}`, `https://music.youtube.com/watch?v=${ID}&feature=share`, `https://www.youtube.com/shorts/${ID}`,
+    `https://www.youtube.com/embed/${ID}`, `https://www.youtube.com/live/${ID}?si=abc`, `  https://youtu.be/${ID}  `]) assert.equal(youtubeId(u), ID, u);
+  for (const u of ['', '   ', 'hello', 'https://example.com/watch?v=' + ID, 'https://youtu.be/short', 'https://www.youtube.com/watch?v=tooshort', 'https://www.youtube.com/channel/abc',
+    'https://www.youtube.com/watch', 'https://notyoutube.com/' + ID, 'javascript:alert(1)']) assert.equal(youtubeId(u), null, u);
+});
+
+test('클럽 DJ 자리: 디제이 탁자 바로 뒤이고, 걸어서 갈 수 있다. 규칙에 든 좌표와 같다', async () => {
+  const { buildClubMap, CLUB_DJ_SPOTS, O_DJ, objectAt, isWalkable } = await import('../src/game/map.ts');
+  const club = buildClubMap();
+  assert.ok(CLUB_DJ_SPOTS.length >= 1);
+  for (const p of CLUB_DJ_SPOTS) { assert.equal(isWalkable(club, p.x, p.y), true); assert.equal(objectAt(club, p.x, p.y + 1), O_DJ, '바로 앞이 디제이 탁자'); }
+  // 시작 자리에서 걸어서 닿는다
+  const seen = new Set([`${club.spawn.x},${club.spawn.y}`]), q = [[club.spawn.x, club.spawn.y]];
+  while (q.length) { const [x, y] = q.shift(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = `${x + dx},${y + dy}`; if (!seen.has(k) && isWalkable(club, x + dx, y + dy)) { seen.add(k); q.push([x + dx, y + dy]); } } }
+  for (const p of CLUB_DJ_SPOTS) assert.ok(seen.has(`${p.x},${p.y}`), `DJ 자리 (${p.x},${p.y})`);
+  const rule = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules.club.dj;
+  assert.ok(new Set(CLUB_DJ_SPOTS.map((p) => p.y)).size === 1 && rule['.write'].includes(`/y').val() == ${CLUB_DJ_SPOTS[0].y}`));
+  for (const p of CLUB_DJ_SPOTS) assert.ok(rule['.write'].includes(`/x').val() == ${p.x}`), `규칙에 x=${p.x}`);
+  assert.ok(rule['.validate'].includes('matches(/^[A-Za-z0-9_-]{11}$/)') && rule['.validate'].includes("newData.child('at').val() == now"));
+});

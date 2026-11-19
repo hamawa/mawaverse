@@ -417,8 +417,11 @@ function dropTune(fade: number): void {
   for (const g of [p.dry, p.wet]) { g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(0.0001, t + fade); }
   window.setTimeout(() => { p.dry.disconnect(); p.wet.disconnect(); }, (fade + 3) * 1000);
 }
+// 다른 음악(클럽 DJ 가 튼 유튜브)이 나오는 동안에는 직접 만든 곡을 멈춘다 (djui.ts 가 켜고 끈다)
+let hold = false;
+export function setMusicHold(on: boolean): void { hold = on; }
 function pump(): void {
-  if (!want || !load().on || load().music <= 0 || !audible()) { if (playing) dropTune(0.4); return; }
+  if (!want || !load().on || load().music <= 0 || !audible() || hold) { if (playing) dropTune(0.4); return; }
   const l = ensure();
   if (!l || l.ac.state !== 'running') return;
   const set = SCENE_TUNES[want.scene], list = want.night && set.night ? set.night : set.day;

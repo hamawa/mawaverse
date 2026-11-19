@@ -42,6 +42,8 @@ import { MineMgr } from './mine';
 import { HomeMgr, homeOpen } from './home';
 import { openHome, openFurniturePicker, openFurnitureEdit, openGuestbook } from './homeui';
 import { StockMgr } from './stock';
+import { DjMgr } from './dj';
+import { DjPanel } from './djui';
 import { openStock } from './stockui';
 import { TreeMgr } from './trees';
 import { type HomeData, homeTier, furnitureOf, canTurn, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
@@ -151,6 +153,8 @@ export class World implements WorldCtx {
   toss = new TossMgr(this, this.net, { cancelFishing: () => this.fishing.cancel() });
   dig = new DigMgr(this, this.net);
   stock = new StockMgr(this); // 거래소: 가격 굴리기·사고팔기 (shared/stock.ts)
+  dj = new DjMgr(this);       // 클럽 DJ: 유튜브 링크로 노래 틀기 (game/dj.ts)
+  private djPanel: DjPanel | null = null;
   mine = new MineMgr(this, this.net);
   trees = new TreeMgr(); // 벤 나무 (그루터기 → 덤불 → 5분 뒤 다시 나무. shared/home.ts)
   home = new HomeMgr(this, this.net, { leave: (why) => this.leaveHome(why), swing: () => this.doEmote(13), refresh: () => this.refreshHome(), trees: this.trees }); // 내 집: 나무·창고·겨울잠 (shared/home.ts)
@@ -259,6 +263,9 @@ export class World implements WorldCtx {
     this.bugs.start();
     this.dig.start();
     this.stock.start();
+    const djPanel = this.djPanel = new DjPanel({ isAdmin: this.isAdmin, myUid: this.uid, onError: (msg, mine) => { if (mine) this.toast(`🎧 ${msg} 다른 영상을 골라 주세요.`, true); } });
+    this.dj.listen(() => djPanel.set(this.dj.state));
+    djPanel.set(this.dj.state); // 클럽에서 시작했으면 구독이 먼저 걸려 있다: 이미 받은 상태를 한 번 그린다
     this.casino.start();
     this.duel.start();
     void this.poker.recover(); // 지난번에 정산하지 못한 포커 판이 있으면 마무리한다
@@ -752,6 +759,7 @@ export class World implements WorldCtx {
 
   // ---------- 포탈 (맵 이동) ----------
   private setMap(map: MapData): void {
+    this.dj.setActive(this.mapId === CLUB_MAP_ID); // 클럽에 있는 동안에만 DJ 상태를 구독한다
     this.map = map;
     if (isHomeMapId(this.mapId)) this.homePets.setMap(map); else this.homePets.clear();
     this.boardZone = map.zones.find((z) => z.kind === 'board');
@@ -1079,11 +1087,12 @@ export class World implements WorldCtx {
 
   // ---------- 상호작용 ----------
   // F 로 할 수 있는 것과 그 안내 위치. 우선순위: 게시판 → 낚시 중 → 물가(낚시 시작) → 낚시 표지판
-  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' | 'decoPlace' | 'decoRemove' | 'sit' | 'sitting' } | null {
+  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' | 'decoPlace' | 'decoRemove' | 'sit' | 'sitting' | 'dj' } | null {
     const me = this.me;
     if (me.roomId) return null;
     if (this.switching) return { x: me.x, y: me.y - 1, text: '🌀 이동 중…', kind: 'portal' };
     if (this.sitAt) return { x: this.sitAt.x, y: this.sitAt.y - 1, text: 'F 일어나기', kind: 'sitting' };
+    if (this.mapId === CLUB_MAP_ID && this.dj.atBooth()) return { x: me.x, y: me.y + 1, text: this.dj.state ? 'F 노래 바꾸기·끄기' : 'F 노래 틀기 (유튜브 링크)', kind: 'dj' };
     // 마피아 게임 중 참가자: 처치·미션·신고·소집이 F 를 우선 차지한다
     const ma = this.mafia.action();
     if (ma) {
@@ -1175,6 +1184,7 @@ export class World implements WorldCtx {
     else if (ch.kind === 'mine') { if (!this.input.interactRepeat) this.mine.begin(); } // 키를 누르고 있어 반복된 F 로는 치지 않는다 (한 번 누르면 한 번)
     else if (ch.kind === 'chop') { if (!this.input.interactRepeat && this.home.beginChop()) this.doEmote(13); } // 도끼질은 삽질 동작으로 남에게도 보인다
     else if (ch.kind === 'bed') this.home.beginSleep();
+    else if (ch.kind === 'dj') { this.input.releaseAll(); this.openDj(); }
     else if (ch.kind === 'sit') this.sit();
     else if (ch.kind === 'sitting') this.leaveSeat();
     else if (ch.kind === 'chest') { this.input.releaseAll(); openHome(this); }
@@ -1400,6 +1410,27 @@ export class World implements WorldCtx {
     this.input.releaseAll();
     openRoulette({ uid: this.uid, nick: this.profile.nick, wallet: this.wallet, toast: (m, e) => this.toast(m, e), log: (t) => this.chat.systemMessage(t), stat: (k) => this.net.stat(k) });
   }
+  // 클럽 DJ (2026-11-19, 사용자 요청): DJ 자리에서 F → 유튜브 링크를 넣어 클럽에 있는 모두에게 튼다. 한 곡씩 덮어쓴다
+  private openDj(): void {
+    const cur = this.dj.state;
+    const input = el('input', { type: 'text', maxlength: '200', placeholder: 'https://youtu.be/…' });
+    const body = el('div', { class: 'field' }, [
+      el('label', { text: '유튜브 링크를 붙여 넣으세요. 클럽에 있는 모두에게 같은 지점부터 나옵니다.' }), input,
+      el('div', { class: 'muted', style: 'font-size:12px;line-height:1.5;margin-top:6px', text: `${cur ? `지금은 ${cur.n} 님이 튼 노래가 나오고 있어요. 새로 틀면 바뀝니다. ` : ''}공식 뮤직비디오 가운데에는 다른 사이트에서 재생이 막힌 것이 있어요. 누가 무엇을 틀었는지는 관리자가 볼 수 있습니다.` }),
+    ]);
+    const play = async (): Promise<void> => {
+      const r = await this.dj.play(input.value);
+      if (r === 'ok') { this.toast('🎧 노래를 틀었습니다.'); m.close(); }
+      else this.toast(r === 'bad' ? '유튜브 링크가 아니에요. 영상 주소를 붙여 넣어 주세요.' : r === 'spot' ? 'DJ 자리에 서 있어야 틀 수 있어요.' : '틀지 못했습니다. 방금 바뀌었다면 5초 뒤에 다시 해 보세요.', true);
+    };
+    const m = modal('🎧 노래 틀기', body, [
+      { label: '닫기', onClick: () => {} },
+      ...(cur ? [{ label: '끄기', danger: true, onClick: async () => { if (await this.dj.off()) this.toast('🎧 노래를 껐습니다.'); else this.toast('끄지 못했습니다.', true); } }] : []),
+      { label: '틀기', primary: true, keep: true, onClick: play },
+    ]);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') void play(); e.stopPropagation(); });
+    window.setTimeout(() => input.focus(), 50);
+  }
   // 거래소 (2026-11-19, 건의 반영): 내 메뉴에서 연다
   openStock(): void {
     this.input.releaseAll();
@@ -1482,7 +1513,7 @@ export class World implements WorldCtx {
     this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
-    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.wallet.stop(); this.stock.stop(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
+    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.wallet.stop(); this.stock.stop(); this.dj.stop(); this.djPanel?.close(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});
     await this.net.leave(replaced);
     document.body.classList.remove('mobile');

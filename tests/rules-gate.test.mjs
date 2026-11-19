@@ -1143,5 +1143,37 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await root.ref().update({ stock: null, 'wallet/OK': null, 'wallet/OTHER': null, 'approved/OTHER': null });
 }
 
+// ---------- 클럽 DJ (club/dj, 2026-11-19) ----------
+{
+  const SV = { '.sv': 'timestamp' };
+  await setNow('2026-11-14 12:00:00');
+  const ID = 'dQw4w9WgXcQ', song = (uid, n = '디제이') => ({ v: ID, at: SV, u: uid, n });
+  await root.ref().update({ 'approved/OTHER': true, 'club': null, 'players/OK': { ...presence, m: 'club', x: 10, y: 1 }, 'players/OTHER': { ...presence, m: 'club', x: 5, y: 8 } });
+  await expect('DJ: 승인된 사용자가 읽기', 'allow', () => other.ref('club/dj').get());
+  await expect('DJ: 대기 중인 사용자가 읽기', 'deny', () => pend.ref('club/dj').get());
+  await expect('DJ: 자리에 서지 않은 사람이 틀기', 'deny', () => other.ref('club/dj').set(song('OTHER')));
+  await expect('DJ: 영상 id 모양이 아님', 'deny', () => ok.ref('club/dj').set({ ...song('OK'), v: 'https://x.y' }));
+  await expect('DJ: 시각을 내 마음대로', 'deny', () => ok.ref('club/dj').set({ ...song('OK'), at: 123 }));
+  await expect('DJ: 남의 이름으로', 'deny', () => ok.ref('club/dj').set(song('OTHER')));
+  await expect('DJ: 모르는 칸 끼워 넣기', 'deny', () => ok.ref('club/dj').set({ ...song('OK'), x: 1 }));
+  await expect('DJ: 자리에 서서 틀기', 'allow', () => ok.ref('club/dj').set(song('OK')));
+  await expect('DJ: 5초 안에 또 바꾸기', 'deny', () => ok.ref('club/dj').set({ ...song('OK'), v: 'aaaaaaaaaaa' }));
+  await expect('DJ: 남이 끄기 (자리에 없음)', 'deny', () => other.ref('club/dj').remove());
+  await root.ref('club/dj/at').set(Date.now() - 6000);
+  await expect('DJ: 5초 뒤에는 바꿀 수 있다', 'allow', () => ok.ref('club/dj').set({ ...song('OK'), v: 'aaaaaaaaaaa' }));
+  // 다른 맵의 같은 좌표에 선 사람은 틀 수 없다
+  await root.ref('players/OTHER').update({ m: null, x: 10, y: 1 });
+  await root.ref('club/dj/at').set(Date.now() - 6000);
+  await expect('DJ: 기본 맵의 같은 좌표에서 틀기', 'deny', () => other.ref('club/dj').set(song('OTHER')));
+  // 끄기: 튼 사람은 자리를 떠나도 끌 수 있다. 관리자는 언제나
+  await root.ref('players/OK').update({ x: 4, y: 9 });
+  await expect('DJ: 자리를 떠난 뒤에는 새로 틀 수 없다', 'deny', () => ok.ref('club/dj').set(song('OK')));
+  await expect('DJ: 튼 사람이 끄기 (자리를 떠난 뒤)', 'allow', () => ok.ref('club/dj').remove());
+  await root.ref('club/dj').set({ v: ID, at: Date.now() - 60000, u: 'OK', n: '디제이' });
+  await expect('DJ: 관리자가 끄기', 'allow', () => admin.ref('club/dj').remove());
+  await expect('DJ: 틀면서 남기는 기록 (채팅 로그)', 'allow', () => ok.ref('logs/chat/djtest1').set({ u: 'OK', n: '디제이', c: 'dj', t: '🎧 유튜브 ' + ID, ts: SV }));
+  await root.ref().update({ club: null, players: null, 'logs/chat/djtest1': null, 'approved/OTHER': null });
+}
+
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
 process.exit(fail ? 1 : 0);
