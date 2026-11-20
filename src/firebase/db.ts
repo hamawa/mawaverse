@@ -2,18 +2,22 @@ import { ref, onValue, get, query, orderByChild, startAt, limitToLast, onChildAd
 import { db } from './app';
 import { DEFAULT_CONFIG } from '../shared/config';
 import type { ServerConfig } from '../shared/types';
+import { ServerClock } from '../shared/clock';
 
-export const r = (path: string): DatabaseReference => ref(db, path);
+export const r =(path: string): DatabaseReference => ref(db, path);
 
-let serverOffset = 0;
+// 서버 시각 어림: 연결할 때 잰 차이(offset)에, 그 뒤 기기 시계가 튄 만큼을 서버가 찍은 시각으로 맞춘다 (shared/clock.ts 머리말. 2026-11-20)
+const clock = new ServerClock(() => Date.now(), () => performance.now());
 let offsetKnown = false;
 const offsetWaiters: (() => void)[] = [];
 onValue(ref(db, '.info/serverTimeOffset'), (s) => {
-  serverOffset = (s.val() as number) || 0;
+  clock.setOffset((s.val() as number) || 0);
   offsetKnown = true;
   offsetWaiters.splice(0).forEach((f) => f());
 });
-export const serverNow = () => Date.now() + serverOffset;
+export const serverNow = () => clock.now();
+// 서버가 방금 찍은 시각을 받았다 (남의 하트비트, 나에게 온 밀치기·말랑이의 시각): 내 어림과 견줘 어긋났으면 맞춘다. 내가 쓴 값은 넣지 말 것(화면이 어림해 넣은 값이 먼저 온다)
+export function syncServerTime(serverTs: number): void { clock.sample(serverTs); }
 // 서버 시각 차이를 한 번 받을 때까지 기다린다 (최대 3초). 이용 시간 판정처럼 기기 시계를 믿으면 안 되는 곳에서 serverNow 를 쓰기 전에 부른다
 export function serverTimeReady(): Promise<void> {
   if (offsetKnown) return Promise.resolve();

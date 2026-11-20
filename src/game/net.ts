@@ -4,8 +4,8 @@ import {
   ref, set, update, get, remove, onValue, onChildAdded, onChildChanged, onChildRemoved, onDisconnect, push, serverTimestamp, increment,
 } from 'firebase/database';
 import { db } from '../firebase/app';
-import { serverNow, mergeConfig } from '../firebase/db';
-import { STEP_MS, HEARTBEAT_MS, STALE_MS, AFK_AFTER_MS, CLIENT_VERSION, HOOK_SLIDE_MS } from '../shared/config';
+import { serverNow, mergeConfig, syncServerTime } from '../firebase/db';
+import { STEP_MS, HEARTBEAT_MS, STALE_MS, AFK_AFTER_MS, CLIENT_VERSION, HOOK_SLIDE_MS, LEAVE_NOTICE_MS } from '../shared/config';
 import type { Dir, PlayerState, PushEvent, PullEvent, TpEvent } from '../shared/types';
 import { dayKey } from '../shared/util';
 import { poseForEmote } from './render';
@@ -29,6 +29,9 @@ function cosmetics(p: _UP, petXp: (id: string) => number): Pick<PlayerState, 'h'
   return { h: has(p.eq?.h), nc: has(p.eq?.nc), fx: has(p.eq?.fx), tt: has(p.eq?.tt), pt, ...(pt && petXp(pt) > 0 ? { pl: petXp(pt) } : {}), pa: p.eq?.pa && own.pusharmor ? true : null, ta: p.eq?.ta && own.tossarmor ? true : null, nr: p.eq?.nr ? true : null,
     ph: pt ? has(p.eq?.ph) : null, pg: pt ? has(p.eq?.pg) : null, pn: (pt && cleanPetName(p.eq?.pns?.[pt])) || null }; // 펫 모자·안경·이름 (2026-11-20): 펫을 데리고 있을 때만
 }
+
+// 쓰기가 받아들여졌나 (거부·끊김이면 false)
+const sent = (p: Promise<void>): Promise<boolean> => p.then(() => true, () => false);
 
 export class Net {
   private unsubs: (() => void)[] = [];
@@ -181,7 +184,7 @@ export class Net {
       if (now - last <= limit) continue;
       w.players.delete(rp.uid);
       w.events.emit('players');
-      this.notice(`${rp.st.n} 님이 퇴장했습니다.`);
+      this.noteLeft(rp.uid, rp.st.n);
       update(ref(db), { [`players/${rp.uid}`]: null }).catch(() => {});
       this.clearOccOf(rp);
     }
@@ -197,6 +200,19 @@ export class Net {
   private notice(text: string): void {
     if (this.quiet()) return; // 뒤쪽에 있는 동안·복귀 직후의 입퇴장 알림은 버린다 (돌아왔을 때 쏟아지지 않게)
     this.w.events.emit('log', { channel: 'notice', from: '', text, ts: serverNow() });
+  }
+  // 잠깐 끊겼다 돌아온 사람의 입퇴장 알림은 숨긴다 (2026-11-20 건의). 폰은 다른 앱에 갔다 올 때마다, PC 도 절전·연결 끊김 때마다 접속 표시가 지워졌다 다시 써져서
+  // 그때마다 "퇴장/입장"이 채팅에 떴다. 퇴장 알림은 LEAVE_NOTICE_MS 뒤에 띄우고, 그 안에 돌아오면 퇴장도 입장도 알리지 않는다. 접속 수와 목록은 바로 바뀐다
+  private gone = new Map<string, number>(); // 나간 사람 uid → 퇴장 알림 타이머
+  private noteLeft(uid: string, nick: string): void {
+    clearTimeout(this.gone.get(uid));
+    if (this.quiet()) { this.gone.delete(uid); return; }
+    this.gone.set(uid, window.setTimeout(() => { this.gone.delete(uid); this.notice(`${nick} 님이 퇴장했습니다.`); }, LEAVE_NOTICE_MS));
+  }
+  private noteJoined(uid: string, nick: string): void {
+    const t = this.gone.get(uid);
+    if (t !== undefined) { clearTimeout(t); this.gone.delete(uid); return; } // 방금 나갔던 사람이 돌아왔다: 둘 다 알리지 않는다
+    this.notice(`${nick} 님이 입장했습니다.`);
   }
 
   // 내 presence 노드가 사라졌으면(다른 클라이언트의 유령 정리 등) 잠시 뒤 다시 등록
@@ -231,6 +247,8 @@ export class Net {
         w.players.set(uid, rp);
       } else {
         const prev = rp.st;
+        // 남의 하트비트는 서버가 방금 찍은 시각이다: 내 서버 시각 어림이 어긋났는지 견줘 본다 (shared/clock.ts. 기기 시계가 튀는 PC 에서 방어 깨짐 표시가 안 뜨던 일)
+        if (typeof st.hb === 'number' && st.hb > (prev.hb || 0)) syncServerTime(st.hb);
         if (playerMapId(prev) !== playerMapId(st)) {
           // 다른 맵으로 옮겼다: 보간·펫 자리·말풍선·동작을 옛 맵에서 끌고 오지 않는다
           Object.assign(rp, { x: st.x, y: st.y, fromX: st.x, fromY: st.y, toX: st.x, toY: st.y, prevX: st.x, prevY: st.y, moveStart: 0, lastMoveAt: 0, fishAt: 0, pose: 'none', poseAt: 0, emoteId: 0, bubble: null, pushAt: -1 });
@@ -261,7 +279,7 @@ export class Net {
       const st = s.val() as PlayerState;
       apply(s.key!, st);
       // 내가 들어온 뒤에 입장한 사람만 알림 (초기 스냅샷 제외)
-      if (s.key !== w.uid && st.j && st.j > this.joinTs - 1000) this.notice(`${st.n} 님이 입장했습니다.`);
+      if (s.key !== w.uid && st.j && st.j > this.joinTs - 1000) this.noteJoined(s.key!, st.n);
     }));
     this.unsubs.push(onChildChanged(playersRef, (s) => apply(s.key!, s.val() as PlayerState)));
     this.unsubs.push(onChildRemoved(playersRef, (s) => {
@@ -271,7 +289,7 @@ export class Net {
       if (!rp) return;
       w.players.delete(uid);
       w.events.emit('players');
-      this.notice(`${rp.st.n} 님이 퇴장했습니다.`);
+      this.noteLeft(uid, rp.st.n);
       this.clearOccOf(rp);
     }));
     // 동일 계정 중복 로그인 감지
@@ -299,6 +317,7 @@ export class Net {
       if (!s.exists()) return;
       const m = s.val() as TossMsg;
       remove(ref(db, `players/${w.uid}/toss`)).catch(() => {});
+      syncServerTime(m.t); // 서버가 찍은 시각: 내 어림이 앞서 있으면 아래에서 "오래된 것"으로 잘못 버린다
       const thrower = w.players.get(m.f);
       if (serverNow() - m.t < 5000 && thrower && w.onMyMap(thrower.st)) w.events.emit('toss', w.uid, m); // 다른 맵에서 날아온 건 무시
     }));
@@ -306,6 +325,7 @@ export class Net {
       const p = s.val() as PushEvent | null;
       if (!p) return;
       remove(ref(db, `players/${w.uid}/push`)).catch(() => {});
+      syncServerTime(p.t);
       if (serverNow() - p.t > 4000) return;
       if (w.me.roomId) return; // 카지노 안에 앉아 있는 동안은 아무도 못 건드린다 (2026-11-12. 빠따도 안 통한다)
       if (w.homeSafe()) return; // 벽돌집 안: 밀치기가 안 통한다 (2026-11-17)
@@ -346,6 +366,7 @@ export class Net {
       const p = s.val() as PullEvent | null;
       if (!p) return;
       remove(ref(db, `players/${w.uid}/pull`)).catch(() => {});
+      syncServerTime(p.t);
       if (serverNow() - p.t > 4000 || typeof p.x !== 'number' || typeof p.y !== 'number') return;
       if (w.me.roomId) return; // 카지노 안: 끌기·갈고리도 안 통한다
       if (w.homeSafe()) return; // 벽돌집 안: 끌기도 안 통한다
@@ -465,31 +486,32 @@ export class Net {
     }
     return upd;
   }
-  toss(targetUid: string, m: Omit<TossMsg, 't'>): void {
-    update(ref(db), { [`players/${targetUid}/toss`]: { ...m, t: serverTimestamp() }, ...this.batCost([{ uid: targetUid, kind: m.b }], '말랑이') }).catch(() => {});
+  // 아래 보내기 함수들은 쓰기가 받아들여졌는지를 돌려준다 (거부·끊김이면 false). 빠따를 썼을 때 world.batReport 가 결과를 알리는 데 쓴다
+  toss(targetUid: string, m: Omit<TossMsg, 't'>): Promise<boolean> {
+    return sent(update(ref(db), { [`players/${targetUid}/toss`]: { ...m, t: serverTimestamp() }, ...this.batCost([{ uid: targetUid, kind: m.b }], '말랑이') }));
   }
   // 말랑이 보따리: 여러 명에게 한 번에 (multi-path 쓰기)
-  tossMany(shots: { uid: string; m: Omit<TossMsg, 't'> }[]): void {
-    update(ref(db), { ...Object.fromEntries(shots.map((s) => [`players/${s.uid}/toss`, { ...s.m, t: serverTimestamp() }])), ...this.batCost(shots.map((s) => ({ uid: s.uid, kind: s.m.b })), '말랑이') }).catch(() => {});
+  tossMany(shots: { uid: string; m: Omit<TossMsg, 't'> }[]): Promise<boolean> {
+    return sent(update(ref(db), { ...Object.fromEntries(shots.map((s) => [`players/${s.uid}/toss`, { ...s.m, t: serverTimestamp() }])), ...this.batCost(shots.map((s) => ({ uid: s.uid, kind: s.m.b })), '말랑이') }));
   }
   // 끌기: 상대를 (x,y)로 당긴다. hook 이면 갈고리 (규칙이 보유 확인)
-  pull(targetUid: string, x: number, y: number, hook = false, bat: BatKind = 0): void {
-    update(ref(db), { [`players/${targetUid}/pull`]: { f: this.w.uid, x, y, t: serverTimestamp(), ...(hook ? { k: 'hook' } : {}), ...(bat ? { b: bat } : {}) }, ...this.batCost([{ uid: targetUid, kind: bat }], hook ? '갈고리' : '끌기') }).catch(() => {});
+  pull(targetUid: string, x: number, y: number, hook = false, bat: BatKind = 0): Promise<boolean> {
+    return sent(update(ref(db), { [`players/${targetUid}/pull`]: { f: this.w.uid, x, y, t: serverTimestamp(), ...(hook ? { k: 'hook' } : {}), ...(bat ? { b: bat } : {}) }, ...this.batCost([{ uid: targetUid, kind: bat }], hook ? '갈고리' : '끌기') }));
   }
   // 관리자: 상대를 (x,y)로 보낸다 (광장으로 보내기). 규칙이 관리자만 허용
   sendTo(targetUid: string, x: number, y: number): Promise<void> {
     return set(ref(db, `players/${targetUid}/tp`), { f: this.w.uid, x, y, t: serverTimestamp() });
   }
-  push(targetUid: string, dx: number, dy: number, bat: BatKind = 0): void {
-    update(ref(db), { [`players/${targetUid}/push`]: { f: this.w.uid, dx, dy, t: serverTimestamp(), ...(bat ? { b: bat } : {}) }, ...this.batCost([{ uid: targetUid, kind: bat }], '밀치기') }).catch(() => {});
+  push(targetUid: string, dx: number, dy: number, bat: BatKind = 0): Promise<boolean> {
+    return sent(update(ref(db), { [`players/${targetUid}/push`]: { f: this.w.uid, dx, dy, t: serverTimestamp(), ...(bat ? { b: bat } : {}) }, ...this.batCost([{ uid: targetUid, kind: bat }], '밀치기') }));
   }
   // 거북이 등껍질 되받아치기 (2026-11-10): r 표시가 있으면 받는 쪽이 다시 되받지 않는다
   pushReflect(targetUid: string, dx: number, dy: number): void {
     set(ref(db, `players/${targetUid}/push`), { f: this.w.uid, dx, dy, t: serverTimestamp(), r: true }).catch(() => {});
   }
   // 장풍: 범위 안의 여러 명에게 한 번에 (multi-path). n=2 는 규칙이 보유를 확인한다
-  pushMany(targets: { uid: string; bat: BatKind }[], dx: number, dy: number): void {
-    update(ref(db), { ...Object.fromEntries(targets.map((x) => [`players/${x.uid}/push`, { f: this.w.uid, dx, dy, t: serverTimestamp(), n: 2, ...(x.bat ? { b: x.bat } : {}) }])), ...this.batCost(targets.map((x) => ({ uid: x.uid, kind: x.bat })), '장풍') }).catch(() => {});
+  pushMany(targets: { uid: string; bat: BatKind }[], dx: number, dy: number): Promise<boolean> {
+    return sent(update(ref(db), { ...Object.fromEntries(targets.map((x) => [`players/${x.uid}/push`, { f: this.w.uid, dx, dy, t: serverTimestamp(), n: 2, ...(x.bat ? { b: x.bat } : {}) }])), ...this.batCost(targets.map((x) => ({ uid: x.uid, kind: x.bat })), '장풍') }));
   }
   // 빠따에 맞아 방어가 깨졌다: 풀리는 시각을 presence 에 올려 남들이 막힌다고 보고 건너뛰지 않게 한다
   setGuardBroken(until: number): void {
@@ -565,6 +587,8 @@ export class Net {
     this.leaving = true;
     this.joined = false;
     clearInterval(this.hbTimer); clearInterval(this.sweepTimer); clearTimeout(this.reclaimTimer); clearTimeout(this.afkTimer); clearTimeout(this.peakTimer);
+    for (const t of this.gone.values()) clearTimeout(t);
+    this.gone.clear();
     document.removeEventListener('visibilitychange', this.onVisibility);
     for (const u of this.unsubs) u();
     this.unsubs = [];

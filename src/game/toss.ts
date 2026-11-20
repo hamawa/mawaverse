@@ -73,9 +73,9 @@ export class TossMgr {
     // 방어 중인 사람에게는 빠따가 있으면 한 개씩 써서 깨고 맞힌다 (b=1). 모자라면 그 사람은 막는다
     const plan = assignBats(targets.map((t) => guardedOf(t.st, 'toss', serverNow())), w.wallet.batsReady(), w.wallet.darksReady());
     const shots: Shot[] = targets.map((t, i) => ({ uid: t.uid, m: { f: w.uid, fx: me.x, fy: me.y, tx: Math.round(t.x), ty: Math.round(t.y), ...(plan[i].bat ? { b: plan[i].kind } : {}) } }));
-    w.batNote(shots.filter((s) => s.m.b).length, targets.filter((t, i) => plan[i].bat && t.st.sd).length, plan.filter((x) => x.kind === 2).length);
     for (const s of shots) this.flying.push({ fx: s.m.fx, fy: s.m.fy, tx: s.m.tx, ty: s.m.ty, start: now });
-    if (shots.length === 1) this.net.toss(shots[0].uid, shots[0].m); else this.net.tossMany(shots);
+    // 빠따 결과는 말랑이가 닿은 뒤에 상대의 반응을 보고 알린다 (world.batReport)
+    w.batReport(shots.length === 1 ? this.net.toss(shots[0].uid, shots[0].m) : this.net.tossMany(shots), targets.map((t, i) => ({ rp: t, kind: plan[i].kind })), TOSS_FLY_MS);
     this.land(() => {
       let hits = 0, blocked = 0;
       for (const s of shots) {

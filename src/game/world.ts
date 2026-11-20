@@ -13,7 +13,7 @@ import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
 import { O, objectAt, faceChairs, buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, CLUB_FLOOR, CLUB_DANCERS, buildHomeMap, HOME_EXIT_ZONE, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
 import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, playerMapId, isHomeMapId, homeMapId, homeOwnerOf } from '../shared/maps';
-import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
+import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, whereLabel, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { openPortalPicker } from './portalui';
 import { Net } from './net';
 import { Chat } from './chat';
@@ -57,7 +57,7 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { PET_NAME_FEE, PET_NAME_MAX, cleanPetName, rodTierOf, ROD_GOODS, fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, PET_IDS, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
+import { batResultText, BAT_CHECK_MS, type BatKind, PET_NAME_FEE, PET_NAME_MAX, cleanPetName, rodTierOf, ROD_GOODS, fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, PET_IDS, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
 import { SnowfightState, snowGateAt, snowfightAction, SNOW_PACK_HINT, SNOW_THROW_HINT, type SnowGate } from './snowfight';
 import { TASK_FOOTPRINT, FOG_RADIUS } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
@@ -263,7 +263,7 @@ export class World implements WorldCtx {
       chatPrefill: () => this.chat.stickyPrefix(),
       openMyMenu: (x, y) => this.openMyMenu(x, y),
       openPlayerMenu: (uid, x, y) => this.openPlayerMenu(uid, x, y),
-      onlineList: () => [{ uid: this.uid, nick: this.profile.nick }, ...[...this.players.values()].map((p) => ({ uid: p.uid, nick: p.st.n }))],
+      onlineList: () => [{ uid: this.uid, nick: this.profile.nick, where: this.whereOf(this.uid, this.mapId) }, ...[...this.players.values()].map((p) => ({ uid: p.uid, nick: p.st.n, where: this.whereOf(p.uid, playerMapId(p.st)) }))],
       emote: (id) => this.doEmote(id),
       interact: () => this.input.trigger('interact'),
       openShop: () => this.openShop(),
@@ -1203,6 +1203,10 @@ export class World implements WorldCtx {
     if (uid === this.uid) return this.profile.nick;
     return this.players.get(uid)?.st.n || '(오프라인)';
   }
+  // 접속자 목록에 보이는 그 사람의 위치 (맵 이름. 2026-11-20 건의). 모든 맵의 접속 표시를 이미 받고 있어 서버에 따로 묻지 않는다
+  private whereOf(uid: string, mapId: string): string {
+    return whereLabel(mapId, uid, (owner) => (owner === this.uid ? this.profile.nick : this.players.get(owner)?.st.n || ''), mapId === this.mapId ? this.map.name : '');
+  }
   setBubble(uid: string, bubble: Bubble): void {
     if (uid === this.uid) this.me.bubble = bubble;
     else { const rp = this.players.get(uid); if (rp) rp.bubble = bubble; }
@@ -1385,8 +1389,7 @@ export class World implements WorldCtx {
         const targets = all.filter((rp, i) => { if (plan[i].blocked) { rp.blockAt = now; return false; } return true; }).map((rp) => ({ rp, bat: plan[all.indexOf(rp)].kind }));
         if (!targets.length) { this.toast('🛡 모두 방어 중이라 밀리지 않습니다. (상점의 빠따로 깰 수 있어요)', true); return; }
         me.lastPushAt = now;
-        this.net.pushMany(targets.map((t) => ({ uid: t.rp.uid, bat: t.bat })), dx, dy);
-        this.batNote(targets.filter((t) => t.bat).length, targets.filter((t) => t.bat && t.rp.st.sd).length, targets.filter((t) => t.bat === 2).length);
+        this.batReport(this.net.pushMany(targets.map((t) => ({ uid: t.rp.uid, bat: t.bat })), dx, dy), targets.map((t) => ({ rp: t.rp, kind: t.bat })));
         for (const t of targets) this.toss.wave(me.x, me.y, Math.round(t.rp.x), Math.round(t.rp.y));
       } else {
         const target = this.playerAt(me.x + dx, me.y + dy);
@@ -1398,8 +1401,7 @@ export class World implements WorldCtx {
         const bat = guarded ? this.wallet.nextBat() : 0; // 어둠의 빠따가 있으면 그것부터 (2)
         if (guarded && !bat) { target.blockAt = now; this.toast(`🛡 ${target.st.n} 은(는) ${target.st.pa ? '철벽 갑옷을 입고 있어' : '펫이 지켜 줘서'} 밀리지 않습니다. (상점의 빠따로 깰 수 있어요)`, true); return; }
         me.lastPushAt = now;
-        this.net.push(target.uid, dx, dy, bat);
-        this.batNote(bat ? 1 : 0, bat && target.st.sd ? 1 : 0, bat === 2 ? 1 : 0);
+        this.batReport(this.net.push(target.uid, dx, dy, bat), [{ rp: target, kind: bat }]);
       }
     }
     if (id === 14 && !this.pull(now)) return;
@@ -1407,19 +1409,25 @@ export class World implements WorldCtx {
     this.net.emote(id);
     if (id === 10 && !this.profile.own?.wave) sfx('push'); else if (id === 14) sfx('pull'); // 장풍·갈고리·말랑이 소리는 날아가는 그림(toss.ts)이 낸다
   }
-  // 빠따를 썼으면 한 줄 알림. 남은 개수는 지갑에 반영된 뒤에 읽는다
-  // shielded: 그 빠따 가운데 상대의 든든함(겨울잠으로 쌓은 🐟, shared/home.ts)에 막혔을 수. 빠따는 그대로 소모되고 상대 든든함이 하나 준다
-  // dark: 그 가운데 어둠의 빠따 수. 전부 어둠의 빠따면 그쪽 문구와 남은 개수를 보여 준다
-  batNote(used: number, shielded = 0, dark = 0): void {
-    if (used <= 0) return;
-    if (dark >= used) {
-      window.setTimeout(() => this.note(shielded >= used ? `🌑 어둠의 빠따를 썼지만 상대의 🐟 든든함에 막혔다! 든든함이 하나 줄었다. (남은 어둠의 빠따 ${this.wallet.darks}개)`
-        : `🌑 어둠의 빠따로 방어를 깼다! 누가 쳤는지는 남지 않는다. (남은 ${this.wallet.darks}개)`), 250);
-      return;
-    }
-    window.setTimeout(() => this.note(shielded >= used ? `🏏 빠따를 썼지만 상대의 🐟 든든함에 막혔다! 든든함이 하나 줄었다. (남은 빠따 ${this.wallet.bats}개)`
-      : shielded > 0 ? `🏏 빠따 ${used}개 사용: ${used - shielded}명은 방어가 깨지고 ${shielded}명은 🐟 든든함으로 버텼다. (남은 ${this.wallet.bats}개)`
-      : `🏏 빠따${used > 1 ? ` ${used}개` : ''}로 방어를 깼다! (남은 ${this.wallet.bats}개)`), 250);
+  // 빠따를 쓴 결과를 한 줄로 알린다 (2026-11-20 고침). 전에는 보내자마자 "방어를 깼다"고 알렸다: 쓰기가 거부됐거나 상대 화면이 멈춰 있어 아무 일이 없었어도 그렇게 떴다.
+  // 지금은 BAT_CHECK_MS 뒤에 상대의 접속 표시를 보고 정한다: 방어 깨짐(gb)이 켜졌으면 깨짐, 든든함(sd)이 줄었으면 든든함에 막힘, 둘 다 아니면 통하지 않음.
+  // ok: 그 쓰기가 받아들여졌나 (Net 의 보내기 함수가 돌려준다). hits: 겨냥한 사람과 쓴 빠따 종류 (0 은 빠따 없이 보낸 사람)
+  // wait: 닿을 때까지 걸리는 시간 (말랑이가 날아가는 시간)
+  batReport(ok: Promise<boolean>, hits: { rp: RemotePlayer; kind: BatKind }[], wait = 0): void {
+    const used = hits.filter((h) => h.kind).map((h) => ({ uid: h.rp.uid, sd: h.rp.st.sd || 0 }));
+    if (!used.length) return;
+    const dark = hits.every((h) => !h.kind || h.kind === 2);
+    void ok.then((sent) => {
+      if (this.stopped) return;
+      if (!sent) { this.note(batResultText({ dark, failed: true, n: used.length, left: 0 })); return; }
+      window.setTimeout(() => {
+        if (this.stopped) return;
+        const now = serverNow();
+        let broke = 0, shielded = 0;
+        for (const u of used) { const st = this.players.get(u.uid)?.st; if (st && (st.sd || 0) < u.sd) shielded++; else if (st && guardBrokenOf(st, now)) broke++; }
+        this.note(batResultText({ dark, n: used.length, broke, shielded, left: dark ? this.wallet.darks : this.wallet.bats }));
+      }, BAT_CHECK_MS + wait);
+    });
   }
   // 끌기(R): 바로 앞사람을 내가 서 있던 칸으로 당기고 나는 한 칸 물러난다(뒤가 막혔으면 옆으로). 구석에 박힌 사람을 꺼내는 용도.
   // 앞에 아무도 없고 갈고리(상점 장비)가 있으면 앞 4칸 × 옆 4칸 안의 한 명을 무작위로 내 앞 칸까지 끌어온다.
@@ -1444,7 +1452,7 @@ export class World implements WorldCtx {
       me.lastPushAt = now;
       const ox = me.x, oy = me.y, uid = front.uid;
       // 내 걸음(점유 이동)이 서버에 반영된 뒤에 끌기를 보낸다: 상대가 내 옛 자리로 올 때 점유가 비어 있어야 한다
-      this.startStep(spot[0], spot[1], undefined, { onDone: (ok) => { if (ok) { this.net.pull(uid, ox, oy, false, bat); this.batNote(bat ? 1 : 0, bat && front.st.sd ? 1 : 0, bat === 2 ? 1 : 0); } } });
+      this.startStep(spot[0], spot[1], undefined, { onDone: (ok) => { if (ok) this.batReport(this.net.pull(uid, ox, oy, false, bat), [{ rp: front, kind: bat }]); } });
       return true;
     }
     if (!this.profile.own?.hook) { this.toast('앞에 끌 사람이 없습니다. 상대를 바라보고 붙어서 사용하세요. (갈고리가 있으면 앞 4칸 안에서 끌어옵니다)', true); return false; }
@@ -1460,8 +1468,7 @@ export class World implements WorldCtx {
     const target = targets[Math.floor(Math.random() * targets.length)];
     const hookBat = guardedOf(target.st, 'push', serverNow()) ? this.wallet.nextBat() : 0;
     me.lastPushAt = now;
-    this.net.pull(target.uid, fx, fy, true, hookBat);
-    this.batNote(hookBat ? 1 : 0, hookBat && target.st.sd ? 1 : 0, hookBat === 2 ? 1 : 0);
+    this.batReport(this.net.pull(target.uid, fx, fy, true, hookBat), [{ rp: target, kind: hookBat }]);
     this.toss.hook(me.x, me.y, Math.round(target.x), Math.round(target.y));
     return true;
   }

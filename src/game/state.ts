@@ -102,7 +102,7 @@ export interface WorldCtx {
   catchLog: CatchLog;
   note(text: string): void;              // 한 줄 알림만 (기록 없음)
   fishCaught(size: number): void;        // 물고기를 잡았다 (꽝 제외): 진행 중인 낚시 내기에 내 최고 크기를 적는다
-  batNote(used: number, shielded?: number, dark?: number): void; // 빠따를 썼으면 한 줄 알림. shielded: 그중 상대의 든든함(겨울잠, presence sd)에 막혔을 수, dark: 그중 어둠의 빠따 수
+  batReport(ok: Promise<boolean>, hits: { rp: RemotePlayer; kind: 0 | 1 | 2 }[], wait?: number): void; // 빠따를 쓴 결과를 상대의 반응을 보고 한 줄로 알린다 (world.ts batReport)
   banner(title: string, sub?: string): void; // 화면 가운데 큰 배너 (신화 등급 소식)
   raining(): boolean;                        // 지금 내가 있는 곳에 비가 오나 (바깥 맵만. shared/weather.ts)
   sitting(): boolean;                        // 벤치·의자·소파에 앉아 있나

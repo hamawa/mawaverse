@@ -188,7 +188,7 @@ function setup(over = {}) {
     me: { x: 10, y: 10, dir: 2, hitAt: -1e9, blockAt: -1e9, stunUntil: 0, roomId: null },
     players: new Map(),
     wallet: { batsReady: () => { spy.bats++; return 9; }, darksReady: () => 0 },
-    toast: (m) => spy.toasts.push(m), note: (t) => spy.notes.push(t), batNote: () => {},
+    toast: (m) => spy.toasts.push(m), note: (t) => spy.notes.push(t), batReport: () => {},
     nickOf: (u) => (u === 'me' ? '나' : w.players.get(u)?.st.n || u),
     playerAt: (x, y) => finder([...w.players.values()])(x, y),
     onMyMap: () => true, guardBroken: () => false, petGuard: () => false, petReflect: () => false, homeSafe: () => false,

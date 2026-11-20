@@ -454,3 +454,115 @@ test('자주 나가는 지갑 쓰기(낚을 때·미끼·채광)는 트랜잭션
   assert.ok(body('takeBait').includes('<= 0'), '미끼가 없으면 보내지 않는다');
   assert.ok(body('mine').includes('goldMax('), '곡괭이 단계보다 많으면 보내지 않는다');
 });
+
+// ---------- 2026-11-20 빠따 제보·백그라운드 (v47) ----------
+const { ServerClock, CLOCK_TOLERANCE_MS, CLOCK_STREAK, CLOCK_SPAN_MS } = await import('../src/shared/clock.ts');
+const { batResultText, BAT_CHECK_MS, GUARD_BREAK_MS, guardBrokenOf } = await import('../src/shared/shop.ts');
+const { whereLabel, MAP_INFO } = await import('../src/game/portal.ts');
+const { LEAVE_NOTICE_MS, STALE_MS } = await import('../src/shared/config.ts');
+
+// 기기 시계(wall)와 멈추지 않는 시계(mono)를 손으로 움직이는 가짜. real: 실제 서버 시각
+function fakeClock() {
+  const t = { real: 1_800_000_000_000, wall: 1_800_000_000_000, mono: 5000 };
+  const c = new ServerClock(() => t.wall, () => t.mono);
+  const pass = (ms) => { t.real += ms; t.wall += ms; t.mono += ms; };
+  return { t, c, pass, err: () => c.now() - t.real };
+}
+
+test('서버 시각: 기기 시계가 뒤로 튀면(내 어림이 뒤처짐) 서버가 찍은 시각 하나로 바로 맞춘다', () => {
+  // 제보된 화면: 어림이 274초 뒤처져 있어 방어 깨짐(gb = 어림 + 60초)이 남에게는 이미 지난 시각이었다
+  const { t, c, pass, err } = fakeClock();
+  t.wall -= 274_000;
+  assert.equal(err(), -274_000);
+  assert.ok(!guardBrokenOf({ gb: c.now() + GUARD_BREAK_MS }, t.real), '고치기 전: 맞은 표시가 남에게 안 보인다');
+  pass(3000);
+  assert.equal(c.sample(t.real - 120), true, '남의 하트비트 하나 (0.12초 전에 서버가 찍음)');
+  assert.ok(Math.abs(err()) <= 200, `맞춘 뒤 어긋남 ${err()}ms`);
+  assert.ok(guardBrokenOf({ gb: c.now() + GUARD_BREAK_MS }, t.real + 55_000), '맞춘 뒤: 55초 뒤에도 깨진 것으로 보인다');
+  assert.ok(!guardBrokenOf({ gb: c.now() + GUARD_BREAK_MS }, t.real + 61_000), '61초 뒤에는 풀린다');
+});
+
+test('서버 시각: 기기 시계가 앞으로 튀면(내 어림이 앞섬) 연달아 여러 번 확인한 뒤에 맞춘다', () => {
+  // 앞서 있으면 날아온 밀치기를 "4초 넘게 지난 것"으로 보고 버렸다 (보낸 사람의 빠따만 줄었다)
+  const { t, c, pass, err } = fakeClock();
+  t.wall += 1_450_000;
+  assert.equal(c.sample(t.real - 100), false, '한 번으로는 안 맞춘다 (늦게 온 소식일 수도 있다)');
+  pass(3000);
+  assert.equal(c.sample(t.real - 300), false);
+  assert.equal(err(), 1_450_000);
+  pass(3000);
+  assert.equal(c.sample(t.real - 80), true, `${CLOCK_STREAK}번째, ${CLOCK_SPAN_MS}ms 넘게 이어짐`);
+  assert.equal(err(), -80, '가장 덜 어긋난 값으로 맞춘다 (그 소식이 오는 데 걸린 0.08초만큼만 남는다)');
+});
+
+test('서버 시각: 멈췄다 깨어난 화면에 밀린 소식이 한꺼번에 와도 시계를 건드리지 않는다', () => {
+  const { t, c, pass, err } = fakeClock();
+  for (const late of [40_000, 25_000, 12_000, 30_000]) assert.equal(c.sample(t.real - late), false, '한꺼번에 온 옛 소식'); // 같은 순간에 도착: 이어진 시간이 0
+  assert.equal(err(), 0);
+  pass(4000);
+  assert.equal(c.sample(t.real - 90), false, '제때 온 소식이 하나 오면 처음부터 다시 센다');
+  pass(4000);
+  assert.equal(c.sample(t.real - 30_000), false);
+  assert.equal(err(), 0);
+});
+
+test('서버 시각: 전달 지연 정도의 차이는 그냥 두고, 다시 연결하면 맞춘 값을 버린다', () => {
+  const { t, c, pass, err } = fakeClock();
+  for (const d of [-CLOCK_TOLERANCE_MS, -900, 0, 700, CLOCK_TOLERANCE_MS]) { assert.equal(c.sample(t.real + d), false); pass(2500); }
+  assert.equal(c.fixed(), 0);
+  t.wall -= 60_000; c.sample(t.real);
+  assert.equal(c.fixed(), 60_000);
+  c.setOffset(60_000); // 다시 연결하면서 SDK 가 새로 잰 값
+  assert.equal(c.fixed(), 0);
+  assert.equal(err(), 0);
+  assert.equal(c.sample(NaN), false);
+  assert.equal(c.sample(undefined), false);
+});
+
+test('빠따 결과 안내: 상대의 반응에 따라 다르게 알린다', () => {
+  assert.match(batResultText({ n: 1, broke: 1, left: 4 }), /^🏏 빠따로 방어를 깼다! \(남은 빠따 4개\)$/);
+  assert.match(batResultText({ n: 1, shielded: 1, left: 4 }), /든든함에 막혔다/);
+  assert.match(batResultText({ n: 1, left: 4 }), /통하지 않았다/);
+  assert.match(batResultText({ dark: true, n: 1, broke: 1, left: 0 }), /^🌑 어둠의 빠따로 방어를 깼다! 누가 쳤는지는 남지 않는다\. \(남은 어둠의 빠따 0개\)$/);
+  assert.match(batResultText({ n: 3, broke: 1, shielded: 1, left: 2 }), /빠따 3개 사용: 1명은 방어가 깨짐, 1명은 🐟 든든함으로 버팀, 1명은 통하지 않음\. \(남은 빠따 2개\)/);
+  assert.match(batResultText({ failed: true, n: 1, left: 0 }), /나가지 않았다.*소모되지 않았어요/);
+  assert.ok(BAT_CHECK_MS >= 1000 && BAT_CHECK_MS <= 3000, '반응을 기다리는 시간');
+});
+
+test('빠따: 보내는 쓰기의 성패를 돌려주고, 받는 쪽은 서버가 찍은 시각으로 내 시계를 견준다', () => {
+  const src = readFileSync(new URL('../src/game/net.ts', import.meta.url), 'utf8');
+  for (const name of ['toss', 'tossMany', 'pull', 'push', 'pushMany']) {
+    const i = src.indexOf(`\n  ${name}(`); assert.ok(i >= 0, name);
+    const body = src.slice(i, src.indexOf('\n  }', i));
+    assert.ok(/\): Promise<boolean> \{/.test(body) && body.includes('return sent(update('), `${name} 은 쓰기 결과를 돌려준다`);
+    assert.ok(body.includes('this.batCost('), `${name} 은 빠따 값을 같은 쓰기에 싣는다`);
+  }
+  assert.ok(src.includes("if (typeof st.hb === 'number' && st.hb > (prev.hb || 0)) syncServerTime(st.hb);"), '남의 하트비트로 시계를 견준다');
+  assert.equal((src.match(/syncServerTime\((p|m)\.t\)/g) || []).length, 3, '밀치기·끌기·말랑이의 시각으로도 견준다');
+  const world = readFileSync(new URL('../src/game/world.ts', import.meta.url), 'utf8');
+  assert.ok(!/batNote\(/.test(world) && (world.match(/this\.batReport\(this\.net\./g) || []).length === 4, '밀치기·장풍·끌기·갈고리가 결과를 확인해 알린다');
+});
+
+test('접속자 목록의 위치: 맵 이름까지만, 집은 누구 집인지', () => {
+  const nick = (uid) => ({ owner1: '문어' }[uid] || '');
+  assert.equal(whereLabel('main', 'u1', nick), '광장');
+  for (const id of Object.keys(MAP_INFO)) assert.equal(whereLabel(id, 'u1', nick), MAP_INFO[id].name);
+  assert.equal(whereLabel('h-u1', 'u1', nick), '🏠 자기 집');
+  assert.equal(whereLabel('h-owner1', 'u1', nick), '🏠 문어의 집');
+  assert.equal(whereLabel('h-nobody', 'u1', nick), '🏠 다른 사람의 집', '집주인이 접속해 있지 않으면 이름을 모른다');
+  assert.equal(whereLabel('custom9', 'u1', nick, '시험 맵'), '시험 맵');
+  assert.equal(whereLabel('custom9', 'u1', nick), '다른 맵');
+  const ui = readFileSync(new URL('../src/game/ui.ts', import.meta.url), 'utf8');
+  const i = ui.indexOf('  showOnlineList(): void {'), body = ui.slice(i, ui.indexOf('\n  }\n', i));
+  assert.ok(body.includes('window.setInterval(draw, 1000)') && body.includes('window.clearInterval(timer)'), '열어 둔 동안 1초마다 다시 보고, 닫으면 멈춘다');
+  assert.ok(body.includes('if (sig === shown) return;'), '달라졌을 때만 다시 그린다');
+});
+
+test('입퇴장 알림: 잠깐 끊겼다 돌아온 사람은 알리지 않는다', () => {
+  assert.equal(LEAVE_NOTICE_MS, 180000);
+  assert.ok(LEAVE_NOTICE_MS > STALE_MS, '유령 정리(2분)보다 길어야 정리됐다 바로 돌아온 사람도 묶인다');
+  const src = readFileSync(new URL('../src/game/net.ts', import.meta.url), 'utf8');
+  assert.equal((src.match(/this\.noteLeft\(/g) || []).length, 2, '서버가 지운 사람 · 유령 정리로 지운 사람');
+  assert.equal((src.match(/this\.noteJoined\(/g) || []).length, 1);
+  assert.ok(!/this\.notice\(`\$\{rp\.st\.n\} 님이 퇴장했습니다\.`\)/.test(src), '퇴장 알림을 바로 띄우는 곳이 남아 있지 않다');
+});

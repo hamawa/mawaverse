@@ -318,7 +318,7 @@ export interface HudHandlers {
   chatPrefill?: () => string | null; // 채팅창을 열 때 빈 입력창에 미리 넣을 글 (귓속말을 이어 갈 때 "/w 닉 ")
   openMyMenu: (x: number, y: number) => void;
   openPlayerMenu: (uid: string, x: number, y: number) => void;
-  onlineList: () => { uid: string; nick: string }[];
+  onlineList: () => { uid: string; nick: string; where: string }[]; // where: 그 사람이 있는 맵 이름 (접속자 목록에 보인다)
   emote: (id: number) => void;
   interact: () => void;
   openShop: () => void;
@@ -594,14 +594,30 @@ export class Hud {
     this.announce.style.display = 'block';
   }
 
+  // 접속자 목록 (2026-11-20 건의: 위치 표시 + 열어 둔 동안 저절로 갱신).
+  // 접속자와 그 사람이 있는 맵은 이미 받고 있는 접속 표시에 들어 있어 서버에 따로 묻지 않는다: 열려 있는 동안 1초마다 목록을 다시 만들어 보고 달라졌을 때만 다시 그린다.
+  // (players 이벤트에 묶지 않는다: 누가 한 걸음 걸을 때마다 온다)
   showOnlineList(): void {
-    const list = this.h.onlineList();
     const body = el('div', { class: 'board-list' });
-    for (const p of list) {
-      const row = el('div', { class: 'board-item' }, [el('span', { class: 'title', text: p.nick + (p.uid === this.h.myUid ? ' (나)' : '') })]);
-      if (p.uid !== this.h.myUid) row.onclick = (e) => { m.close(); this.h.openPlayerMenu(p.uid, e.clientX, e.clientY); };
-      body.append(row);
-    }
-    const m = modal(`접속 중 (${list.length}명)`, body, [{ label: '닫기', onClick: () => {} }]);
+    let shown = '';
+    const draw = (): void => {
+      if (!body.isConnected) { window.clearInterval(timer); return; } // 닫기 말고 다른 길로 사라졌을 때 (이용 시간 종료 등)
+      const list = this.h.onlineList();
+      const sig = list.map((p) => `${p.uid}\t${p.nick}\t${p.where}`).join('\n');
+      if (sig === shown) return;
+      shown = sig;
+      const top = body.scrollTop;
+      body.replaceChildren(...list.map((p) => {
+        const row = el('div', { class: 'board-item' }, [el('span', { class: 'title', text: p.nick + (p.uid === this.h.myUid ? ' (나)' : '') }), el('span', { class: 'meta', text: p.where })]);
+        if (p.uid !== this.h.myUid) row.onclick = (e) => { m.close(); this.h.openPlayerMenu(p.uid, e.clientX, e.clientY); };
+        return row;
+      }));
+      body.scrollTop = top;
+      title.textContent = `접속 중 (${list.length}명)`;
+    };
+    const timer = window.setInterval(draw, 1000);
+    const m = modal('접속 중', body, [{ label: '닫기', onClick: () => {} }], false, () => window.clearInterval(timer));
+    const title = m.root.querySelector('h3')!;
+    draw();
   }
 }

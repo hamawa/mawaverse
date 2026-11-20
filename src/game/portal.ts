@@ -2,7 +2,7 @@
 import type { Dir } from '../shared/types';
 import type { MapData, PortalDest } from './map';
 import { isWalkable, isWater, roomAt, findFreeTile, sanitizeMap } from './map';
-import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, BUILTIN_MAP_IDS, isMapId, isHomeMapId, occupancyKey } from '../shared/maps';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, BUILTIN_MAP_IDS, isMapId, isHomeMapId, homeOwnerOf, occupancyKey } from '../shared/maps';
 
 // 맵 id 를 어디서 읽나: main 은 기존 config/activeMap, 포탈 정원·금광은 코드에 든 맵, 그 밖의 올바른 id 는 저장된 maps/{id}
 export function mapSource(id: unknown): 'active' | 'builtin' | 'home' | 'saved' | null {
@@ -20,6 +20,12 @@ export const MAP_INFO: Record<string, { name: string; desc: string }> = {
   [CLUB_MAP_ID]: { name: '클럽', desc: '펫들이 춤추는 곳. 여기서는 이모트가 전부 춤이 된다' },
   [WINTER_MAP_ID]: { name: '겨울 얼음 낚시터', desc: '얼어붙은 연못에서 겨울 전용 물고기를 낚는다. 얼음 낚싯대가 필요해요' },
 };
+// 접속자 목록에 보이는 위치 (2026-11-20 건의): 맵 이름까지만. 구역·좌표는 넣지 않는다 (마피아 중에 누가 어디 있는지 목록으로 새지 않게).
+// 집 안이면 누구 집인지. ownerNick: 집 주인의 닉네임 (접속해 있지 않아 모르면 빈 글자). fallback: 이름표에 없는 맵(저장된 맵)일 때 쓸 이름
+export function whereLabel(mapId: string, uid: string, ownerNick: (owner: string) => string, fallback = ''): string {
+  if (isHomeMapId(mapId)) { const owner = homeOwnerOf(mapId); return owner === uid ? '🏠 자기 집' : `🏠 ${ownerNick(owner) || '다른 사람'}의 집`; }
+  return MAP_INFO[mapId]?.name || fallback || '다른 맵';
+}
 export interface DestView { map: string; name: string; desc: string; count: number; ok: boolean } // ok: 지금 갈 수 있는 곳 (올바른 id 이고 내가 있는 맵이 아님)
 // 선택 창 한 줄. count: 지금 그 맵에 있는 사람 수 (접속자 목록에 모든 맵의 사람이 있어 따로 묻지 않는다)
 export function destView(d: PortalDest, from: string, count: number): DestView {

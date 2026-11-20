@@ -195,6 +195,21 @@ export const GUARD_BREAK_MS = 60000;
 // 누가 누구에게 썼는지는 관리자만 보는 채팅 로그(logs/chat, c='d')에 남는다 (같은 쓰기에 실어 보낸다. 규칙이 강제하지는 않는다)
 export const DARK_BAT: ShopItem = { id: 'darkbat', kind: 'use', name: '어둠의 빠따', price: 3000, icon: '🌑', desc: '빠따와 같지만 맞은 사람에게 누가 쳤는지 알려지지 않는다("누군가"로만 남는다). 가지고 있으면 보통 빠따보다 먼저 쓴다.' };
 export type BatKind = 0 | 1 | 2; // 0 안 씀 · 1 빠따 · 2 어둠의 빠따 (메시지의 b 값)
+// 빠따를 쓴 뒤 이만큼 기다렸다가 상대의 접속 표시(방어 깨짐 gb · 든든함 sd)를 보고 결과를 알린다 (world.batReport. 2026-11-20)
+export const BAT_CHECK_MS = 1500;
+// 빠따 결과 한 줄. n: 쓴 빠따 수, broke: 방어가 깨진 사람, shielded: 든든함으로 버틴 사람 (나머지는 통하지 않음), left: 남은 개수, failed: 쓰기가 받아들여지지 않았다(소모 없음)
+export function batResultText(r: { dark?: boolean; failed?: boolean; n: number; broke?: number; shielded?: number; left: number }): string {
+  const icon = r.dark ? '🌑' : '🏏', name = r.dark ? '어둠의 빠따' : '빠따';
+  if (r.failed) return `${icon} ${name}가 나가지 않았다. (소모되지 않았어요. 잠시 뒤 다시 해 보세요)`;
+  const broke = r.broke || 0, shielded = r.shielded || 0, none = Math.max(0, r.n - broke - shielded), left = `(남은 ${name} ${r.left}개)`;
+  if (r.n === 1) {
+    if (broke) return `${icon} ${name}로 방어를 깼다!${r.dark ? ' 누가 쳤는지는 남지 않는다.' : ''} ${left}`;
+    if (shielded) return `${icon} ${name}를 썼지만 상대의 🐟 든든함에 막혔다! 든든함이 하나 줄었다. ${left}`;
+    return `${icon} ${name}를 썼지만 통하지 않았다. 상대가 그새 움직였거나, 자리를 비워 화면이 멈춘 사람일 수 있어요. ${left}`;
+  }
+  const parts = [broke ? `${broke}명은 방어가 깨짐` : '', shielded ? `${shielded}명은 🐟 든든함으로 버팀` : '', none ? `${none}명은 통하지 않음` : ''].filter(Boolean).join(', ');
+  return `${icon} ${name} ${r.n}개 사용: ${parts}. ${left}`;
+}
 export const ANON = '누군가';
 type GuardState = { pa?: boolean | null; ta?: boolean | null; pt?: string | null; pl?: number | null; gb?: number | null; sn?: number | null } | undefined;
 // 방어가 깨져 있나: gb(풀리는 시각)가 지금(서버 시각)보다 뒤
