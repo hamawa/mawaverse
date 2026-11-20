@@ -77,10 +77,23 @@ export class WalletMgr {
     }, { applyLocally: false }).then((r) => r.committed).catch(() => false);
   }
 
-  // 획득: 잔액과 누적 획득이 같이 오른다. (예전 10분 창 wt/we 는 더 쓰지 않고 지운다)
+  // 자주 일어나는 지갑 변경(낚을 때·미끼·채광)은 바뀐 칸만 보낸다 (2026-11-20 사용량 검토, v46).
+  // 트랜잭션은 지갑 전체를 올리고, 서버는 그 응답과 구독 양쪽으로 지갑 전체를 한 번씩 내려보낸다: 에뮬레이터에서 웹소켓으로 잰 값이 지갑 181B 에 443B,
+  // 라이브의 지갑(약 500B)이면 한 번에 약 1KB 였다 (낚는 사람마다 하루 2,000번쯤). update + increment 는 바뀐 칸만 오가서 약 150B 다.
+  // 결과로 남는 지갑은 트랜잭션 때와 같아서 규칙이 보는 값도 같다. 규칙에 걸리거나 끊기면 false.
+  // 화면에는 서버 응답 전에 먼저 반영된다 (거부되면 되돌아온다). 가끔 하는 구매·강화처럼 지갑의 지금 값을 보고 정해야 하는 것은 그대로 트랜잭션(tx)을 쓴다
+  private patch(fields: Record<string, unknown>): Promise<boolean> {
+    return update(ref(db, `wallet/${this.w.uid}`), fields).then(() => true).catch(() => false);
+  }
+
+  // 획득: 잔액과 누적 획득이 같이 오른다. (예전 10분 창 wt/we·신화 md 는 더 쓰지 않는다: 남아 있는 지갑이면 같이 지운다)
   earn(pts: number): Promise<boolean> {
     if (pts <= 0) return Promise.resolve(false);
-    return this.tx((c) => { const n: Wallet = { ...c, c: (c.c || 0) + pts, e: (c.e || 0) + pts }; delete n.wt; delete n.we; delete n.md; return n; });
+    const w = this.wallet, old: Record<string, null> = {};
+    if (w.wt !== undefined) old.wt = null;
+    if (w.we !== undefined) old.we = null;
+    if (w.md !== undefined) old.md = null;
+    return this.patch({ c: increment(pts), e: increment(pts), ...old });
   }
   // 사용: 잔액이 모자라면 false. item 은 가격표의 품목 id (규칙이 금액 = 그 품목 가격인지 본다). mut 으로 같은 트랜잭션 안에서 다른 칸도 바꾼다
   // price 가 함수면 트랜잭션 안의 현재 지갑으로 가격을 정한다 (펫 먹이: 먹은 수에 따라 오르므로)
@@ -214,7 +227,8 @@ export class WalletMgr {
   }
   // 미끼 하나 소모. 없으면 false
   takeBait(): Promise<boolean> {
-    return this.tx((c) => ((c.bait || 0) > 0 ? { ...c, bait: (c.bait || 0) - 1 } : null));
+    if ((this.wallet.bait || 0) <= 0) return Promise.resolve(false);
+    return this.patch({ bait: increment(-1) }); // 던질 때마다 나가는 쓰기라 바뀐 칸만 보낸다 (patch 머리말). 0 아래로는 규칙이 막는다
   }
   // 오늘 룰렛을 돌렸나. rd 는 KST 오늘 0시(ms). 예전 값은 'YYYYMMDD' 문자열이라 그것도 같이 본다
   rouletteDoneToday(): boolean { const rd = this.wallet.rd; return rd === kstDayStart(serverNow()) || rd === dayKey(); }
@@ -268,8 +282,8 @@ export class WalletMgr {
   // 곡괭이질 한 번의 보상: 금덩이 n 개와 채광 시각. 규칙이 지난 채광(ga)에서 MINE_GAP_MS 이상 지났는지, n 이 내 지갑의 곡괭이 단계로 나올 수 있는 최대(goldMax) 이하인지 본다.
   // 코인·구매 기록·곡괭이 단계는 건드리지 않는다
   mine(n: number): Promise<boolean> {
-    if (n <= 0) return Promise.resolve(false);
-    return this.tx((c) => (n > goldMax(pickLevelOf(c.pi)) ? null : { ...c, gn: (c.gn || 0) + n, ga: serverTimestamp() as unknown as number }));
+    if (n <= 0 || n > goldMax(pickLevelOf(this.wallet.pi))) return Promise.resolve(false);
+    return this.patch({ gn: increment(n), ga: serverTimestamp() }); // 곡괭이질마다 나가는 쓰기라 바뀐 칸만 보낸다 (patch 머리말)
   }
 
   // ---- 곡괭이 업그레이드 (코인 전용·확정, shared/mine.ts) ----

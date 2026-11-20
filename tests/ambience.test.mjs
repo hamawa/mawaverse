@@ -439,3 +439,18 @@ test('포탈 정원: 연못 위쪽 한 줄이 전부 벤치이고, 그 북쪽에
     assert.equal(isWalkable(g, x, 2), true, '벤치 뒤(북쪽)에 설 수 있다');
   }
 });
+
+// ---------- 2026-11-20 사용량 검토 (v46) ----------
+test('자주 나가는 지갑 쓰기(낚을 때·미끼·채광)는 트랜잭션이 아니라 바뀐 칸만 보낸다', () => {
+  // 트랜잭션은 지갑 전체를 응답과 구독으로 두 번 내려받게 한다 (지갑 500B 면 한 번에 약 1KB). 소스에서 그 세 함수가 patch(update + increment)를 쓰는지 본다
+  const src = readFileSync(new URL('../src/game/wallet.ts', import.meta.url), 'utf8');
+  const body = (name) => { const i = src.indexOf(`\n  ${name}(`); assert.ok(i >= 0, name); return src.slice(i, src.indexOf('\n  }', i)); };
+  for (const [name, field] of [['earn', 'c: increment(pts), e: increment(pts)'], ['takeBait', 'bait: increment(-1)'], ['mine', 'gn: increment(n), ga: serverTimestamp()']]) {
+    const b = body(name);
+    assert.ok(b.includes('this.patch(') && b.includes(field), `${name} 은 바뀐 칸만 보낸다`);
+    assert.ok(!b.includes('this.tx('), `${name} 은 트랜잭션을 쓰지 않는다`);
+  }
+  assert.ok(/private patch\(fields[^)]*\)[^{]*\{\s*return update\(ref\(db, `wallet\/\$\{this\.w\.uid\}`\), fields\)/.test(src), 'patch 는 내 지갑에 update 한 번');
+  assert.ok(body('takeBait').includes('<= 0'), '미끼가 없으면 보내지 않는다');
+  assert.ok(body('mine').includes('goldMax('), '곡괭이 단계보다 많으면 보내지 않는다');
+});
