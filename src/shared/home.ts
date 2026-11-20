@@ -16,8 +16,8 @@ export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?
 // homes/{uid} 는 주인이 늘 구독하고 손님도 들어와 있는 동안 구독하므로, 거기에 사진을 넣으면 집 값이 바뀔 때마다 사진까지 다시 내려받게 된다.
 // 무료 플랜이라 사진 저장소(Storage)를 쓸 수 없어 DB 에 글자(JPEG data URL)로 넣는다. 올릴 때 화면이 줄인다 (PHOTO_EDGE·PHOTO_MAX_CHARS. 규칙의 한도는 조금 넉넉하다)
 export const PHOTO_FRAMES: readonly { k: number; item: string; name: string }[] = [{ k: 1, item: 'frame1', name: '나무 액자' }, { k: 2, item: 'frame2', name: '금테 액자' }];
-export const PHOTO_EDGE = 480;          // 긴 변 (px)
-export const PHOTO_MAX_CHARS = 80000;   // data URL 길이 (약 60KB)
+export const PHOTO_EDGE = 720;          // 긴 변 (px). 2026-11-20 에 480 → 720: 눌러서 크게 볼 때 덜 흐리게 (규칙 한도 안. 전에 올린 사진은 그대로라 다시 올려야 선명해진다)
+export const PHOTO_MAX_CHARS = 110000;  // data URL 길이 (약 82KB)
 export const PHOTO_RULE_CHARS = 120000; // 규칙이 받는 최대 길이
 export function vaultOf(h: HomeData | null | undefined): number { const v = h?.vc; return typeof v === 'number' && v > 0 ? Math.floor(v) : 0; }
 // 방명록 (2026-11-18): homes/{주인}/gb/{쓴 사람 uid} = 한 사람이 한 집에 한 줄 (다시 쓰면 바뀐다). 쓴 사람과 집주인이 지울 수 있다

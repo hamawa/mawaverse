@@ -278,7 +278,7 @@ function petShades(id: string): { row: number; x0: number; x1: number } | null {
 // 펫 꾸미기·고유 동작 (2026-11-20, 건의 + 사용자 결정). 이름은 render 가 화면 좌표에 따로 그린다.
 // 고유 동작은 앵무새의 따라 말하기처럼 보는 재미뿐이다 (종류별 능력 차이는 밸런스 때문에 2026-11-10 에 없앴고 되살리지 않는다):
 // 토끼 높이 깡충깡충 · 슬라임 빛깔이 천천히 바뀜 (둘은 여기서 종류로) · 고양이 sleep · 거북이 hide · 햄스터 puff · 강아지·병아리 say (world.petLook 이 정한다)
-export interface PetLook { name?: string | null; hat?: string | null; glass?: string | null; sleep?: boolean; hide?: boolean; puff?: boolean; say?: string | null }
+export interface PetLook { name?: string | null; hat?: string | null; glass?: string | null; sleep?: boolean; hide?: boolean; puff?: boolean; say?: string | null; perch?: boolean } // perch: 앉은 주인의 머리 위에 올라앉았다 (그림자 없음)
 function hueShift(hex: string, deg: number): string {
   const n = parseInt(hex.slice(1), 16), r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, bl = (n & 255) / 255;
   const mx = Math.max(r, g, bl), mn = Math.min(r, g, bl), l = (mx + mn) / 2, d = mx - mn;
@@ -389,7 +389,7 @@ export function drawPet(ctx: CanvasRenderingContext2D, id: string, x: number, y:
     ctx.restore();
   }
   // 그림자
-  if (!ride) { ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(x * tile + tile / 2, y * tile + tile - 2, 5 * scale, 2 * scale, 0, 0, Math.PI * 2); ctx.fill(); }
+  if (!ride && !look?.perch) { ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(x * tile + tile / 2, y * tile + tile - 2, 5 * scale, 2 * scale, 0, 0, Math.PI * 2); ctx.fill(); }
 }
 
 // ---- 탑승 (2026-11-10 저녁) ----

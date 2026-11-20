@@ -53,7 +53,7 @@ export interface Entity {
 // 마피아 시체: 죽은 자리에 누운 아바타
 export interface BodyView { uid: string; avatar: string; nick: string; x: number; y: number }
 // 펫 표시: 타일 좌표(보간), 이동 중 여부·진행, 마지막 점프(벌레 잡기) 시각. scale: 레벨에 따른 크기 (2026-11-10), ride: 주인이 타고 있다 (주인 발밑에 그린다)
-export interface PetView { id: string; x: number; y: number; moving: boolean; moveT: number; hopAt: number; dir: Dir; scale: number; ride: boolean; look?: import('./cosmetics').PetLook | null } // look: 꾸미기·이름·고유 동작 (2026-11-20)
+export interface PetView { id: string; x: number; y: number; moving: boolean; moveT: number; hopAt: number; dir: Dir; scale: number; ride: boolean; look?: import('./cosmetics').PetLook | null; drawX?: number; drawTop?: number } // look: 꾸미기·이름·고유 동작 (2026-11-20)
 // 마피아 미션 자리 표시 (2026-11-10): 테두리(mine 이면 금색 깜빡임, 아니면 흐리게) + 화면 밖이면 가장자리 화살표(mine 일 때만)
 export interface TaskMark { x: number; y: number; w: number; h: number; label: string }
 
@@ -261,7 +261,15 @@ export function render(eng: Engine, st: RenderState): void {
     // 찌는 물 타일 위에, 캐릭터보다 뒤에 그린다
     if (e.fishing) { const fv = e.fishing; items.push({ sortY: fv.y + 0.5, order: 1, draw: () => drawBobber(ctx, e, fv, st.now) }); }
     // 펫: 자기 타일의 y 순서로 (주인과 겹치면 주인보다 앞뒤가 자연스럽게)
-    if (e.pet && !ride) { const p = e.pet; items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale, false, !!st.club, p.look) }); }
+    if (e.pet && !ride) {
+      const p = e.pet;
+      if (p.look?.perch && e.sit && depth <= 0) {
+        // 주인이 앉아 있으면 머리 위에 올라앉는다 (2026-11-20 사용자 요청). 주인(과 모자) 바로 다음에 그린다. drawX·drawTop: 이름표 자리 (월드 좌표)
+        const headY = Math.round(py) + sink + spriteTop(spr) - above, hcx = Math.round(px + ox) + FRAME_W / 2;
+        p.drawX = hcx; p.drawTop = headY + 3 - Math.round(10 * p.scale);
+        items.push({ sortY: e.y + (sitBack ? 0.86 : 1.01), order: 1, draw: () => drawPet(ctx, p.id, (hcx - TILE / 2) / TILE, (headY + 6 - TILE) / TILE, TILE, st.now, false, 0, p.hopAt, e.dir, p.scale, false, !!st.club, p.look) });
+      } else items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale, false, !!st.club, p.look) });
+    }
     items.push({
       sortY: e.y + (sitBack ? 0.85 : 1), order: 1, draw: () => { // 뒤를 보는 가구에 앉았으면 그 가구(y + 0.9)보다 먼저 그린다
         const cx = e.x * TILE + TILE / 2;
@@ -374,11 +382,13 @@ export function render(eng: Engine, st: RenderState): void {
   }
   // 마피아 미션: 화면 밖의 내 미션은 가장자리 화살표 + 이름 (2026-11-10)
   if (st.marks?.mine) for (const m of st.marks.spots) if (!eng.isTileVisible(m.x + m.w / 2 - 0.5, m.y + m.h / 2 - 0.5, -TILE / 2)) drawEdgeArrow(eng, (m.x + m.w / 2) * TILE, (m.y + m.h / 2) * TILE, m.label, st.now);
-  // 펫 이름 (2026-11-20): 펫 머리 위에 작게 (맵과 함께 커지지 않게 화면 좌표에서). 타고 있을 때는 그리지 않는다
+  // 펫 이름 (2026-11-20): 펫 바로 아래에 작게 (같은 날 사용자 요청으로 머리 위 → 아래. 맵과 함께 커지지 않게 화면 좌표에서). 타고 있을 때는 그리지 않는다.
+  // 주인 머리 위에 올라앉은 펫은 아래가 주인 얼굴이라 펫 위에 그린다
   for (const p of [...st.entities.map((e) => e.pet), ...(st.roamers ?? [])]) {
     if (!p || p.ride || !p.look?.name) continue;
-    const [nx, ny] = eng.worldToScreen((p.x + 0.5) * TILE, (p.y + 1) * TILE - 3 - Math.round(10 * p.scale) - (p.look.hat ? Math.round(4 * p.scale) : 0));
-    drawLabel(ctx, p.look.name, nx, ny - 2, '#fff7d6', 'rgba(0,0,0,0.45)', 9);
+    if (p.drawX !== undefined && p.drawTop !== undefined) { const [nx, ny] = eng.worldToScreen(p.drawX, p.drawTop - (p.look.hat ? Math.round(4 * p.scale) : 0)); drawLabel(ctx, p.look.name, nx, ny - 2, '#fff7d6', 'rgba(0,0,0,0.45)', 9); continue; }
+    const [nx, ny] = eng.worldToScreen((p.x + 0.5) * TILE, (p.y + 1) * TILE);
+    drawLabel(ctx, p.look.name, nx, ny + 14, '#fff7d6', 'rgba(0,0,0,0.45)', 9);
   }
   for (const a of st.alerts ?? []) {
     if (!eng.isTileVisible(a.x, a.y, -TILE / 2)) drawEdgeArrow(eng, (a.x + 0.5) * TILE, (a.y + 0.5) * TILE, a.label, st.now);

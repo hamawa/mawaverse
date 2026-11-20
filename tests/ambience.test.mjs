@@ -362,3 +362,28 @@ test('겨울 놀이: 서버의 눈사람 목록으로 맞추면 길을 막고, �
   p.setMen([], 0);
   assert.equal(p.toyAt(3, 22), false, '녹으면 사라진다');
 });
+
+// ---------- 클럽 DJ 창 (2026-11-20): 크기 계산, 끝난 영상 판정 ----------
+test('DJ 창: 크기는 16:9 를 지키되 200×200 아래로는 안 내려가고 화면을 넘지 않는다', async () => {
+  const Y = await import('../src/shared/youtube.ts');
+  assert.equal(Y.djFrameHeight(200), 200, '가장 작을 때는 정사각형 (약관의 최소 크기)');
+  assert.equal(Y.djFrameHeight(640), 360);
+  assert.equal(Y.djClampWidth(50, 1280, 720, 30), Y.DJ_MIN_EDGE);
+  assert.equal(Y.djClampWidth(5000, 1280, 720, 30), Math.floor(((720 - 30 - 24) * 16) / 9), '높이가 화면에 들어가는 만큼만');
+  assert.equal(Y.djClampWidth(5000, 375, 812, 30), 375 - 16 - Y.DJ_PAD, '폰에서는 화면 너비까지');
+  assert.equal(Y.djClampWidth(400, 1280, 720, 30), 400);
+  for (const w of [200, 333, 640, 1000]) assert.ok(Y.djFrameHeight(Y.djClampWidth(w, 1280, 720, 30)) + 30 + 24 <= 720 || Y.djClampWidth(w, 1280, 720, 30) === Y.DJ_MIN_EDGE);
+});
+
+test('DJ 창: 끝난 영상은 다시 틀지 않고 끈다 (광고가 끝난 것과는 가른다)', async () => {
+  const Y = await import('../src/shared/youtube.ts');
+  assert.equal(Y.djEnded(100, 200, 100, false), false, '재생 중');
+  assert.equal(Y.djEnded(200, 200, 199, false), true, '튼 뒤 길이만큼 지났다');
+  assert.equal(Y.djEnded(197, 200, 200, true), true, '조금 앞서 끝난 플레이어: 다시 틀지 않는다 (첫 부분이 되풀이되던 버그)');
+  assert.equal(Y.djEnded(10, 200, 0, true), false, '영상 앞 광고가 끝났을 뿐');
+  assert.equal(Y.djEnded(500, 0, 0, true), false, '길이를 아직 모른다');
+  assert.equal(Y.sameSong({ v: 'a', at: 1000 }, { v: 'a', at: 2400 }), true);
+  assert.equal(Y.sameSong({ v: 'a', at: 1000 }, { v: 'a', at: 9000 }), false, '같은 영상을 다시 튼 것은 새 노래');
+  assert.equal(Y.sameSong({ v: 'a', at: 1000 }, { v: 'b', at: 1000 }), false);
+  assert.equal(Y.sameSong(null, { v: 'a', at: 1 }), false);
+});

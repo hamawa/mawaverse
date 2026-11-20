@@ -47,7 +47,7 @@ import { HomeMgr, homeOpen } from './home';
 import { openHome, openFurniturePicker, openFurnitureEdit, openGuestbook } from './homeui';
 import { StockMgr } from './stock';
 import { DjMgr } from './dj';
-import { DjPanel } from './djui';
+import { DjPanel, sameSong } from './djui';
 import { openStock } from './stockui';
 import { TreeMgr } from './trees';
 import { type HomeData, homeTier, furnitureOf, canTurn, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
@@ -297,7 +297,9 @@ export class World implements WorldCtx {
     this.bugs.start();
     this.dig.start();
     this.stock.start();
-    const djPanel = this.djPanel = new DjPanel({ isAdmin: this.isAdmin, myUid: this.uid, onError: (msg, mine) => { if (mine) this.toast(`🎧 ${msg} 다른 영상을 골라 주세요.`, true); } });
+    const djPanel = this.djPanel = new DjPanel({ isAdmin: this.isAdmin, myUid: this.uid, onError: (msg, mine) => { if (mine) this.toast(`🎧 ${msg} 다른 영상을 골라 주세요.`, true); },
+      // 영상이 끝났다 (2026-11-20): 끌 수 있는 사람(튼 사람·DJ 자리에 선 사람·관리자)의 화면이 club/dj 를 지운다. 그 사이 다른 노래로 바뀌었으면 건드리지 않는다
+      onEnded: (song) => { if (sameSong(this.dj.state, song) && (song.u === this.uid || this.isAdmin || this.dj.atBooth())) void this.dj.off(); } });
     this.dj.listen(() => djPanel.set(this.dj.state));
     djPanel.set(this.dj.state); // 클럽에서 시작했으면 구독이 먼저 걸려 있다: 이미 받은 상태를 한 번 그린다
     this.casino.start();
@@ -397,7 +399,10 @@ export class World implements WorldCtx {
       if (performance.now() - t.t > 300) return;
       const uid = this.playerAtScreen(t.x, t.y);
       if (uid) this.openPlayerMenu(uid, t.x, t.y);
+      else this.photoClick(t.x, t.y); // 집 벽의 사진을 톡 치면 크게 본다
     });
+    // 집 벽의 사진을 누르면 크게 본다 (2026-11-20 사용자 요청. 터치는 위의 톡 치기가 처리한다)
+    canvas.addEventListener('click', (e) => { if ((e as PointerEvent).pointerType !== 'touch') this.photoClick(e.clientX, e.clientY); });
     canvas.addEventListener('pointercancel', () => { tap = null; });
     // 탭 종료 시에는 아무것도 하지 않는다: 서버에 예약된 onDisconnect 가 presence 를 지운다.
     // (여기서 leave() 를 부르면 취소 요청만 전달되고 삭제는 유실되어 유령 캐릭터가 남는다)
@@ -547,7 +552,11 @@ export class World implements WorldCtx {
         ghost, mining: !!rp.st.mn, snowBrokenAt: rp.st.sn || 0,
       });
     }
-    for (const e of list) if (e.pet && !e.pet.ride) e.pet.look = this.petLook(e, now);
+    for (const e of list) {
+      // 앉은 사람의 펫은 머리 위에 올라앉는다 (2026-11-20 사용자 요청). 집 안에서는 돌아다니던 펫이 올라온다 (roamers 에서 그동안 뺀다)
+      if (loose && e.sit && !e.pet) { const id = e.uid === this.uid ? this.myPet() : this.players.get(e.uid)?.st.pt; if (id) e.pet = { id, x: e.x, y: e.y, moving: false, moveT: 0, hopAt: -1e9, dir: e.dir, scale: 1, ride: false }; }
+      if (e.pet && !e.pet.ride) { e.pet.look = this.petLook(e, now); if (e.sit) e.pet.look.perch = true; }
+    }
     return list;
   }
   // 내가 데리고 다니는 펫 (가진 것일 때만)
@@ -570,7 +579,7 @@ export class World implements WorldCtx {
     // 실제로 그 방 안에 서 있을 때만 막는다: 재접속 때 자리를 뺏겨 방 밖으로 옮겨진 경우(net.ts reclaim)에는 걸어서 빠져나올 수 있어야 한다 (첫 걸음의 afterStep 이 퇴장 처리)
     if (this.me.roomId && roomAt(this.map, this.me.x, this.me.y)?.id === this.me.roomId) return false;
     // 눈덩이·눈사람은 이 화면에서만 길을 막는다 (서버 점유와 무관). 밀 수 있는 눈덩이는 걸어 들어가 미는 것이라 막지 않는다 (밀려 나간 걸음은 눈덩이를 못 민다)
-    if (!isWalkable(this.map, nx, ny) || this.occupied(nx, ny) || (pushed ? this.winter.toyAt(nx, ny) : this.winter.stepBlocked(this.me.x, this.me.y, nx, ny, this.winterBlockedFn))) return false;
+    if (!isWalkable(this.map, nx, ny) || this.occupied(nx, ny) || this.campfire.burningAt(nx, ny) || (pushed ? this.winter.toyAt(nx, ny) : this.winter.stepBlocked(this.me.x, this.me.y, nx, ny, this.winterBlockedFn))) return false;
     const cur = roomAt(this.map, this.me.x, this.me.y);
     const target = roomAt(this.map, nx, ny);
     if (target && target !== cur) {
@@ -759,7 +768,7 @@ export class World implements WorldCtx {
     this.winter.resetSlide();
     const tried = new Set<string>();
     for (let i = 0; i < 8; i++) {
-      const t = findFreeTile(this.map, x, y, (a, b) => this.occupied(a, b) || tried.has(`${a},${b}`), true);
+      const t = findFreeTile(this.map, x, y, (a, b) => this.occupied(a, b) || this.campfire.burningAt(a, b) || tried.has(`${a},${b}`), true);
       tried.add(`${t.x},${t.y}`);
       const ox = me.x, oy = me.y;
       if (await this.net.step(t.x, t.y, me.dir, ox, oy)) {
@@ -865,12 +874,13 @@ export class World implements WorldCtx {
     // 집 안에서는 레벨과 상관없이 전부 기본(작은) 크기로 돌아다닌다 (2026-11-18 사용자 요청: 데리고 온 펫만 큰 것이 어색했다)
     const led = mine ? this.myPet() : here?.st.pt ?? null;
     const ids = mine ? ownedPets(this.profile.own) : this.guestPets;
-    const pets: RoamPet[] = ids.map((id) => ({ key: `${owner}|${id}`, id }));
-    if (led && !ids.includes(led)) pets.push({ key: `${owner}|${led}`, id: led }); // 주인의 펫 목록을 아직 못 읽었어도 데리고 온 펫은 보인다
+    const ownerSits = mine ? this.sitting() : !!here?.st.si; // 앉은 사람의 펫은 머리 위에 있다: 돌아다니는 쪽에서 뺀다
+    const pets: RoamPet[] = ids.filter((id) => !(ownerSits && id === led)).map((id) => ({ key: `${owner}|${id}`, id }));
+    if (led && !ids.includes(led) && !ownerSits) pets.push({ key: `${owner}|${led}`, id: led }); // 주인의 펫 목록을 아직 못 읽었어도 데리고 온 펫은 보인다
     // 손님이 데리고 온 펫 (나 포함). 손님마다 열쇠가 달라 같은 종류라도 따로 돌아다닌다
     const myPet = mine ? null : this.myPet();
-    if (myPet) pets.push({ key: `${owner}|${this.uid}|${myPet}`, id: myPet });
-    for (const g of this.players.values()) if (g.uid !== owner && g.st.pt && this.onMyMap(g.st)) pets.push({ key: `${owner}|${g.uid}|${g.st.pt}`, id: g.st.pt });
+    if (myPet && !this.sitting()) pets.push({ key: `${owner}|${this.uid}|${myPet}`, id: myPet });
+    for (const g of this.players.values()) if (g.uid !== owner && g.st.pt && this.onMyMap(g.st) && !g.st.si) pets.push({ key: `${owner}|${g.uid}|${g.st.pt}`, id: g.st.pt });
     return pets.length ? this.homePets.views(pets, serverNow()) : undefined;
   }
   // ---- 낮과 밤 (2026-11-18, shared/daylight.ts): 바깥 맵만. 집 안과 금광은 실내라 그대로. 내 메뉴에서 끌 수 있다 (이 브라우저에만 적는다) ----
@@ -1141,16 +1151,27 @@ export class World implements WorldCtx {
     const i = t.trophyX.indexOf(me.x);
     return i >= 0 && h.ph[String(i)] ? { x: me.x, slot: i } : null;
   }
-  private openPhoto(): void {
-    const pa = this.photoAhead(); if (!pa) return;
+  // 화면의 그 자리에 사진 액자가 있으면 크게 본다 (서 있는 자리와 무관)
+  private photoClick(cx: number, cy: number): void {
+    if (!isHomeMapId(this.mapId)) return;
+    const rect = this.engine.canvas.getBoundingClientRect();
+    const [tx, ty] = this.engine.screenToTile(cx - rect.left, cy - rect.top);
+    const h = this.home.here(), t = homeTier(h?.t);
+    if (!t || !h?.ph || ty !== 0) return;
+    const i = t.trophyX.indexOf(tx);
+    if (i >= 0 && h.ph[String(i)]) this.openPhotoSlot(i);
+  }
+  private openPhoto(): void { const pa = this.photoAhead(); if (pa) this.openPhotoSlot(pa.slot); }
+  private openPhotoSlot(slot: number): void {
+    const pa = { slot };
     const owner = homeOwnerOf(this.mapId), ph = this.home.here()?.ph?.[String(pa.slot)]; if (!ph) return;
     const img = this.home.photo(owner, pa.slot, ph.at);
     if (!img) { this.toast('사진을 불러오는 중이에요. 잠시 뒤에 다시 눌러 주세요.'); return; }
     this.input.releaseAll();
-    const body = el('div', { style: 'text-align:center' }, [el('img', { src: img.src, alt: '벽에 건 사진', style: 'max-width:100%;max-height:70vh;border-radius:8px' })]);
+    const body = el('div', { style: 'text-align:center' }, [el('img', { src: img.src, alt: '벽에 건 사진', style: 'max-width:100%;max-height:76vh;border-radius:8px' })]);
     const acts: import('./ui').ModalAction[] = [{ label: '닫기', onClick: () => {} }];
     if (owner === this.uid || this.isAdmin) acts.unshift({ label: '사진 내리기', danger: true, onClick: async () => { this.toast((await this.home.removePhoto(owner, pa.slot)) ? '사진을 내렸어요.' : '내리지 못했습니다.'); } });
-    modal('🖼 사진', body, acts);
+    modal('🖼 사진', body, acts, true);
   }
   // 벽돌집 안: 밀치기·끌기·말랑이가 안 통한다
   homeSafe(): boolean { return this.home.safeHere(); }

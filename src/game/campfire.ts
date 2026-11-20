@@ -42,6 +42,8 @@ export class CampfireMgr {
     for (const [k, f] of this.fires) { if (!fireBurning(f, now)) continue; const p = fireXY(k); if (p) out.push(p); }
     return out;
   }
+  // 그 칸에 불이 타고 있나 (걸음을 막는다)
+  burningAt(x: number, y: number): boolean { return fireBurning(this.fires.get(fireKey(x, y)), serverNow()); }
   owns(): boolean { return !!this.h.profile.own?.[CAMPFIRE_ID]; }
   private mine(now: number): boolean { for (const f of this.fires.values()) if (f.u === this.h.uid && fireBurning(f, now)) return true; return false; }
 
@@ -55,6 +57,9 @@ export class CampfireMgr {
     if (wood < CAMPFIRE_WOOD) return 'nowood';
     const d = AHEAD[h.me.dir] || AHEAD[0], x = h.me.x + d[0], y = h.me.y + d[1], key = fireKey(x, y);
     if (h.me.moving || !isWalkable(h.map, x, y) || isWater(h.map, x, y) || h.occupied(x, y) || fireBurning(this.fires.get(key), now)) return 'blocked';
+    // 불은 길을 막는다: 시작 자리와 방의 문·나오는 칸에는 못 피운다 (사람이 갇히거나 들어오자마자 막힌다)
+    const at = (p?: { x: number; y: number } | null) => !!p && p.x === x && p.y === y;
+    if (at(h.map.spawn) || h.map.zones.some((z) => at(z.door) || at(z.exit))) return 'blocked';
     const upd: Record<string, unknown> = { [`fires/${this.mapId}/${key}`]: { u: h.uid, at: serverTimestamp() }, [`homes/${h.uid}/w`]: increment(-CAMPFIRE_WOOD) };
     // 다 탄 기록도 몇 개 같이 치운다 (맵에 들어올 때 받는 양이 늘지 않게)
     let n = 0;

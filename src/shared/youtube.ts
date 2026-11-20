@@ -16,3 +16,20 @@ export function youtubeId(text: string): string | null {
   if (['shorts', 'embed', 'live', 'v'].includes(parts[0])) return ok(parts[1]);
   return null;
 }
+
+// ---- 클럽 DJ 창의 계산 (2026-11-20. 화면은 game/djui.ts) ----
+export const DJ_MIN_EDGE = 200; // 플레이어의 가장 작은 크기 (유튜브 약관: 200×200 이상)
+export const DJ_PAD = 14;       // 패널 테두리·안쪽 여백 (플레이어 너비 + 이만큼 = 패널 너비)
+// 같은 노래인가: 내가 튼 노래는 시각이 추정값 → 서버 값으로 두 번 온다. 조금 달라진 것은 같은 노래로 본다
+export function sameSong(a: { v: string; at: number } | null | undefined, b: { v: string; at: number } | null | undefined): boolean { return !!a && !!b && a.v === b.v && Math.abs(a.at - b.at) <= 1500; }
+// 플레이어 너비 → 높이 (16:9, 가장 작게는 DJ_MIN_EDGE)
+export function djFrameHeight(w: number): number { return Math.max(DJ_MIN_EDGE, Math.round((w * 9) / 16)); }
+// 끌어서 바꾼 너비를 화면 안에 맞춘다 (가장 작게 200. 높이까지 화면에 들어가게)
+export function djClampWidth(w: number, viewW: number, viewH: number, headH: number): number {
+  const byW = viewW - 16 - DJ_PAD, byH = Math.floor(((viewH - headH - 24) * 16) / 9);
+  return Math.max(DJ_MIN_EDGE, Math.min(Math.round(w), byW, Math.max(DJ_MIN_EDGE, byH)));
+}
+// 영상이 끝났나: 튼 뒤 흐른 시간이 길이를 넘었거나, 플레이어가 끝났다고 하고(ended) 재생 지점이 끝 근처일 때. 플레이어가 끝났다고만 하고 지점이 앞쪽이면(광고가 끝난 경우 등) 아니다
+export function djEnded(wantSec: number, durSec: number, curSec: number, playerEnded: boolean): boolean {
+  return durSec > 0 && (wantSec >= durSec - 0.3 || (playerEnded && (curSec >= durSec - 2 || wantSec >= durSec - 2)));
+}
