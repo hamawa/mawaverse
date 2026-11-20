@@ -15,7 +15,7 @@ import { el } from '../shared/util';
 import { serverNow } from '../firebase/db';
 import { soundOn, soundPrefs, setMusicHold } from './audio';
 import type { DjState } from './dj';
-import { DJ_MIN_EDGE, DJ_PAD, sameSong, djFrameHeight, djClampWidth, djEnded } from '../shared/youtube';
+import { DJ_MIN_EDGE, DJ_PAD, sameSong, djFrameHeight, djClampWidth, djClampY, djEnded } from '../shared/youtube';
 
 interface YTPlayer {
   playVideo(): void; pauseVideo(): void; stopVideo(): void; mute(): void; unMute(): void; setVolume(v: number): void;
@@ -163,7 +163,9 @@ export class DjPanel {
     } else { root.style.width = ''; frame.style.height = ''; }
     if (this.pos) {
       const r = root.getBoundingClientRect();
-      this.pos = { x: Math.max(0, Math.min(this.pos.x, window.innerWidth - Math.min(r.width, window.innerWidth))), y: Math.max(0, Math.min(this.pos.y, window.innerHeight - Math.min(headH + 12, window.innerHeight))) };
+      // 위로는 화면 위 버튼 줄 아래까지만: 이 창은 다른 화면 요소보다 앞에 그려서(styles.css) 제목 줄이 가려지는 일은 없지만, 버튼 줄을 덮으면 그 버튼을 못 누른다
+      const top = (document.getElementById('topbar')?.getBoundingClientRect().bottom ?? 0) + 4;
+      this.pos = { x: Math.max(0, Math.min(this.pos.x, window.innerWidth - Math.min(r.width, window.innerWidth))), y: djClampY(this.pos.y, window.innerHeight, headH, top) };
       root.style.left = `${Math.round(this.pos.x)}px`; root.style.top = `${Math.round(this.pos.y)}px`;
       root.style.right = 'auto'; root.style.transform = 'none';
     }

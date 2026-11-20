@@ -13,6 +13,7 @@ import type { BugView } from './bugs';
 import type { TossView } from './toss';
 import type { SnowView } from './winterplay';
 import { snowActive, SNOW_PENALTY_TITLE } from '../shared/snowpenalty';
+import { LABEL_FADE, standsBelow, inRowBelow } from '../shared/overlap';
 import { drawHat, hatAbove, nameStyle, titleStyle, isLabelFlow, labelFlow, spawnFx, drawFx, drawPet, drawMount, mountInfo, drawAfterimages, AFTERIMAGE_FX } from './cosmetics';
 
 export type BubbleKind = 'near' | 'all' | 'w';
@@ -383,10 +384,16 @@ export function render(eng: Engine, st: RenderState): void {
   // 마피아 미션: 화면 밖의 내 미션은 가장자리 화살표 + 이름 (2026-11-10)
   if (st.marks?.mine) for (const m of st.marks.spots) if (!eng.isTileVisible(m.x + m.w / 2 - 0.5, m.y + m.h / 2 - 0.5, -TILE / 2)) drawEdgeArrow(eng, (m.x + m.w / 2) * TILE, (m.y + m.h / 2) * TILE, m.label, st.now);
   // 펫 이름 (2026-11-20): 펫 바로 아래에 작게 (같은 날 사용자 요청으로 머리 위 → 아래. 맵과 함께 커지지 않게 화면 좌표에서). 타고 있을 때는 그리지 않는다.
-  // 주인 머리 위에 올라앉은 펫은 아래가 주인 얼굴이라 펫 위에 그린다
+  // 주인 머리 위에 올라앉은 펫은 아래가 주인 얼굴이라 펫 위에 그린다.
+  // 펫 바로 아래 칸에 누가 서 있을 때도 위에 그린다 (같은 날 밤 사용자 제보: 펫이 주인의 북쪽에 있으면 이름이 주인 얼굴을 덮었다. shared/overlap.ts)
   for (const p of [...st.entities.map((e) => e.pet), ...(st.roamers ?? [])]) {
     if (!p || p.ride || !p.look?.name) continue;
     if (p.drawX !== undefined && p.drawTop !== undefined) { const [nx, ny] = eng.worldToScreen(p.drawX, p.drawTop - (p.look.hat ? Math.round(4 * p.scale) : 0)); drawLabel(ctx, p.look.name, nx, ny - 2, '#fff7d6', 'rgba(0,0,0,0.45)', 9); continue; }
+    if (st.entities.some((e) => standsBelow(p.x, p.y, e.x, e.y))) {
+      const [ax, ay] = eng.worldToScreen((p.x + 0.5) * TILE, (p.y + 1) * TILE - 3 - Math.round(10 * p.scale) - (p.look.hat ? Math.round(4 * p.scale) : 0)); // 펫(과 모자)의 머리 꼭대기
+      drawLabel(ctx, p.look.name, ax, ay - 2, '#fff7d6', 'rgba(0,0,0,0.45)', 9);
+      continue;
+    }
     const [nx, ny] = eng.worldToScreen((p.x + 0.5) * TILE, (p.y + 1) * TILE);
     drawLabel(ctx, p.look.name, nx, ny + 14, '#fff7d6', 'rgba(0,0,0,0.45)', 9);
   }
@@ -409,10 +416,21 @@ export function render(eng: Engine, st: RenderState): void {
       prevX = p.x; prevLow = low;
     }
   }
+  // 이름표 묶음(벌칙 칭호·칭호·이름)의 아래 끝 (화면 y). 아래 줄을 가리키는 안내 글자가 여기서부터 내려간다
+  const autoBelow = (e: Entity): boolean => !!e.fishing && (!!e.fishing.auto || !!e.fishing.stars) && standsBelow(e.x, e.y, e.fishing.x, e.fishing.y); // 남쪽으로 던진 찌의 "자동 ★n" 은 이름표 아래에 붙는다
+  const stackBottom = (e: Entity): number => {
+    const [, feet] = eng.worldToScreen(0, e.y * TILE + TILE + (posByUid.get(e.uid)?.feet ?? 0));
+    return feet + 2 + 18 + (snowActive(e.snowBrokenAt, st.serverNow) ? 17 : 0) + (titleStyle(e.title) ? 16 : 0) + (autoBelow(e) ? 17 : 0);
+  };
   // 힌트
   if (st.hint) {
     const [sx, sy] = eng.worldToScreen(st.hint.x * TILE + TILE / 2, st.hint.y * TILE);
-    drawLabel(ctx, st.hint.text, sx, sy - 10 * s, '#ffe9a8', 'rgba(0,0,0,0.65)', 12);
+    const me = st.entities.find((e) => e.isMe);
+    if (me && inRowBelow(me.x, me.y, st.hint.x, st.hint.y)) {
+      // 내 아래 줄을 가리키는 안내 (남쪽을 보고 있다): 대상 칸 위에 그리면 내 캐릭터를 덮는다. 내 이름표 아래로 내린다 (대상 칸의 아래쪽보다 위로는 올리지 않는다)
+      const [, tileBottom] = eng.worldToScreen(0, (st.hint.y + 1) * TILE);
+      drawLabel(ctx, st.hint.text, sx, Math.max(tileBottom - 4, stackBottom(me) + 22), '#ffe9a8', 'rgba(0,0,0,0.65)', 12);
+    } else drawLabel(ctx, st.hint.text, sx, sy - 10 * s, '#ffe9a8', 'rgba(0,0,0,0.65)', 12);
   }
   // 이름표/말풍선/이모트 (y 순서대로, 아래 있는 캐릭터가 위에 그려짐)
   const ents = [...st.entities].sort((a, b) => a.y - b.y);
@@ -424,12 +442,14 @@ export function render(eng: Engine, st: RenderState): void {
     const nameColor = ns ? ns.color : e.isMe ? '#ffe9a8' : '#ffffff';
     const name = e.nick;
     let under = syFeet + 2 + 18; // drawLabel 은 라벨의 아래쪽 y 를 받는다 (높이 = 글자 크기 + 6)
+    // 바로 아래 칸에 누가 서 있으면 내 이름표 묶음이 그 사람 머리를 덮는다: 비치게 그린다 (2026-11-20 사용자 제보. shared/overlap.ts)
+    const fade = ents.some((o) => o !== e && standsBelow(e.x, e.y, o.x, o.y)) ? LABEL_FADE : undefined;
     // 눈사람을 부순 벌칙 칭호: 닉네임 바로 위에 딱 붙인다 (2026-11-18 사용자 요청. 전에는 머리 위였다). 칭호가 이름표 자리에 오고 이름표는 그만큼 내려간다 (캐릭터를 가리지 않게)
-    if (snowActive(e.snowBrokenAt, st.serverNow)) { drawLabel(ctx, SNOW_PENALTY_TITLE, sx, under - 1, '#ffffff', 'rgba(185, 28, 28, 0.92)', 11, '#fecaca'); under += 17; }
+    if (snowActive(e.snowBrokenAt, st.serverNow)) { drawLabel(ctx, SNOW_PENALTY_TITLE, sx, under - 1, '#ffffff', 'rgba(185, 28, 28, 0.92)', 11, '#fecaca', fade); under += 17; }
     // 칭호 (상점): 닉네임 바로 위. 눈사람 칭호가 있으면 그 아래
     const ts = titleStyle(e.title);
-    if (ts) { drawLabel(ctx, ts.text, sx, under - 1, ts.color, ts.bg, 10, ts.border); under += 16; }
-    drawLabel(ctx, name, sx, under, nameColor, ns?.bg ?? 'rgba(0,0,0,0.55)', 12, ns?.border);
+    if (ts) { drawLabel(ctx, ts.text, sx, under - 1, ts.color, ts.bg, 10, ts.border, fade); under += 16; }
+    drawLabel(ctx, name, sx, under, nameColor, ns?.bg ?? 'rgba(0,0,0,0.55)', 12, ns?.border, fade);
     // 머리 위: 😵 · 입질 · 이모트 · 말풍선. 물속이면 가라앉은 만큼 내려가고, 모자가 프레임 위로 솟았으면 그만큼 올라간다
     const [, syTop] = eng.worldToScreen(e.x * TILE + TILE / 2, e.y * TILE + TILE - FRAME_H + pos.sink - pos.above);
     let top = syTop - 4;
@@ -446,7 +466,9 @@ export function render(eng: Engine, st: RenderState): void {
     if (e.fishing?.auto || e.fishing?.stars) {
       const [bx, by] = eng.worldToScreen(e.fishing.x * TILE + TILE / 2, e.fishing.y * TILE);
       const txt = `${e.fishing.auto ? '자동' : ''}${e.fishing.auto && e.fishing.stars ? ' ' : ''}${e.fishing.stars ? `★${e.fishing.stars}` : ''}`;
-      drawLabel(ctx, txt, bx, by - 4 * s, e.fishing.stars ? '#ffd84d' : '#cfe9dc', 'rgba(0,0,0,0.5)', 9);
+      // 남쪽으로 던졌으면 찌 위는 내 다리다: 이름표 바로 아래에 한 줄로 붙인다 (2026-11-20. 연못 위쪽 벤치에서 낚으면 늘 이 방향이다)
+      if (autoBelow(e)) drawLabel(ctx, txt, sx, under + 17, e.fishing.stars ? '#ffd84d' : '#cfe9dc', 'rgba(0,0,0,0.5)', 9);
+      else drawLabel(ctx, txt, bx, by - 4 * s, e.fishing.stars ? '#ffd84d' : '#cfe9dc', 'rgba(0,0,0,0.5)', 9);
     }
     // 이모트 아이콘
     const pt = st.now - e.poseAt;
@@ -789,16 +811,21 @@ function drawProgress(ctx: CanvasRenderingContext2D, cx: number, bottom: number,
   ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; roundRect(ctx, x - 1.5, y - 1.5, w + 3, h + 3, 4); ctx.stroke();
 }
 
-export function drawLabel(ctx: CanvasRenderingContext2D, text: string, cx: number, bottom: number, color: string, bg: string, size: number, border?: string): void {
+// fade: 비치게 그린다 (다른 캐릭터를 덮는 이름표. box 바탕 상자·text 글자의 진하기. 글자에는 그림자를 넣어 바탕이 옅어도 읽히게)
+export function drawLabel(ctx: CanvasRenderingContext2D, text: string, cx: number, bottom: number, color: string, bg: string, size: number, border?: string, fade?: { box: number; text: number }): void {
   ctx.font = `bold ${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
   const w = ctx.measureText(text).width + 8;
   const h = size + 6;
+  const alpha = ctx.globalAlpha;
+  if (fade) ctx.globalAlpha = alpha * fade.box;
   ctx.fillStyle = bg;
   roundRect(ctx, cx - w / 2, bottom - h, w, h, 4); ctx.fill();
   if (border) { ctx.strokeStyle = border; ctx.lineWidth = 1; ctx.stroke(); }
+  if (fade) { ctx.globalAlpha = alpha * fade.text; ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3; }
   ctx.fillStyle = isLabelFlow(color) ? labelFlow(ctx, color, cx - w / 2, cx + w / 2, performance.now()) : color;
   ctx.fillText(text, cx, bottom - 3);
+  if (fade) { ctx.globalAlpha = alpha; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent'; }
 }
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {

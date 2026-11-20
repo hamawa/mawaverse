@@ -301,7 +301,8 @@ table tr.off td { opacity: 0.5; }
 .shop-card { background: #0d1510; border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 4px; align-items: center; text-align: center; }
 .shop-card.eq { border-color: var(--accent2); }
 /* 클럽 DJ 화면 (2026-11-19): 화면 오른쪽 위(클럽 벽 쪽)에 작게. 플레이어는 약관상 200×200px 이상이어야 한다 */
-#dj-panel { position: fixed; top: 58px; right: 12px; z-index: 20; width: min(356px, 92vw); background: rgba(10, 14, 22, 0.88); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
+/* 채팅창·위쪽 버튼·폰 버튼(#hud 23)과 초대 카드(24)보다 앞에 둔다 (2026-11-20 사용자 제보: 끌어 옮긴 제목 줄이 다른 화면 요소 뒤로 들어가면 다시 잡을 수 없었다). 알림(30)·창(40)보다는 뒤 */
+#dj-panel { position: fixed; top: 58px; right: 12px; z-index: 25; width: min(356px, 92vw); background: rgba(10, 14, 22, 0.88); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
 #dj-panel .dj-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; cursor: move; touch-action: none; user-select: none; -webkit-user-select: none; }
 #dj-panel .dj-btns { display: flex; gap: 4px; flex: none; }
 #dj-panel .dj-btns .btn { flex: none; }

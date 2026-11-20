@@ -29,6 +29,11 @@ export function djClampWidth(w: number, viewW: number, viewH: number, headH: num
   const byW = viewW - 16 - DJ_PAD, byH = Math.floor(((viewH - headH - 24) * 16) / 9);
   return Math.max(DJ_MIN_EDGE, Math.min(Math.round(w), byW, Math.max(DJ_MIN_EDGE, byH)));
 }
+// 끌어 옮긴 창의 세로 자리: 화면 위 버튼 줄(top) 아래부터, 제목 줄이 화면 안에 남는 데까지 (2026-11-20. 화면이 아주 낮으면 아래쪽 한계가 먼저다)
+export function djClampY(y: number, viewH: number, headH: number, top: number): number {
+  const maxY = Math.max(0, viewH - Math.min(headH + 12, viewH));
+  return Math.max(Math.min(Math.max(0, top), maxY), Math.min(y, maxY));
+}
 // 영상이 끝났나: 튼 뒤 흐른 시간이 길이를 넘었거나, 플레이어가 끝났다고 하고(ended) 재생 지점이 끝 근처일 때. 플레이어가 끝났다고만 하고 지점이 앞쪽이면(광고가 끝난 경우 등) 아니다
 export function djEnded(wantSec: number, durSec: number, curSec: number, playerEnded: boolean): boolean {
   return durSec > 0 && (wantSec >= durSec - 0.3 || (playerEnded && (curSec >= durSec - 2 || wantSec >= durSec - 2)));

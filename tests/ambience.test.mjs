@@ -576,3 +576,44 @@ test('집 벽의 박제 이름·크기는 그 액자를 눌렀을 때만 잠깐 
   assert.ok(world.includes('show: !!ps && ps.map === this.mapId && ps.slot === i && performance.now() < ps.until'), '누른 자리만, 시간이 남았을 때만');
   assert.ok(render.includes('if (!p.show || (!p.text && !p.sub)) continue;'), '누르지 않은 박제는 글자를 그리지 않는다');
 });
+
+// ---------- 2026-11-20 밤: 글자가 캐릭터를 가리지 않게 ----------
+const { standsBelow, inRowBelow, LABEL_FADE } = await import('../src/shared/overlap.ts');
+const { djClampY } = await import('../src/shared/youtube.ts');
+
+test('글자 자리 판정: 바로 아래 칸에 선 캐릭터, 아래 줄의 대상', () => {
+  // 펫 (30,19) 바로 아래 칸의 주인 (30,20): 펫 이름을 펫 위로 올린다. 주인이 옆·위에 있으면 그대로 아래
+  assert.ok(standsBelow(30, 19, 30, 20));
+  assert.ok(standsBelow(30, 19, 30, 19.5), '걸어 내려가는 중에도');
+  assert.ok(!standsBelow(30, 19, 31, 19) && !standsBelow(30, 19, 29, 19), '옆(동·서)');
+  assert.ok(!standsBelow(30, 19, 30, 18), '위(북)');
+  assert.ok(!standsBelow(30, 19, 31, 20), '대각선은 얼굴을 덮지 않는다');
+  assert.ok(!standsBelow(30, 19, 30, 21), '두 칸 아래');
+  assert.ok(!standsBelow(30, 19, 30, 19), '같은 칸');
+  // 안내 글자: 내 아래 줄(바로 아래·양옆 대각선)을 가리킬 때만 내 이름표 아래로 내린다
+  assert.ok(inRowBelow(16, 3, 16, 4) && inRowBelow(16, 3, 15, 4) && inRowBelow(16, 3, 17, 4));
+  assert.ok(!inRowBelow(16, 3, 16, 2) && !inRowBelow(16, 3, 17, 3) && !inRowBelow(16, 3, 16, 3) && !inRowBelow(16, 3, 18, 4) && !inRowBelow(16, 3, 16, 5));
+  assert.ok(LABEL_FADE.box > 0 && LABEL_FADE.box <= 0.35 && LABEL_FADE.text >= 0.7 && LABEL_FADE.text <= 1, '바탕은 거의 비우고 글자는 읽히게');
+});
+
+test('그리는 쪽이 그 판정을 쓴다: 펫 이름·이름표·자동 표시·안내 글자', () => {
+  const src = readFileSync(new URL('../src/game/render.ts', import.meta.url), 'utf8');
+  assert.ok(src.includes('if (st.entities.some((e) => standsBelow(p.x, p.y, e.x, e.y))) {'), '펫 아래 칸에 누가 있으면 이름을 펫 위에');
+  assert.ok(src.includes('const fade = ents.some((o) => o !== e && standsBelow(e.x, e.y, o.x, o.y)) ? LABEL_FADE : undefined;'), '아래 칸에 누가 있으면 이름표를 비치게');
+  assert.equal((src.match(/, fade\);/g) || []).length, 3, '벌칙 칭호·칭호·이름 셋 다');
+  assert.ok(src.includes("if (autoBelow(e)) drawLabel(ctx, txt, sx, under + 17,"), '남쪽으로 던진 찌의 자동 표시는 이름표 아래에');
+  assert.ok(src.includes('if (me && inRowBelow(me.x, me.y, st.hint.x, st.hint.y)) {') && src.includes('Math.max(tileBottom - 4, stackBottom(me) + 22)'), '아래 줄을 가리키는 안내는 내 이름표 아래로');
+});
+
+test('DJ 창: 다른 화면 요소보다 앞에 그리고, 위쪽 버튼 줄 아래로만 옮겨진다', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  const z = (sel) => { const i = css.indexOf(`\n${sel} {`); assert.ok(i >= 0, sel); return Number(/z-index: (\d+)/.exec(css.slice(i, css.indexOf('}', i)))[1]); };
+  assert.ok(z('#dj-panel') > z('#hud') && z('#dj-panel') > z('#mafia-invite'), `DJ ${z('#dj-panel')} > HUD ${z('#hud')}`);
+  assert.ok(z('#dj-panel') < z('#toasts') && z('#dj-panel') < z('.modal-bg'), '알림·창보다는 뒤');
+  assert.equal(djClampY(0, 768, 28, 43), 43, '위로는 버튼 줄 아래까지');
+  assert.equal(djClampY(-500, 768, 28, 43), 43);
+  assert.equal(djClampY(300, 768, 28, 43), 300);
+  assert.equal(djClampY(99999, 768, 28, 43), 728, '아래로는 제목 줄이 화면 안에 남게');
+  assert.equal(djClampY(10, 60, 28, 43), 20, '화면이 아주 낮으면 아래쪽 한계가 먼저');
+  assert.equal(djClampY(10, 768, 28, 0), 10, '버튼 줄을 못 찾으면 화면 맨 위부터');
+});
