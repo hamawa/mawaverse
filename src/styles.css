@@ -44,6 +44,8 @@ a { color: var(--accent2); }
 .tabs { display: flex; gap: 6px; margin-bottom: 14px; }
 .tabs button { flex: 1; background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 8px; }
 .tabs button.active { background: #2a3b31; color: var(--text); border-color: var(--accent2); }
+.shop .tabs { flex-wrap: wrap; } /* 2026-11-20: 상점 탭이 8개가 되면서 좁은 화면에서 글자가 두 줄로 꺾였다. 탭 줄을 바꿔 담는다 */
+.shop .tabs button { flex: 1 1 auto; white-space: nowrap; }
 .row { display: flex; gap: 8px; align-items: center; }
 .row > * { flex: 1; }
 

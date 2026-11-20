@@ -2,7 +2,7 @@
 // 가격은 config/prices/{id} 로 관리자가 덮어쓸 수 있다 (priceOf)
 import { snowActive } from './snowpenalty';
 
-export type ItemKind = 'hat' | 'name' | 'fx' | 'title' | 'pet' | 'pethat' | 'petglass' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
+export type ItemKind = 'hat' | 'name' | 'fx' | 'title' | 'bubble' | 'pet' | 'pethat' | 'petglass' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
 export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
 export interface ShopItem { id: string; kind: ItemKind; name: string; price: number; icon: string; desc: string; color?: string }
 
@@ -301,6 +301,19 @@ export const TITLES: ShopItem[] = [
   { id: 'tt-mayor', kind: 'title', name: '명예 이장', price: 500000, icon: '🏅', desc: '마을이 인정한 사람.' },
   { id: 'tt-legend', kind: 'title', name: '살아있는 전설', price: 1000000, icon: '👑', desc: '더 설명이 필요 없는 사람.' },
 ];
+// 말풍선 꾸미기 (2026-11-20, 사용자 요청): 내 일반 채팅 말풍선의 모양·빛깔·글꼴을 바꾼다 (착용 칸 bb. 그리기와 글꼴은 game/bubbles.ts). 귓속말 말풍선은 그대로다. 자랑용이라 효과는 없다.
+// 값은 사용자 결정으로 높게 잡았다 (의견을 들어 보고 바꾸기로). 그때 라이브: 지갑 중앙 2만·상위 25% 10만, 1만짜리 샤샤샥을 21명 중 7명이 샀고 5만 이상 꾸미기는 산 사람이 사실상 없었다
+export const BUBBLES: ShopItem[] = [
+  { id: 'bb-ink', kind: 'bubble', name: '먹물', price: 10000, icon: '🖤', desc: '검은 바탕에 흰 명조 글씨.' },
+  { id: 'bb-candy', kind: 'bubble', name: '솜사탕', price: 10000, icon: '🍭', desc: '분홍 말풍선에 둥근 글씨.' },
+  { id: 'bb-cloud', kind: 'bubble', name: '구름', price: 15000, icon: '☁', desc: '몽글몽글한 구름 말풍선.' },
+  { id: 'bb-retro', kind: 'bubble', name: '레트로', price: 15000, icon: '🕹', desc: '옛 게임 대화창에 도트 글씨.' },
+  { id: 'bb-gold', kind: 'bubble', name: '금테', price: 20000, icon: '🏅', desc: '검은 바탕에 금 테두리, 금빛 명조 글씨.' },
+  { id: 'bb-ice', kind: 'bubble', name: '얼음', price: 20000, icon: '❄', desc: '반짝이는 얼음 말풍선.' },
+  { id: 'bb-rainbow', kind: 'bubble', name: '무지개', price: 30000, icon: '🌈', desc: '테두리에 무지개가 천천히 흐른다.' },
+  { id: 'bb-neon', kind: 'bubble', name: '네온', price: 40000, icon: '💡', desc: '빛나는 테두리와 글씨. 빛깔이 천천히 바뀐다.' },
+  { id: 'bb-flame', kind: 'bubble', name: '불꽃', price: 50000, icon: '🔥', desc: '말풍선 위로 불길이 일렁인다.' },
+];
 // 금덩이로 만드는 것 (2026-11-18, 금광 살리기: 킹 낚싯대를 만든 뒤에는 금덩이 쓸 곳이 없어 채광이 하루 2,400번에서 200번 아래로 줄었다). id 는 gg 로 시작한다: 지갑 규칙이 그 접두사로 가른다.
 // 코인 값(가격표)과 함께 금덩이가 정확히 이만큼 줄어야 한다 (gen-rules.cjs 의 GOLD_GOODS 와 같아야 한다). 선물할 수 없다
 export const GOLD_COST: Readonly<Record<string, number>> = { gg40: 200, gg41: 500, ggname: 1000 };
@@ -332,7 +345,7 @@ export const NICK_FEE: ShopItem = { id: 'nickfee', kind: 'use', name: '닉네임
 // 받은 사람은 변경할 때 요금 대신 교환권을 쓰고, 쓴 뒤에 보관함에서 지운다. 종류마다 한 장만 가질 수 있다 (이미 가진 사람에게는 선물이 안 된다). 값은 변경 요금과 같다
 export const AVATAR_TICKET: ShopItem = { id: 'avatarticket', kind: 'ticket', name: '외모 교환권', price: 1000, icon: '🎟', desc: '받은 사람이 외모를 한 번 무료로 바꿀 수 있다. 선물 전용.' };
 export const NICK_TICKET: ShopItem = { id: 'nickticket', kind: 'ticket', name: '닉네임 교환권', price: 5000, icon: '🎟', desc: '받은 사람이 닉네임을 한 번 무료로 바꿀 수 있다. 선물 전용.' };
-export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...TITLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
+export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...TITLES, ...BUBBLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }
 // 보관함(users/{uid}/own)에 들어가는 품목인가 (소모품인 자동 낚시·미끼·자동 채집·펫 먹이·강화 주문서는 지갑에만 기록된다)
@@ -363,10 +376,10 @@ export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?:
 export interface GiftMark { f: string; fn: string; i: string; m?: string; at: number }
 export const GIFT_MSG_MAX = 40;
 // users/{uid}/eq: 착용 중인 모자(h), 이름표 색(nc), 이동 이펙트(fx), 펫(pt), 철벽 갑옷(pa), 푹신 갑옷(ta). players/{uid} 에도 같은 키로 실린다
-export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; tt?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null; ph?: string | null; pg?: string | null; pns?: Record<string, string> | null }
+export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; tt?: string | null; bb?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null; ph?: string | null; pg?: string | null; pns?: Record<string, string> | null }
 // ph·pg: 펫 모자·안경 (2026-11-20). pns: 펫 이름 (펫 id → 이름. presence 에는 데리고 있는 펫의 이름만 pn 으로 싣는다)
 // sg: 스키 장갑을 낀 상태 (프로필에만. presence 에는 안 싣는다. 규칙: 보유해야 켤 수 있다)
 // nr: 만렙(Lv10) 펫을 타지 않고 데리고 다닌다 (2026-11-12 건의 반영. 없으면 지금까지처럼 탄다). 걷기 속도 등 펫 효과는 타든 안 타든 같다: 모습만 바뀐다
-export const EQUIP_KEY: Record<CosmeticKind, 'h' | 'nc' | 'fx' | 'tt' | 'pt' | 'ph' | 'pg'> = { hat: 'h', name: 'nc', fx: 'fx', title: 'tt', pet: 'pt', pethat: 'ph', petglass: 'pg' }; // tt: 칭호 (2026-11-18)
+export const EQUIP_KEY: Record<CosmeticKind, 'h' | 'nc' | 'fx' | 'tt' | 'bb' | 'pt' | 'ph' | 'pg'> = { hat: 'h', name: 'nc', fx: 'fx', title: 'tt', bubble: 'bb', pet: 'pt', pethat: 'ph', petglass: 'pg' }; // tt: 칭호 (2026-11-18)
 
 export const fmtCoins = (n: number): string => `💰 ${Math.floor(n).toLocaleString('ko-KR')}`;

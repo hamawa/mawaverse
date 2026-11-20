@@ -617,3 +617,40 @@ test('DJ 창: 다른 화면 요소보다 앞에 그리고, 위쪽 버튼 줄 아
   assert.equal(djClampY(10, 60, 28, 43), 20, '화면이 아주 낮으면 아래쪽 한계가 먼저');
   assert.equal(djClampY(10, 768, 28, 0), 10, '버튼 줄을 못 찾으면 화면 맨 위부터');
 });
+
+// ---- 2026-11-20: 말풍선 꾸미기 ----
+test('말풍선 꾸미기: 품목·착용 칸·글꼴·그리기가 서로 맞는다', async () => {
+  const { BUBBLES, EQUIP_KEY, isOwnItem, itemById, ALL_ITEMS } = await import('../src/shared/shop.ts');
+  const { BUBBLE_FONTS, BUBBLE_SKIN_IDS, hasBubbleSkin, bubbleFont } = await import('../src/game/bubbles.ts');
+  assert.equal(EQUIP_KEY.bubble, 'bb');
+  assert.ok(BUBBLES.length >= 9);
+  for (const it of BUBBLES) {
+    assert.equal(it.kind, 'bubble'); assert.ok(it.id.startsWith('bb-'), it.id);
+    assert.equal(itemById(it.id), it); assert.ok(isOwnItem(it.id), '보관함 품목이어야 기존 구매·선물 규칙을 쓴다');
+    assert.equal(ALL_ITEMS.filter((o) => o.id === it.id).length, 1, `${it.id} 는 하나뿐`);
+    assert.ok(BUBBLE_SKIN_IDS.includes(it.id) && hasBubbleSkin(it.id), `${it.id} 그리기`);
+    const f = BUBBLE_FONTS[it.id];
+    assert.ok(f && f.family, `${it.id} 글꼴`);
+    // 글꼴 주소: 구글 글꼴 목록이거나, 판을 고정한 파일 하나
+    assert.ok(f.css ? f.css.startsWith('https://fonts.googleapis.com/css2?family=') : /^https:\/\/cdn\.jsdelivr\.net\/gh\/[^@]+@\d+\.\d+\//.test(f.file), `${it.id} 글꼴 주소`);
+  }
+  assert.equal(BUBBLE_SKIN_IDS.length, BUBBLES.length, '그리기만 있고 품목이 없는 것은 없다');
+  // 글자 크기는 받은 그대로 쓴다 (사용자 결정: 꾸미기가 글자를 키우지 않는다)
+  assert.ok(bubbleFont('bb-ink', 13, '가').startsWith('700 13px "Gowun Batang", '));
+  assert.ok(bubbleFont('bb-retro', 12, '가').startsWith('12px "NeoDunggeunmo", '));
+  assert.ok(bubbleFont(null, 13, '가').startsWith('13px "Malgun Gothic"'), '꾸미기가 없으면 기본 글꼴');
+  assert.ok(!hasBubbleSkin('nope') && !hasBubbleSkin(null) && !hasBubbleSkin(undefined), '모르는 꾸미기는 기본 말풍선으로');
+});
+
+test('말풍선 꾸미기: 일반 채팅에만 입히고, 규칙과 접속 표시에 칸이 있다', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const render = read('../src/game/render.ts');
+  assert.ok(render.includes("const sk = b.kind === 'near' && hasBubbleSkin(skin) ? skin : null;"), '귓속말 말풍선은 그대로');
+  assert.equal((render.match(/const size = 12 \+ \(s >= 2 \? 1 : 0\);/g) || []).length, 1, '말풍선 글자 크기 식은 꾸미기와 상관없이 하나');
+  assert.ok(render.includes('drawBubble(ctx, e.bubble, sx, top - 2, s, e.bubbleSkin, st.now)'));
+  const line = `"bb": { ".validate": "newData.isString() && root.child('users/' + $uid + '/own/' + newData.val()).val() === true" }`;
+  assert.equal(read('../database.rules.json').split(line).length - 1, 2, '프로필 착용 칸과 접속 표시 두 곳: 가진 것만');
+  assert.ok(read('../tools/gen-rules.cjs').includes('"bb": { ".validate": ${q(ownsStr(pre))} },'), '프로필 착용 칸은 생성기가 만든다');
+  assert.ok(read('../src/game/net.ts').includes('bb: has(p.eq?.bb)'), '접속 표시에 싣는다 (가진 것만)');
+  assert.ok(read('../src/game/world.ts').includes('bubbleSkin: rp.st.bb || null'));
+});

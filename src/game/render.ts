@@ -14,6 +14,7 @@ import type { TossView } from './toss';
 import type { SnowView } from './winterplay';
 import { snowActive, SNOW_PENALTY_TITLE } from '../shared/snowpenalty';
 import { LABEL_FADE, standsBelow, inRowBelow } from '../shared/overlap';
+import { bubbleFont, hasBubbleSkin, paintBubble } from './bubbles';
 import { drawHat, hatAbove, nameStyle, titleStyle, isLabelFlow, labelFlow, spawnFx, drawFx, drawPet, drawMount, mountInfo, drawAfterimages, AFTERIMAGE_FX } from './cosmetics';
 
 export type BubbleKind = 'near' | 'all' | 'w';
@@ -42,6 +43,7 @@ export interface Entity {
   nameColor: string | null;
   fx: string | null;
   title?: string | null;       // 칭호 품목 id (닉네임 바로 위에 뜬다)
+  bubbleSkin?: string | null;  // 말풍선 꾸미기 품목 id (일반 채팅 말풍선에만. bubbles.ts)
   sit?: boolean;               // 앉아 있다: 다리를 가리고 조금 내려 그린다 (x, y 는 앉은 가구의 칸)
   dance?: number;              // 클럽에서 추는 춤 (1~9: 이모트 번호마다 다른 춤)
   pet: PetView | null;         // 데리고 다니는 펫 (한 칸 뒤)
@@ -481,7 +483,7 @@ export function render(eng: Engine, st: RenderState): void {
       ctx.globalAlpha = 1;
     }
     // 말풍선
-    const box = e.bubble && st.now - e.bubble.at < BUBBLE_MS ? drawBubble(ctx, e.bubble, sx, top - 2, s) : null;
+    const box = e.bubble && st.now - e.bubble.at < BUBBLE_MS ? drawBubble(ctx, e.bubble, sx, top - 2, s, e.bubbleSkin, st.now) : null;
     // 앵무새 (2026-11-19): 주인이 말하면 조금 뒤에 끝말을 따라 한다. 이 화면에 뜬 말풍선에서 만드는 것이라 서버로 가는 것은 없다 (귓속말은 따라 하지 않는다)
     if (box && e.pet?.id === PARROT_ID && e.bubble && e.bubble.kind !== 'w') {
       const age = st.now - e.bubble.at;
@@ -854,16 +856,28 @@ const BUBBLE_STYLE: Record<BubbleKind, { fill: string; stroke: string; text: str
   w: { fill: '#f3e9ff', stroke: '#6b3fa0', text: '#3b1f5e' },
 };
 
-export function drawBubble(ctx: CanvasRenderingContext2D, b: Bubble, cx: number, bottom: number, s: number): { x: number; y: number; w: number } {
+// skin: 말풍선 꾸미기 (2026-11-20. 일반 채팅에만 입힌다: 귓속말은 점선 보라 그대로여야 구분된다). 글자 크기·줄 높이·여백은 꾸미기와 상관없이 같다
+export function drawBubble(ctx: CanvasRenderingContext2D, b: Bubble, cx: number, bottom: number, s: number, skin?: string | null, now = 0): { x: number; y: number; w: number } {
   const st = BUBBLE_STYLE[b.kind];
   const size = 12 + (s >= 2 ? 1 : 0);
-  ctx.font = `${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
+  const sk = b.kind === 'near' && hasBubbleSkin(skin) ? skin : null;
+  const font = sk ? bubbleFont(sk, size, b.text) : `${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
+  ctx.font = font;
   const maxW = 170;
   const lines = wrapText(ctx, b.text, maxW);
   const lh = size + 4;
   const w = Math.min(maxW, Math.max(...lines.map((l) => ctx.measureText(l).width))) + 16;
   const h = lines.length * lh + 10;
   const x = cx - w / 2, y = bottom - h - 8;
+  if (sk) {
+    const ink = paintBubble(ctx, sk, x, y, w, h, cx, now);
+    ctx.save();
+    if (ink.glow) { ctx.shadowColor = ink.glow; ctx.shadowBlur = 6; }
+    ctx.font = font; ctx.fillStyle = ink.color; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    lines.forEach((l, i) => ctx.fillText(l, cx, y + 5 + i * lh));
+    ctx.restore();
+    return { x, y, w };
+  }
   ctx.fillStyle = st.fill; ctx.strokeStyle = st.stroke; ctx.lineWidth = 1.5;
   ctx.setLineDash(b.kind === 'w' ? [4, 3] : []);
   if (b.kind === 'all') zigzagRect(ctx, x, y, w, h); else roundRect(ctx, x, y, w, h, 6);

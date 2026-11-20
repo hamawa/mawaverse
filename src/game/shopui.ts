@@ -1,10 +1,11 @@
 import { el } from '../shared/util';
 import { modal, withCloseX, confirmModal } from './ui';
 import { getSprite, FRAME_W, FRAME_H } from './sprites';
-import { spriteTop, drawLabel } from './render';
+import { spriteTop, drawLabel, drawBubble } from './render';
+import { loadBubbleFont } from './bubbles';
 import { drawHat, nameStyle, titleStyle, petCanvas, mountCanvas, petLookCanvas } from './cosmetics';
 import {
-  HATS, NAME_COLORS, FX, TITLES, GOLD_COST, PET_GOODS, PET_HATS, PET_GLASSES, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
+  HATS, NAME_COLORS, FX, TITLES, BUBBLES, GOLD_COST, PET_GOODS, PET_HATS, PET_GLASSES, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
   BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
 } from '../shared/shop';
@@ -59,8 +60,8 @@ function giftPicker(h: ShopHost, item: ShopItem, price: number): Promise<{ to: {
   });
 }
 
-type Tab = 'hat' | 'name' | 'fx' | 'title' | 'pet' | 'fish' | 'gear';
-const TABS: { id: Tab; label: string }[] = [{ id: 'hat', label: '🎩 모자' }, { id: 'name', label: '🏷 이름표' }, { id: 'fx', label: '✨ 이펙트' }, { id: 'title', label: '🎖 칭호' }, { id: 'pet', label: '🐾 펫' }, { id: 'fish', label: '🎒 용품' }, { id: 'gear', label: '⚔ 장비' }];
+type Tab = 'hat' | 'name' | 'fx' | 'title' | 'bubble' | 'pet' | 'fish' | 'gear';
+const TABS: { id: Tab; label: string }[] = [{ id: 'hat', label: '🎩 모자' }, { id: 'name', label: '🏷 이름표' }, { id: 'fx', label: '✨ 이펙트' }, { id: 'title', label: '🎖 칭호' }, { id: 'bubble', label: '💬 말풍선' }, { id: 'pet', label: '🐾 펫' }, { id: 'fish', label: '🎒 용품' }, { id: 'gear', label: '⚔ 장비' }];
 
 // 펫 미리보기 (4배 × 레벨 크기). 탑승 레벨이면 탈것 옆모습(3배)
 function petPreview(id: string, scale = 1, ride = false): HTMLElement {
@@ -98,6 +99,16 @@ function titlePreview(id: string): HTMLCanvasElement {
   cv.width = 140; cv.height = 26;
   const st = titleStyle(id);
   if (st) drawLabel(cv.getContext('2d')!, st.text, 70, 22, st.color, st.bg, 10, st.border);
+  return cv;
+}
+// 말풍선 꾸미기 미리보기: 게임 안에서 뜨는 모습 그대로. 글꼴은 바깥에서 받으므로 다 받으면 한 번 더 그린다
+function bubblePreview(id: string): HTMLCanvasElement {
+  const cv = document.createElement('canvas');
+  cv.width = 140; cv.height = 58;
+  const text = '안녕하세요!';
+  const paint = () => { const c = cv.getContext('2d')!; c.clearRect(0, 0, cv.width, cv.height); drawBubble(c, { text, kind: 'near', at: 0 }, 70, 54, 2, id, performance.now()); };
+  paint();
+  void loadBubbleFont(id, 13, text).then(paint);
   return cv;
 }
 function namePreview(nick: string, nc: string | null): HTMLCanvasElement {
@@ -157,6 +168,7 @@ export function openShop(h: ShopHost): void {
     if (kind === 'hat') card.append(hatPreview(h.profile.avatar, item.id));
     else if (kind === 'name') card.append(namePreview(h.profile.nick, item.id));
     else if (kind === 'title') card.append(titlePreview(item.id));
+    else if (kind === 'bubble') card.append(bubblePreview(item.id));
     else if (kind === 'pet') card.append(petPreview(item.id, petScale(xp), riding));
     else if (kind === 'pethat' || kind === 'petglass') card.append(petLookCanvas(h.wallet.equipped('pet') || 'petdog', kind === 'pethat' ? { hat: item.id } : { glass: item.id })); // 데리고 있는 펫(없으면 강아지)에게 입혀 본 모습
     else card.append(el('div', { class: 'ic', text: item.icon }));
@@ -517,7 +529,7 @@ export function openShop(h: ShopHost): void {
     else if (tab === 'gear') pane.append(gearPane());
     else {
       const grid = el('div', { class: 'shop-grid' + (tab === 'pet' ? ' pets' : '') });
-      const list = tab === 'hat' ? HATS : tab === 'name' ? NAME_COLORS : tab === 'pet' ? PET_GOODS : tab === 'title' ? TITLES : FX;
+      const list = tab === 'hat' ? HATS : tab === 'name' ? NAME_COLORS : tab === 'pet' ? PET_GOODS : tab === 'title' ? TITLES : tab === 'bubble' ? BUBBLES : FX;
       for (const item of list) grid.append(cosmeticCard(item, tab));
       pane.append(grid);
       if (tab === 'pet') {

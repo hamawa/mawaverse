@@ -1059,6 +1059,12 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('칭호: 가진 것', 'allow', () => ok.ref('players/OK/tt').set('tt-angler'));
   await expect('칭호: 프로필 착용 칸', 'allow', () => ok.ref('users/OK/eq/tt').set('tt-angler'));
   await expect('칭호: 프로필 착용 칸에 없는 것', 'deny', () => ok.ref('users/OK/eq/tt').set('tt-legend'));
+  await expect('bubble skin: not owned', 'deny', () => ok.ref('players/OK/bb').set('bb-flame'));
+  await root.ref('users/OK/own/bb-ink').set(true);
+  await expect('bubble skin: owned', 'allow', () => ok.ref('players/OK/bb').set('bb-ink'));
+  await expect('bubble skin: profile slot', 'allow', () => ok.ref('users/OK/eq/bb').set('bb-ink'));
+  await expect('bubble skin: profile slot, not owned', 'deny', () => ok.ref('users/OK/eq/bb').set('bb-flame'));
+  await expect('bubble skin: take off', 'allow', () => ok.ref().update({ 'users/OK/eq/bb': null, 'players/OK/bb': null }));
   await expect('앉기 표시', 'allow', () => ok.ref('players/OK/si').set(true));
   await expect('앉기 표시에 다른 값', 'deny', () => ok.ref('players/OK/si').set(3));
   await expect('클럽 맵으로', 'allow', () => ok.ref('players/OK').set({ ...presence, m: 'club' }));

@@ -346,6 +346,7 @@ function ownEqLines(pre, ind) {
     `${ind}  "nc": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "fx": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "tt": { ".validate": ${q(ownsStr(pre))} },`, // 칭호 (2026-11-18)
+    `${ind}  "bb": { ".validate": ${q(ownsStr(pre))} },`, // 말풍선 꾸미기 (2026-11-20)
     `${ind}  "pt": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "pa": { ".validate": ${q(armorEq(pre, 'pusharmor'))} },`,
     `${ind}  "ta": { ".validate": ${q(armorEq(pre, 'tossarmor'))} },`,
