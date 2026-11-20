@@ -540,8 +540,12 @@ export const CLUB_SEATS: readonly { x: number; y: number; n: 2 | 4 }[] = [
   { x: 18, y: 5, n: 2 }, { x: 18, y: 7, n: 4 }, { x: 18, y: 10, n: 2 }, { x: 18, y: 12, n: 4 },
 ];
 export const CLUB_DANCERS: readonly { x: number; y: number }[] = [{ x: 7, y: 6 }, { x: 10, y: 5 }, { x: 14, y: 6 }, { x: 8, y: 9 }, { x: 12, y: 8 }, { x: 14, y: 9 }, { x: 11, y: 10 }, { x: 9, y: 7 }];
-// DJ 자리 (2026-11-19): 디제이 탁자 뒤의 두 칸. 여기 서서 F 를 누르면 유튜브 링크로 노래를 튼다 (game/dj.ts). 규칙의 club/dj 에 이 좌표가 글자로 들어 있다
-export const CLUB_DJ_SPOTS: readonly { x: number; y: number }[] = [{ x: 10, y: 1 }, { x: 11, y: 1 }];
+// DJ 기계에 닿는 자리 (2026-11-20 밤, 사용자 요청: 사방에서. 전에는 탁자 뒤의 두 칸뿐이었다): 디제이 탁자(CLUB_DJ_DECK)의 위·아래·양옆 여섯 칸.
+// 여기 서서 F 를 누르면 노래 예약 창이 뜬다 (game/dj.ts). 규칙의 club/q 에 이 좌표가 글자로 들어 있다 (tests/ambience.test.mjs 가 대조)
+export const CLUB_DJ_DECK: readonly { x: number; y: number }[] = [{ x: 10, y: 2 }, { x: 11, y: 2 }];
+export const CLUB_DJ_SPOTS: readonly { x: number; y: number }[] = [{ x: 10, y: 1 }, { x: 11, y: 1 }, { x: 9, y: 2 }, { x: 12, y: 2 }, { x: 10, y: 3 }, { x: 11, y: 3 }];
+// 그 자리에서 닿는 탁자 칸 (안내 글자를 그 칸에 띄운다)
+export function djDeckFor(x: number, y: number): { x: number; y: number } | null { return CLUB_DJ_DECK.find((d) => Math.abs(d.x - x) + Math.abs(d.y - y) === 1) || null; }
 export function buildClubMap(): MapData {
   const W = 22, H = 16;
   const m = emptyMap(CLUB_MAP_ID, '클럽', W, H);
@@ -553,8 +557,8 @@ export function buildClubMap(): MapData {
   for (let y = 1; y < H - 1; y++) { setO(0, y, wall.side); setO(W - 1, y, wall.side); }
   for (let y = CLUB_FLOOR.y; y < CLUB_FLOOR.y + CLUB_FLOOR.h; y++) for (let x = CLUB_FLOOR.x; x < CLUB_FLOOR.x + CLUB_FLOOR.w; x++) setG(x, y, G_DANCE);
   // 디제이 자리 (위쪽 가운데)와 스피커
-  setO(10, 2, O_DJ); setO(11, 2, O_DJ);
-  for (const p of CLUB_DJ_SPOTS) setG(p.x, p.y, G.CARPET); // DJ 자리 표시
+  for (const d of CLUB_DJ_DECK) setO(d.x, d.y, O_DJ);
+  for (const d of CLUB_DJ_DECK) setG(d.x, d.y - 1, G.CARPET); // 탁자 뒤 두 칸의 카펫 (그림은 전과 같다)
   for (const x of [7, 8, 13, 14]) setO(x, 2, O_SPEAKER);
   setO(2, 2, O_SPEAKER); setO(19, 2, O_SPEAKER);
   // 좌석 (2026-11-20 사용자 요청: 식당처럼 마주 보고 앉는 자리. 전에는 왼쪽에 소파·원탁, 오른쪽에 바 카운터였다).

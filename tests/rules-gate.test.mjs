@@ -1151,35 +1151,82 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await root.ref().update({ stock: null, 'wallet/OK': null, 'wallet/OTHER': null, 'approved/OTHER': null });
 }
 
-// ---------- 클럽 DJ (club/dj, 2026-11-19) ----------
+// ---------- 클럽 DJ·노래 예약 (club/dj · club/q. 2026-11-19, 예약은 2026-11-20 밤) ----------
 {
   const SV = { '.sv': 'timestamp' };
   await setNow('2026-11-14 12:00:00');
-  const ID = 'dQw4w9WgXcQ', song = (uid, n = '디제이') => ({ v: ID, at: SV, u: uid, n });
+  const ID = 'dQw4w9WgXcQ', ID2 = 'aaaaaaaaaaa';
+  const ent = (uid, extra = {}) => ({ v: ID, u: uid, n: '디제이', at: SV, ...extra });
+  const promote = (k, e, at = SV) => ({ 'club/dj': { ...e, at, k }, [`club/q/${k}`]: null });
   await root.ref().update({ 'approved/OTHER': true, 'club': null, 'players/OK': { ...presence, m: 'club', x: 10, y: 1 }, 'players/OTHER': { ...presence, m: 'club', x: 5, y: 8 } });
-  await expect('DJ: 승인된 사용자가 읽기', 'allow', () => other.ref('club/dj').get());
-  await expect('DJ: 대기 중인 사용자가 읽기', 'deny', () => pend.ref('club/dj').get());
-  await expect('DJ: 자리에 서지 않은 사람이 틀기', 'deny', () => other.ref('club/dj').set(song('OTHER')));
-  await expect('DJ: 영상 id 모양이 아님', 'deny', () => ok.ref('club/dj').set({ ...song('OK'), v: 'https://x.y' }));
-  await expect('DJ: 시각을 내 마음대로', 'deny', () => ok.ref('club/dj').set({ ...song('OK'), at: 123 }));
-  await expect('DJ: 남의 이름으로', 'deny', () => ok.ref('club/dj').set(song('OTHER')));
-  await expect('DJ: 모르는 칸 끼워 넣기', 'deny', () => ok.ref('club/dj').set({ ...song('OK'), x: 1 }));
-  await expect('DJ: 자리에 서서 틀기', 'allow', () => ok.ref('club/dj').set(song('OK')));
-  await expect('DJ: 5초 안에 또 바꾸기', 'deny', () => ok.ref('club/dj').set({ ...song('OK'), v: 'aaaaaaaaaaa' }));
-  await expect('DJ: 남이 끄기 (자리에 없음)', 'deny', () => other.ref('club/dj').remove());
-  await root.ref('club/dj/at').set(Date.now() - 6000);
-  await expect('DJ: 5초 뒤에는 바꿀 수 있다', 'allow', () => ok.ref('club/dj').set({ ...song('OK'), v: 'aaaaaaaaaaa' }));
-  // 다른 맵의 같은 좌표에 선 사람은 틀 수 없다
+  await expect('DJ: 승인된 사용자가 읽기', 'allow', () => other.ref('club').get());
+  await expect('DJ: 대기 중인 사용자가 읽기', 'deny', () => pend.ref('club').get());
+  await expect('DJ: 옛 방식으로 바로 틀기 (예약 없이)', 'deny', () => ok.ref('club/dj').set({ v: ID, at: SV, u: 'OK', n: '디제이' }));
+  // 예약
+  await expect('예약: 기계 옆이 아닌 사람', 'deny', () => other.ref('club/q/OTHER_0').set(ent('OTHER')));
+  await expect('예약: 남의 열쇠에', 'deny', () => ok.ref('club/q/OTHER_0').set(ent('OK')));
+  await expect('예약: 셋째 열쇠', 'deny', () => ok.ref('club/q/OK_2').set(ent('OK')));
+  await expect('예약: 남의 이름으로', 'deny', () => ok.ref('club/q/OK_0').set(ent('OTHER')));
+  await expect('예약: 시각을 내 마음대로', 'deny', () => ok.ref('club/q/OK_0').set({ ...ent('OK'), at: 123 }));
+  await expect('예약: 영상 id 모양이 아님', 'deny', () => ok.ref('club/q/OK_0').set({ ...ent('OK'), v: 'https://x.y' }));
+  await expect('예약: 제목이 너무 김', 'deny', () => ok.ref('club/q/OK_0').set(ent('OK', { t: 'x'.repeat(81) })));
+  await expect('예약: 모르는 칸', 'deny', () => ok.ref('club/q/OK_0').set(ent('OK', { z: 1 })));
+  await expect('예약: 기계 뒤에서', 'allow', () => ok.ref('club/q/OK_0').set(ent('OK', { t: '첫 곡' })));
+  await expect('예약: 있는 예약에 덮어쓰기', 'deny', () => ok.ref('club/q/OK_0').set(ent('OK', { v: ID2 })));
+  // 사방: 양옆·아래에서도 된다. 한 칸 더 떨어지면 안 된다
+  for (const [x, y, want] of [[9, 2, 'allow'], [12, 2, 'allow'], [10, 3, 'allow'], [11, 3, 'allow'], [11, 1, 'allow'], [8, 2, 'deny'], [10, 4, 'deny'], [9, 1, 'deny'], [12, 3, 'deny']]) {
+    await root.ref().update({ 'players/OK/x': x, 'players/OK/y': y, 'club/q/OK_1': null });
+    await expect(`예약: (${x},${y}) 에서`, want, () => ok.ref('club/q/OK_1').set(ent('OK', { v: ID2 })));
+  }
+  await root.ref().update({ 'players/OK/x': 10, 'players/OK/y': 1, 'club/q/OK_1': null });
+  // 다른 맵의 같은 좌표에 선 사람은 예약할 수 없다
   await root.ref('players/OTHER').update({ m: null, x: 10, y: 1 });
-  await root.ref('club/dj/at').set(Date.now() - 6000);
-  await expect('DJ: 기본 맵의 같은 좌표에서 틀기', 'deny', () => other.ref('club/dj').set(song('OTHER')));
-  // 끄기: 튼 사람은 자리를 떠나도 끌 수 있다. 관리자는 언제나
-  await root.ref('players/OK').update({ x: 4, y: 9 });
-  await expect('DJ: 자리를 떠난 뒤에는 새로 틀 수 없다', 'deny', () => ok.ref('club/dj').set(song('OK')));
-  await expect('DJ: 튼 사람이 끄기 (자리를 떠난 뒤)', 'allow', () => ok.ref('club/dj').remove());
-  await root.ref('club/dj').set({ v: ID, at: Date.now() - 60000, u: 'OK', n: '디제이' });
-  await expect('DJ: 관리자가 끄기', 'allow', () => admin.ref('club/dj').remove());
-  await expect('DJ: 틀면서 남기는 기록 (채팅 로그)', 'allow', () => ok.ref('logs/chat/djtest1').set({ u: 'OK', n: '디제이', c: 'dj', t: '🎧 유튜브 ' + ID, ts: SV }));
+  await expect('예약: 기본 맵의 같은 좌표에서', 'deny', () => other.ref('club/q/OTHER_0').set(ent('OTHER')));
+  await root.ref('players/OTHER').update({ m: 'club', x: 11, y: 3 });
+  // 우선 예약: 한 사람이 한 번에 하나
+  await expect('우선 예약', 'allow', () => ok.ref('club/q/OK_1').set(ent('OK', { v: ID2, p: 1 })));
+  await root.ref('club/q/OK_0').remove();
+  await expect('우선 예약: 둘째', 'deny', () => ok.ref('club/q/OK_0').set(ent('OK', { p: 1 })));
+  await expect('우선 예약 표시에 다른 값', 'deny', () => ok.ref('club/q/OK_0').set(ent('OK', { p: 2 })));
+  await expect('우선 예약이 있어도 보통 예약은 된다', 'allow', () => ok.ref('club/q/OK_0').set(ent('OK', { t: '첫 곡' })));
+  // 취소: 건 사람만. 관리자는 아무거나
+  await expect('취소: 남의 예약', 'deny', () => other.ref('club/q/OK_0').remove());
+  await expect('예약: 다른 사람도 건다', 'allow', () => other.ref('club/q/OTHER_0').set(ent('OTHER', { v: ID2, n: '손님' })));
+  await root.ref('players/OTHER').update({ x: 5, y: 8 });
+  await expect('취소: 내 예약 (기계에서 멀어져도)', 'allow', () => other.ref('club/q/OTHER_0').remove());
+  await root.ref('club/q/OTHER_0').set({ v: ID2, u: 'OTHER', n: '손님', at: Date.now() });
+  await expect('취소: 관리자', 'allow', () => admin.ref('club/q/OTHER_0').remove());
+  // 올리기: 예약을 지금 곡으로 올리는 쓰기 한 번. 예약에 있는 그대로여야 하고, 같은 쓰기에서 그 예약이 빠져야 한다
+  const E0 = { v: ID, u: 'OK', n: '디제이', t: '첫 곡' }, E1 = { v: ID2, u: 'OK', n: '디제이' };
+  await expect('올리기: 예약을 지우지 않고', 'deny', () => other.ref('club/dj').set({ ...E0, at: SV, k: 'OK_0' }));
+  await expect('올리기: 영상을 바꿔서', 'deny', () => other.ref().update(promote('OK_0', { ...E0, v: ID2 })));
+  await expect('올리기: 선곡한 사람을 바꿔서', 'deny', () => other.ref().update(promote('OK_0', { ...E0, u: 'OTHER' })));
+  await expect('올리기: 제목을 바꿔서', 'deny', () => other.ref().update(promote('OK_0', { ...E0, t: '다른 제목' })));
+  await expect('올리기: 제목을 빼고', 'deny', () => other.ref().update(promote('OK_0', { v: ID, u: 'OK', n: '디제이' })));
+  await expect('올리기: 없는 예약', 'deny', () => other.ref().update(promote('OK_9', E0)));
+  await expect('올리기: 시각을 내 마음대로', 'deny', () => other.ref().update(promote('OK_0', E0, 123)));
+  await root.ref('players/OTHER/m').remove();
+  await expect('올리기: 클럽 밖에서', 'deny', () => other.ref().update(promote('OK_0', E0)));
+  await root.ref('players/OTHER/m').set('club');
+  await expect('올리기: 아무것도 안 나올 때는 클럽의 누구나', 'allow', () => other.ref().update(promote('OK_0', E0)));
+  await expect('올리기: 방금 올라간 예약을 또 (여럿이 한꺼번에 보낸 경우)', 'deny', () => ok.ref().update(promote('OK_0', E0)));
+  // 지금 곡이 있을 때: 남이 선곡한 곡은 10초가 지나야 넘기거나 끌 수 있다. 선곡한 사람·관리자는 바로
+  await expect('넘기기: 남의 곡을 10초 안에', 'deny', () => other.ref().update(promote('OK_1', E1)));
+  await expect('끄기: 남의 곡을 10초 안에', 'deny', () => other.ref('club/dj').remove());
+  await expect('넘기기: 선곡한 사람은 바로', 'allow', () => ok.ref().update(promote('OK_1', E1)));
+  await root.ref().update({ 'club/dj/at': Date.now() - 20000, 'club/q/OTHER_0': { v: ID, u: 'OTHER', n: '손님', at: Date.now() } });
+  await expect('넘기기: 10초가 지난 남의 곡', 'allow', () => other.ref().update(promote('OTHER_0', { v: ID, u: 'OTHER', n: '손님' })));
+  await expect('끄기: 선곡한 사람', 'allow', () => other.ref('club/dj').remove());
+  await root.ref('club/dj').set({ v: ID, at: Date.now(), u: 'OK', n: '디제이', k: 'OK_0' });
+  await expect('끄기: 관리자', 'allow', () => admin.ref('club/dj').remove());
+  await root.ref('club/dj').set({ v: ID, at: Date.now() - 20000, u: 'OK', n: '디제이', k: 'OK_0' });
+  await expect('끄기: 10초가 지난 남의 곡 (예약이 없을 때 끝난 곡 치우기)', 'allow', () => other.ref('club/dj').remove());
+  // 낡은 예약: 3시간이 지나면 누구든 지운다
+  await root.ref('club/q/OK_0').set({ v: ID, u: 'OK', n: '디제이', at: Date.now() - 60000 });
+  await expect('남의 예약 치우기: 아직 낡지 않음', 'deny', () => other.ref('club/q/OK_0').remove());
+  await root.ref('club/q/OK_0/at').set(Date.now() - 3 * 3600000 - 1000);
+  await expect('남의 예약 치우기: 3시간이 지남', 'allow', () => other.ref('club/q/OK_0').remove());
+  await expect('DJ: 예약하면서 남기는 기록 (채팅 로그)', 'allow', () => ok.ref('logs/chat/djtest1').set({ u: 'OK', n: '디제이', c: 'dj', t: '🎧 예약 ' + ID, ts: SV }));
   await root.ref().update({ club: null, players: null, 'logs/chat/djtest1': null, 'approved/OTHER': null });
 }
 

@@ -8,7 +8,7 @@
 // 2026-11-20 (사용자 요청):
 // - 제목 줄을 잡고 끌어 옮기고, 오른쪽 아래 손잡이를 끌어 크기를 바꾼다 (16:9 를 지킨다. 가장 작게는 200×200). 전체 화면 단추(지원하는 브라우저만).
 //   자리와 크기는 어디에도 적지 않는다: 다시 접속하면 처음 자리로 돌아온다 (화면 밖으로 끌려 나갔을 때를 대비. 끌 때도 화면 안에 가둔다)
-// - 영상이 끝나면 스스로 꺼진다 (끌 수 있는 사람의 화면이 club/dj 도 지운다). 전에는 끝난 영상에 재생을 다시 걸어 첫 부분이 0.5초씩 되풀이됐다:
+// - 영상이 끝나면 스스로 꺼진다 (2026-11-20 밤부터: 클럽에 있는 아무 화면이 다음 예약으로 넘긴다. game/dj.ts). 전에는 끝난 영상에 재생을 다시 걸어 첫 부분이 0.5초씩 되풀이됐다:
 //   끝난 플레이어(상태 0)에 playVideo 를 부르면 처음부터 다시 틀고, 다음 맞추기가 끝 지점으로 감아 또 끝나는 일이 이어졌다
 // 이 환경에서는 소리를 들어 볼 수 없다: 상태가 맞게 바뀌는지와 플레이어가 만들어지는지만 확인했다
 import { el } from '../shared/util';
@@ -48,8 +48,8 @@ export { sameSong };
 
 export interface DjPanelHost {
   isAdmin: boolean; myUid: string;
-  onError(msg: string, mine: boolean): void;
-  onEnded?(song: DjState): void; // 영상이 끝났다: 끌 수 있는 사람이면 club/dj 를 지운다 (world)
+  onError(msg: string, mine: boolean, code: number): void; // code: 유튜브 플레이어의 오류 번호 (없는 영상·막힌 영상이면 world 가 다음 곡으로 넘긴다)
+  onEnded?(song: DjState): void; // 영상이 끝났다: 다음 예약으로 넘긴다 (world → DjMgr.ended)
 }
 
 export class DjPanel {
@@ -202,7 +202,7 @@ export class DjPanel {
             this.paint();
           },
           onStateChange: (e: { data: number }) => { if (e.data === 0) this.ended(); else this.paint(); },
-          onError: (e: { data: number }) => { this.error = ERR[e.data] || '재생하지 못했어요.'; this.host.onError(this.error, this.state?.u === this.host.myUid); this.paint(); },
+          onError: (e: { data: number }) => { this.error = ERR[e.data] || '재생하지 못했어요.'; this.host.onError(this.error, this.state?.u === this.host.myUid, e.data); this.paint(); },
         },
       });
     }).catch(() => { this.creating = false; this.error = '유튜브를 불러오지 못했어요.'; this.paint(); });
@@ -242,7 +242,7 @@ export class DjPanel {
     if (!this.root || !st) return;
     setMusicHold(!this.folded && !this.error);
     this.root.classList.toggle('fold', this.folded);
-    if (this.title) this.title.textContent = `🎧 ${st.n} 님이 튼 노래`;
+    if (this.title) this.title.textContent = st.t ? `🎧 ${st.t} · ${st.n}` : `🎧 ${st.n} 님이 튼 노래`; // 제목은 예약할 때 읽어 둔 것 (2026-11-20 밤)
     if (this.foldBtn) this.foldBtn.textContent = this.folded ? '펼치기' : '접기';
     let playing = false;
     try { playing = !!this.player && this.ready && this.player.getPlayerState() === 1; } catch { /* ignore */ }

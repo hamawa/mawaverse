@@ -258,19 +258,73 @@ test('유튜브 링크: 여러 모양의 주소에서 영상 id 를 뽑고, 다�
     'https://www.youtube.com/watch', 'https://notyoutube.com/' + ID, 'javascript:alert(1)']) assert.equal(youtubeId(u), null, u);
 });
 
-test('클럽 DJ 자리: 디제이 탁자 바로 뒤이고, 걸어서 갈 수 있다. 규칙에 든 좌표와 같다', async () => {
-  const { buildClubMap, CLUB_DJ_SPOTS, O_DJ, objectAt, isWalkable } = await import('../src/game/map.ts');
+test('DJ 기계에 닿는 자리: 탁자의 사방 여섯 칸이고 걸어서 갈 수 있다. 규칙에 든 좌표와 같다', async () => {
+  const { buildClubMap, CLUB_DJ_SPOTS, CLUB_DJ_DECK, djDeckFor, O_DJ, objectAt, isWalkable } = await import('../src/game/map.ts');
   const club = buildClubMap();
-  assert.ok(CLUB_DJ_SPOTS.length >= 1);
-  for (const p of CLUB_DJ_SPOTS) { assert.equal(isWalkable(club, p.x, p.y), true); assert.equal(objectAt(club, p.x, p.y + 1), O_DJ, '바로 앞이 디제이 탁자'); }
+  for (const d of CLUB_DJ_DECK) assert.equal(objectAt(club, d.x, d.y), O_DJ);
+  // 탁자에 맞닿은, 걸을 수 있는 칸 전부가 그 자리다 (2026-11-20 밤: 사방. 전에는 뒤의 두 칸뿐이었다)
+  const around = new Set();
+  for (const d of CLUB_DJ_DECK) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (isWalkable(club, d.x + dx, d.y + dy)) around.add(`${d.x + dx},${d.y + dy}`);
+  assert.deepEqual([...around].sort(), CLUB_DJ_SPOTS.map((q) => `${q.x},${q.y}`).sort());
+  assert.equal(CLUB_DJ_SPOTS.length, 6);
+  for (const q of CLUB_DJ_SPOTS) { const d = djDeckFor(q.x, q.y); assert.ok(d && objectAt(club, d.x, d.y) === O_DJ, `(${q.x},${q.y}) 에서 닿는 탁자`); }
+  assert.equal(djDeckFor(5, 8), null);
   // 시작 자리에서 걸어서 닿는다
-  const seen = new Set([`${club.spawn.x},${club.spawn.y}`]), q = [[club.spawn.x, club.spawn.y]];
-  while (q.length) { const [x, y] = q.shift(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = `${x + dx},${y + dy}`; if (!seen.has(k) && isWalkable(club, x + dx, y + dy)) { seen.add(k); q.push([x + dx, y + dy]); } } }
-  for (const p of CLUB_DJ_SPOTS) assert.ok(seen.has(`${p.x},${p.y}`), `DJ 자리 (${p.x},${p.y})`);
-  const rule = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules.club.dj;
-  assert.ok(new Set(CLUB_DJ_SPOTS.map((p) => p.y)).size === 1 && rule['.write'].includes(`/y').val() == ${CLUB_DJ_SPOTS[0].y}`));
-  for (const p of CLUB_DJ_SPOTS) assert.ok(rule['.write'].includes(`/x').val() == ${p.x}`), `규칙에 x=${p.x}`);
-  assert.ok(rule['.validate'].includes('matches(/^[A-Za-z0-9_-]{11}$/)') && rule['.validate'].includes("newData.child('at').val() == now"));
+  const seen = new Set([`${club.spawn.x},${club.spawn.y}`]), todo = [[club.spawn.x, club.spawn.y]];
+  while (todo.length) { const [x, y] = todo.shift(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = `${x + dx},${y + dy}`; if (!seen.has(k) && isWalkable(club, x + dx, y + dy)) { seen.add(k); todo.push([x + dx, y + dy]); } } }
+  for (const q of CLUB_DJ_SPOTS) assert.ok(seen.has(`${q.x},${q.y}`), `DJ 기계 옆 (${q.x},${q.y})`);
+  // 규칙의 좌표: 예약 쓰기에서 자리 조건을 떼어 내 그대로 계산해 본다
+  const rules = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules.club;
+  const w = rules.q.$k['.write'];
+  const from = w.indexOf("root.child('players/' + auth.uid + '/m').val() == 'club'"), to = w.indexOf(') : (');
+  assert.ok(from > 0 && to > from, '예약 쓰기의 자리 조건');
+  const expr = w.slice(from, to).replaceAll("root.child('players/' + auth.uid + '/m').val()", 'm').replaceAll("root.child('players/' + auth.uid + '/x').val()", 'x').replaceAll("root.child('players/' + auth.uid + '/y').val()", 'y');
+  const at = new Function('m', 'x', 'y', `return ${expr};`);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 22; x++) assert.equal(at('club', x, y), CLUB_DJ_SPOTS.some((q) => q.x === x && q.y === y), `(${x},${y})`);
+  assert.equal(at('main', 10, 1), false, '다른 맵의 같은 좌표');
+  assert.ok(rules.dj['.validate'].includes("newData.child('at').val() == now") && rules.q.$k.v['.validate'].includes('matches(/^[A-Za-z0-9_-]{11}$/)'));
+});
+
+// ---------- 클럽 노래 예약 (2026-11-20 밤) ----------
+test('노래 예약: 우선 예약이 먼저, 그 안에서는 먼저 건 것부터 나온다. 낡은 예약은 뺀다', async () => {
+  const Y = await import('../src/shared/youtube.ts');
+  const now = 1_800_000_000_000;
+  const raw = {
+    a_0: { v: 'A', u: 'a', n: '가', at: now - 5000 }, b_0: { v: 'B', u: 'b', n: '나', at: now - 4000, p: 1 }, a_1: { v: 'C', u: 'a', n: '가', at: now - 3000, p: 1, t: '제목' },
+    c_0: { v: 'D', u: 'c', n: '다', at: now - Y.DJ_Q_TTL_MS - 1 }, bad: { u: 'x' },
+  };
+  const list = Y.djOrder(raw, now);
+  assert.deepEqual(list.map((e) => e.k), ['b_0', 'a_1', 'a_0']);
+  assert.equal(list[1].t, '제목'); assert.equal(list[0].p, 1); assert.equal(list[2].p, undefined);
+  assert.deepEqual(Y.djOrder(null, now), []);
+  // 한 사람 두 곡: 열쇠가 둘뿐이다
+  assert.equal(Y.DJ_MY_MAX, 2);
+  assert.equal(Y.djSlotKey('me', []), 'me_0');
+  assert.equal(Y.djSlotKey('me', ['me_0', 'you_0', 'you_1']), 'me_1');
+  assert.equal(Y.djSlotKey('me', ['me_1', 'me_0']), null);
+  // 제목
+  assert.equal(Y.djCleanTitle('  가나\n다   라 '), '가나 다 라');
+  assert.equal(Y.djCleanTitle('x'.repeat(200)).length, Y.DJ_TITLE_MAX);
+  assert.equal(Y.djCleanTitle(undefined), ''); assert.equal(Y.djCleanTitle(123), '');
+});
+
+test('노래 예약: 규칙의 숫자가 화면의 숫자와 같고, 넘기는 쓰기는 한 번이다', async () => {
+  const Y = await import('../src/shared/youtube.ts');
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const rules = JSON.parse(read('../database.rules.json')).rules.club;
+  assert.equal(rules['.read'], 'auth != null', '지금 곡과 예약을 한 노드로 같이 읽는다');
+  assert.ok(rules.q.$k['.write'].includes(`data.child('at').val() + ${Y.DJ_Q_TTL_MS}`), '낡은 예약');
+  assert.ok(rules.dj['.write'].includes(`data.child('at').val() + ${Y.DJ_SKIP_MIN_MS}`), '남의 곡 넘기기');
+  assert.ok(rules.dj.t['.validate'].includes(`<= ${Y.DJ_TITLE_MAX}`) && rules.q.$k.t['.validate'].includes(`<= ${Y.DJ_TITLE_MAX}`), '제목 길이');
+  for (let i = 0; i < Y.DJ_MY_MAX; i++) assert.ok(rules.q.$k['.write'].includes(`$k == auth.uid + '_${i}'`), `열쇠 _${i}`);
+  assert.ok(!rules.q.$k['.write'].includes(`auth.uid + '_${Y.DJ_MY_MAX}'`), '그보다 많은 열쇠는 없다');
+  assert.ok(rules.dj['.validate'].includes("!newData.parent().child('q/' + newData.child('k').val()).exists()"), '올린 예약은 같은 쓰기에서 빠져야 한다');
+  const dj = read('../src/game/dj.ts');
+  assert.ok(dj.includes("await update(ref(db), { 'club/dj': { v: head.v, at: serverTimestamp(), u: head.u, n: head.n, k: head.k, ...(head.t ? { t: head.t } : {}) }, [`club/q/${head.k}`]: null });"), '올리기와 예약 지우기를 한 번에');
+  assert.ok(dj.includes("onValue(ref(db, 'club'), (s) => {"), '지금 곡과 예약을 같이 받는다 (따로 받으면 예약만 먼저 와서 잘못 넘긴다)');
+  const world = read('../src/game/world.ts');
+  assert.ok(world.includes('onEnded: (song) => this.dj.ended(song)'), '끝난 곡은 누구 화면이든 넘긴다');
+  assert.deepEqual([...Y.DJ_DEAD_CODES], [100, 101, 150], '없는 영상·막힌 영상만 스스로 넘긴다 (기기 탓인 오류로 남의 곡을 넘기지 않는다)');
 });
 
 // ---------- 2026-11-20 묶음 (v43) ----------

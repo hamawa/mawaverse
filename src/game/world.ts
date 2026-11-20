@@ -11,7 +11,7 @@ import { Engine } from './engine';
 import { Input } from './input';
 import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
-import { O, objectAt, faceChairs, buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, CLUB_FLOOR, CLUB_DANCERS, buildHomeMap, HOME_EXIT_ZONE, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
+import { O, objectAt, faceChairs, buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, CLUB_FLOOR, CLUB_DANCERS, djDeckFor, buildHomeMap, HOME_EXIT_ZONE, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
 import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, playerMapId, isHomeMapId, homeMapId, homeOwnerOf } from '../shared/maps';
 import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, whereLabel, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { openPortalPicker } from './portalui';
@@ -47,7 +47,8 @@ import { HomeMgr, homeOpen } from './home';
 import { openHome, openFurniturePicker, openFurnitureEdit, openGuestbook } from './homeui';
 import { StockMgr } from './stock';
 import { DjMgr } from './dj';
-import { DjPanel, sameSong } from './djui';
+import { DjPanel } from './djui';
+import { DJ_MY_MAX, DJ_DEAD_CODES } from '../shared/youtube';
 import { openStock } from './stockui';
 import { TreeMgr } from './trees';
 import { type HomeData, homeTier, furnitureOf, canTurn, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
@@ -298,9 +299,9 @@ export class World implements WorldCtx {
     this.bugs.start();
     this.dig.start();
     this.stock.start();
-    const djPanel = this.djPanel = new DjPanel({ isAdmin: this.isAdmin, myUid: this.uid, onError: (msg, mine) => { if (mine) this.toast(`🎧 ${msg} 다른 영상을 골라 주세요.`, true); },
-      // 영상이 끝났다 (2026-11-20): 끌 수 있는 사람(튼 사람·DJ 자리에 선 사람·관리자)의 화면이 club/dj 를 지운다. 그 사이 다른 노래로 바뀌었으면 건드리지 않는다
-      onEnded: (song) => { if (sameSong(this.dj.state, song) && (song.u === this.uid || this.isAdmin || this.dj.atBooth())) void this.dj.off(); } });
+    const djPanel = this.djPanel = new DjPanel({ isAdmin: this.isAdmin, myUid: this.uid, onError: (msg, mine, code) => { if (mine) this.toast(`🎧 ${msg}`, true); if (DJ_DEAD_CODES.includes(code) && this.dj.state) this.dj.ended(this.dj.state, 6000); }, // 재생이 막혔거나 없는 영상: 안내를 읽을 시간을 두고 다음 곡으로
+      // 영상이 끝났다: 다음 예약으로 넘긴다. 클럽에 있는 아무 화면이나 할 수 있다 (2026-11-20 밤. 전에는 끌 수 있는 사람의 화면이 지우기만 했다)
+      onEnded: (song) => this.dj.ended(song) });
     this.dj.listen(() => djPanel.set(this.dj.state));
     djPanel.set(this.dj.state); // 클럽에서 시작했으면 구독이 먼저 걸려 있다: 이미 받은 상태를 한 번 그린다
     this.casino.start();
@@ -1232,7 +1233,7 @@ export class World implements WorldCtx {
       if (st) return { x: st.x, y: st.y, text: 'F 낚시 (일어나려면 이동)', kind: 'cast' };
       return { x: this.sitAt.x, y: this.sitAt.y - 1, text: 'F 일어나기', kind: 'sitting' };
     }
-    if (this.mapId === CLUB_MAP_ID && this.dj.atBooth()) return { x: me.x, y: me.y + 1, text: this.dj.state ? 'F 노래 바꾸기·끄기' : 'F 노래 틀기 (유튜브 링크)', kind: 'dj' };
+    if (this.mapId === CLUB_MAP_ID && this.dj.atBooth()) { const d = djDeckFor(me.x, me.y) || { x: me.x, y: me.y + 1 }; return { x: d.x, y: d.y, text: 'F 노래 예약', kind: 'dj' }; } // DJ 기계의 사방에서 (2026-11-20 밤)
     // 마피아 게임 중 참가자: 처치·미션·신고·소집이 F 를 우선 차지한다
     const ma = this.mafia.action();
     if (ma) {
@@ -1590,25 +1591,65 @@ export class World implements WorldCtx {
     this.input.releaseAll();
     openRoulette({ uid: this.uid, nick: this.profile.nick, wallet: this.wallet, toast: (m, e) => this.toast(m, e), log: (t) => this.chat.systemMessage(t), stat: (k) => this.net.stat(k) });
   }
-  // 클럽 DJ (2026-11-19, 사용자 요청): DJ 자리에서 F → 유튜브 링크를 넣어 클럽에 있는 모두에게 튼다. 한 곡씩 덮어쓴다
+  // 클럽 노래 예약 (2026-11-20 밤, 사용자 요청: 노래방처럼. 전에는 DJ 자리에서 한 곡씩 덮어썼다): DJ 기계 옆에서 F → 지금 곡과 예약 목록을 보고, 링크로 예약·우선 예약, 내 예약 취소.
+  // 목록은 열어 둔 동안 저절로 바뀐다 (dj.listen). 예약·취소·넘기기의 판정은 game/dj.ts 와 규칙이 한다
   private openDj(): void {
-    const cur = this.dj.state;
+    const dj = this.dj;
+    const nowEl = el('div', { class: 'dj-now' }), listEl = el('div', { class: 'dj-list' });
     const input = el('input', { type: 'text', maxlength: '200', placeholder: 'https://youtu.be/…' });
-    const body = el('div', { class: 'field' }, [
-      el('label', { text: '유튜브 링크를 붙여 넣으세요. 클럽에 있는 모두에게 같은 지점부터 나옵니다.' }), input,
-      el('div', { class: 'muted', style: 'font-size:12px;line-height:1.5;margin-top:6px', text: `${cur ? `지금은 ${cur.n} 님이 튼 노래가 나오고 있어요. 새로 틀면 바뀝니다. ` : ''}공식 뮤직비디오 가운데에는 다른 사이트에서 재생이 막힌 것이 있어요. 누가 무엇을 틀었는지는 관리자가 볼 수 있습니다.` }),
+    const addBtn = el('button', { class: 'btn primary', text: '예약' }), prioBtn = el('button', { class: 'btn', text: '⚡ 우선 예약' });
+    const body = el('div', { class: 'dj-book' }, [
+      nowEl,
+      el('div', { class: 'dj-sub', text: '예약 목록' }), listEl,
+      el('div', { class: 'field' }, [el('label', { text: '유튜브 링크를 붙여 넣으세요. 클럽에 있는 모두에게 같은 지점부터 나옵니다.' }), input]),
+      el('div', { class: 'row', style: 'gap:6px;justify-content:flex-end' }, [prioBtn, addBtn]),
+      el('div', { class: 'muted', style: 'font-size:12px;line-height:1.5;margin-top:8px', text: `한 사람이 ${DJ_MY_MAX}곡까지 예약할 수 있어요. 우선 예약은 다른 예약보다 먼저 나오고 한 번에 한 곡만 걸 수 있어요. 다른 사이트에서 재생이 막힌 영상은 예약되지 않아요. 누가 무엇을 예약했는지는 관리자가 볼 수 있습니다.` }),
     ]);
-    const play = async (): Promise<void> => {
-      const r = await this.dj.play(input.value);
-      if (r === 'ok') { this.toast('🎧 노래를 틀었습니다.'); m.close(); }
-      else this.toast(r === 'bad' ? '유튜브 링크가 아니에요. 영상 주소를 붙여 넣어 주세요.' : r === 'spot' ? 'DJ 자리에 서 있어야 틀 수 있어요.' : '틀지 못했습니다. 방금 바뀌었다면 5초 뒤에 다시 해 보세요.', true);
+    const FAIL: Record<string, string> = {
+      bad: '유튜브 링크가 아니에요. 영상 주소를 붙여 넣어 주세요.', spot: 'DJ 기계 옆에 서 있어야 예약할 수 있어요.',
+      full: `한 사람이 ${DJ_MY_MAX}곡까지 예약할 수 있어요. 내 예약이 나오거나 취소하면 다시 걸 수 있어요.`, prio: '우선 예약은 한 번에 한 곡만 걸 수 있어요.',
+      blocked: '다른 사이트에서 재생이 막힌 영상이에요. 다른 영상을 골라 주세요.', missing: '없는 영상이거나 비공개예요.', fail: '예약하지 못했습니다. 잠시 뒤에 다시 해 보세요.',
     };
-    const m = modal('🎧 노래 틀기', body, [
-      { label: '닫기', onClick: () => {} },
-      ...(cur ? [{ label: '끄기', danger: true, onClick: async () => { if (await this.dj.off()) this.toast('🎧 노래를 껐습니다.'); else this.toast('끄지 못했습니다.', true); } }] : []),
-      { label: '틀기', primary: true, keep: true, onClick: play },
-    ]);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') void play(); e.stopPropagation(); });
+    const name = (e: { v: string; t?: string }): string => e.t || `유튜브 영상 (${e.v})`;
+    let busy = false;
+    const small = (label: string, run: () => Promise<boolean>, okMsg: string, failMsg: string): HTMLButtonElement => {
+      const b = el('button', { class: 'btn small', text: label });
+      b.onclick = async () => { b.disabled = true; if (await run()) this.toast(okMsg); else { this.toast(failMsg, true); b.disabled = false; } };
+      return b;
+    };
+    const draw = (): void => {
+      const cur = dj.state, mine = dj.mine();
+      nowEl.innerHTML = '';
+      nowEl.append(el('div', { class: 'dj-row' }, [
+        el('div', { class: 'dj-song', text: cur ? `▶ ${name(cur)}` : '지금 나오는 노래가 없어요.' }),
+        ...(cur ? [el('div', { class: 'dj-who', text: cur.n })] : []),
+        ...(cur && dj.canSkip() ? [small('넘기기', () => dj.skip(), '🎧 다음 곡으로 넘겼습니다.', '넘기지 못했습니다.')] : []),
+      ]));
+      listEl.innerHTML = '';
+      if (!dj.queue.length) listEl.append(el('div', { class: 'muted', style: 'font-size:12px;padding:6px 0', text: '예약된 노래가 없어요.' }));
+      dj.queue.forEach((e, i) => listEl.append(el('div', { class: 'dj-row' }, [
+        el('div', { class: 'dj-song', text: `${i + 1}. ${e.p ? '⚡ ' : ''}${name(e)}` }),
+        el('div', { class: 'dj-who', text: e.n }),
+        ...(dj.canCancel(e) ? [small('취소', () => dj.cancel(e.k), '🎧 예약을 취소했습니다.', '취소하지 못했습니다.')] : []),
+      ])));
+      addBtn.disabled = busy || mine.length >= DJ_MY_MAX;
+      prioBtn.disabled = addBtn.disabled || mine.some((e) => !!e.p);
+    };
+    const book = async (prio: boolean): Promise<void> => {
+      if (busy) return;
+      busy = true; draw();
+      const r = await dj.reserve(input.value, prio);
+      busy = false;
+      if (r === 'ok') { this.toast(prio ? '⚡ 우선 예약했습니다.' : '🎧 예약했습니다.'); input.value = ''; }
+      else this.toast(FAIL[r] || FAIL.fail, true);
+      draw();
+    };
+    addBtn.onclick = () => void book(false);
+    prioBtn.onclick = () => void book(true);
+    const off = dj.listen(draw);
+    modal('🎧 노래 예약', body, [{ label: '닫기', onClick: () => {} }], false, off);
+    draw();
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') void book(false); e.stopPropagation(); });
     window.setTimeout(() => input.focus(), 50);
   }
   // 거래소 (2026-11-19, 건의 반영): 내 메뉴에서 연다

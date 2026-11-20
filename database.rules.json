@@ -324,15 +324,30 @@
       "$other": { ".validate": false }
     },
     "club": {
+      ".read": "auth != null",
       "dj": {
-        ".read": "auth != null",
-        ".write": "auth != null && (root.child('admins/' + auth.uid).val() === true || (root.child('players/' + auth.uid + '/m').val() == 'club' && root.child('players/' + auth.uid + '/y').val() == 1 && (root.child('players/' + auth.uid + '/x').val() == 10 || root.child('players/' + auth.uid + '/x').val() == 11)) || (!newData.exists() && data.child('u').val() == auth.uid))",
-        ".validate": "newData.hasChildren(['v', 'at', 'u', 'n']) && newData.child('v').isString() && newData.child('v').val().matches(/^[A-Za-z0-9_-]{11}$/) && newData.child('at').val() == now && newData.child('u').val() == auth.uid && newData.child('n').isString() && newData.child('n').val().length <= 20 && (!data.exists() || now >= data.child('at').val() + 5000)",
-        "v": { ".validate": "newData.isString()" },
+        ".write": "auth != null && (root.child('admins/' + auth.uid).val() === true || (root.child('players/' + auth.uid + '/m').val() == 'club' && (!data.exists() || data.child('u').val() == auth.uid || now >= data.child('at').val() + 10000)))",
+        ".validate": "newData.hasChildren(['v', 'at', 'u', 'n', 'k']) && newData.child('at').val() == now && root.child('club/q/' + newData.child('k').val() + '/v').val() == newData.child('v').val() && root.child('club/q/' + newData.child('k').val() + '/u').val() == newData.child('u').val() && root.child('club/q/' + newData.child('k').val() + '/n').val() == newData.child('n').val() && root.child('club/q/' + newData.child('k').val() + '/t').val() == newData.child('t').val() && !newData.parent().child('q/' + newData.child('k').val()).exists()",
+        "v": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z0-9_-]{11}$/)" },
         "at": { ".validate": "newData.isNumber()" },
         "u": { ".validate": "newData.isString()" },
-        "n": { ".validate": "newData.isString()" },
+        "n": { ".validate": "newData.isString() && newData.val().length <= 20" },
+        "k": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "t": { ".validate": "newData.isString() && newData.val().length <= 80" },
         "$other": { ".validate": false }
+      },
+      "q": {
+        "$k": {
+          ".write": "auth != null && (newData.exists() ? (!data.exists() && ($k == auth.uid + '_0' || $k == auth.uid + '_1') && root.child('players/' + auth.uid + '/m').val() == 'club' && ((root.child('players/' + auth.uid + '/y').val() == 1 && (root.child('players/' + auth.uid + '/x').val() == 10 || root.child('players/' + auth.uid + '/x').val() == 11)) || (root.child('players/' + auth.uid + '/y').val() == 2 && (root.child('players/' + auth.uid + '/x').val() == 9 || root.child('players/' + auth.uid + '/x').val() == 12)) || (root.child('players/' + auth.uid + '/y').val() == 3 && (root.child('players/' + auth.uid + '/x').val() == 10 || root.child('players/' + auth.uid + '/x').val() == 11)))) : (data.child('u').val() == auth.uid || root.child('admins/' + auth.uid).val() === true || now >= data.child('at').val() + 10800000 || (newData.parent().parent().child('dj/k').val() == $k && newData.parent().parent().child('dj/at').val() == now)))",
+          ".validate": "newData.hasChildren(['v', 'u', 'n', 'at']) && newData.child('u').val() == auth.uid && newData.child('at').val() == now && (!newData.child('p').exists() || !newData.parent().child(auth.uid + ($k == auth.uid + '_0' ? '_1' : '_0') + '/p').exists())",
+          "v": { ".validate": "newData.isString() && newData.val().matches(/^[A-Za-z0-9_-]{11}$/)" },
+          "u": { ".validate": "newData.isString()" },
+          "n": { ".validate": "newData.isString() && newData.val().length <= 20" },
+          "at": { ".validate": "newData.isNumber()" },
+          "t": { ".validate": "newData.isString() && newData.val().length <= 80" },
+          "p": { ".validate": "newData.val() === 1" },
+          "$other": { ".validate": false }
+        }
       }
     },
     "duel": {

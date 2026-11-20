@@ -17,6 +17,30 @@ export function youtubeId(text: string): string | null {
   return null;
 }
 
+// ---- 클럽 노래 예약 (2026-11-20 밤. 진행은 game/dj.ts, 규칙은 club 블록) ----
+export const DJ_MY_MAX = 2;                // 한 사람이 걸어 둘 수 있는 예약 (규칙: 예약의 열쇠가 {uid}_0·{uid}_1 둘뿐이다)
+export const DJ_Q_TTL_MS = 3 * 3600_000;   // 이보다 오래된 예약은 버린다 (규칙의 10800000: 그때부터 누구든 지울 수 있다)
+export const DJ_SKIP_MIN_MS = 10_000;      // 남이 선곡한 곡은 튼 지 이만큼 지나야 넘길 수 있다 (규칙의 10000)
+export const DJ_TITLE_MAX = 80;            // 제목 길이 (규칙도 같다)
+export const DJ_DEAD_CODES: readonly number[] = [100, 101, 150]; // 플레이어 오류 가운데 누구에게나 안 나오는 것 (없는 영상·재생이 막힌 영상): 다음 곡으로 넘긴다
+export interface DjEntry { k: string; v: string; u: string; n: string; at: number; t?: string; p?: 1 }
+// 나올 순서: 우선 예약이 먼저, 그 안에서는 먼저 건 것부터. 모양이 틀렸거나 오래된 예약은 뺀다
+export function djOrder(raw: Record<string, Omit<DjEntry, 'k'>> | null | undefined, now: number): DjEntry[] {
+  const list: DjEntry[] = [];
+  for (const [k, e] of Object.entries(raw || {})) {
+    if (!e || typeof e.v !== 'string' || typeof e.u !== 'string' || typeof e.at !== 'number' || now - e.at >= DJ_Q_TTL_MS) continue;
+    list.push({ k, v: e.v, u: e.u, n: typeof e.n === 'string' ? e.n : '', at: e.at, ...(typeof e.t === 'string' && e.t ? { t: e.t } : {}), ...(e.p ? { p: 1 as const } : {}) });
+  }
+  return list.sort((a, b) => (b.p || 0) - (a.p || 0) || a.at - b.at || (a.k < b.k ? -1 : 1));
+}
+// 내 예약을 적을 빈 열쇠 (둘 다 차 있으면 null)
+export function djSlotKey(uid: string, used: readonly string[]): string | null {
+  for (let i = 0; i < DJ_MY_MAX; i++) if (!used.includes(`${uid}_${i}`)) return `${uid}_${i}`;
+  return null;
+}
+// 제목 다듬기: 줄바꿈·겹친 빈칸을 하나로, 길면 자른다
+export function djCleanTitle(t: unknown): string { return typeof t === 'string' ? t.replace(/\s+/g, ' ').trim().slice(0, DJ_TITLE_MAX) : ''; }
+
 // ---- 클럽 DJ 창의 계산 (2026-11-20. 화면은 game/djui.ts) ----
 export const DJ_MIN_EDGE = 200; // 플레이어의 가장 작은 크기 (유튜브 약관: 200×200 이상)
 export const DJ_PAD = 14;       // 패널 테두리·안쪽 여백 (플레이어 너비 + 이만큼 = 패널 너비)
