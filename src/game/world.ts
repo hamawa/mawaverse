@@ -118,6 +118,7 @@ async function loadSavedMap(id: string): Promise<MapData> {
 
 const FX_PREVIEW_MS = 12000;  // 이펙트 미리보기 시간
 const SIT_STEP_MS = 140;      // 앉으러 가구 칸에 오르고 내려서는 걸음의 길이
+const PLAQUE_SHOW_MS = 3000;  // 집 벽의 박제를 눌렀을 때 이름·크기가 보이는 시간
 const CLUB_BPM = 126;        // 클럽의 바닥·춤추는 펫이 맞추는 박자 (곡은 124~128 이라 거의 맞는다)
 const CLUB_DANCE_MS = 8000;  // 클럽에서 이모트 한 번에 춤추는 시간
 const SMASH_CONFIRM_MS = 6000; // 눈사람 부수기: 첫 F 뒤 이 시간 안에 두 번째 F 를 눌러야 한다
@@ -399,7 +400,7 @@ export class World implements WorldCtx {
       if (performance.now() - t.t > 300) return;
       const uid = this.playerAtScreen(t.x, t.y);
       if (uid) this.openPlayerMenu(uid, t.x, t.y);
-      else this.photoClick(t.x, t.y); // 집 벽의 사진을 톡 치면 크게 본다
+      else this.photoClick(t.x, t.y); // 집 벽의 사진을 톡 치면 크게 본다 (박제면 이름·크기를 잠깐 띄운다)
     });
     // 집 벽의 사진을 누르면 크게 본다 (2026-11-20 사용자 요청. 터치는 위의 톡 치기가 처리한다)
     canvas.addEventListener('click', (e) => { if ((e as PointerEvent).pointerType !== 'touch') this.photoClick(e.clientX, e.clientY); });
@@ -1129,6 +1130,8 @@ export class World implements WorldCtx {
     if (m.w !== this.map.w || m.h !== this.map.h) return; // 단계가 바뀐 것은 밖으로 나가는 쪽이 처리한다
     this.setMap(m);
   }
+  // 박제의 이름·크기는 그 액자를 눌렀을 때만 PLAQUE_SHOW_MS 동안 보인다 (2026-11-20 사용자 요청. 늘 떠 있으면 벽 바로 아래에 선 캐릭터를 가린다). 이 화면에만 있는 상태다
+  private plaqueShown: { map: string; slot: number; until: number } | null = null;
   // 집 벽에 건 물고기 박제 (그리기용)
   private homePlaques(): import('./render').RenderState['plaques'] {
     if (!isHomeMapId(this.mapId)) return undefined;
@@ -1140,7 +1143,8 @@ export class World implements WorldCtx {
       const ph = h.ph?.[String(i)];
       if (ph) { out.push({ x, y: 0, icon: '🖼', text: '', img: this.home.photo(owner, i, ph.at), frame: ph.k }); return; } // 사진 액자 (2026-11-20)
       const tr = h.tr?.[String(i)], f = tr ? (fishById(tr.id) ?? winterFishById(tr.id)) : undefined;
-      if (tr && f) out.push({ x, y: 0, icon: f.icon, text: f.name, sub: tr.s ? fmtSize(tr.s) : undefined }); // 이름과 크기는 두 줄로 (2026-11-20)
+      const ps = this.plaqueShown;
+      if (tr && f) out.push({ x, y: 0, icon: f.icon, text: f.name, sub: tr.s ? fmtSize(tr.s) : undefined, show: !!ps && ps.map === this.mapId && ps.slot === i && performance.now() < ps.until }); // 이름과 크기는 두 줄로 (2026-11-20)
     });
     return out;
   }
@@ -1152,15 +1156,17 @@ export class World implements WorldCtx {
     const i = t.trophyX.indexOf(me.x);
     return i >= 0 && h.ph[String(i)] ? { x: me.x, slot: i } : null;
   }
-  // 화면의 그 자리에 사진 액자가 있으면 크게 본다 (서 있는 자리와 무관)
+  // 화면의 그 자리에 사진 액자가 있으면 크게 보고, 물고기 박제면 이름·크기를 잠깐 띄운다 (서 있는 자리와 무관)
   private photoClick(cx: number, cy: number): void {
     if (!isHomeMapId(this.mapId)) return;
     const rect = this.engine.canvas.getBoundingClientRect();
     const [tx, ty] = this.engine.screenToTile(cx - rect.left, cy - rect.top);
     const h = this.home.here(), t = homeTier(h?.t);
-    if (!t || !h?.ph || ty !== 0) return;
+    if (!t || ty !== 0) return;
     const i = t.trophyX.indexOf(tx);
-    if (i >= 0 && h.ph[String(i)]) this.openPhotoSlot(i);
+    if (i < 0) return;
+    if (h?.ph?.[String(i)]) this.openPhotoSlot(i);
+    else if (h?.tr?.[String(i)]) this.plaqueShown = { map: this.mapId, slot: i, until: performance.now() + PLAQUE_SHOW_MS };
   }
   private openPhoto(): void { const pa = this.photoAhead(); if (pa) this.openPhotoSlot(pa.slot); }
   private openPhotoSlot(slot: number): void {

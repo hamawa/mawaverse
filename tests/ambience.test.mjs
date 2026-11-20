@@ -566,3 +566,13 @@ test('입퇴장 알림: 잠깐 끊겼다 돌아온 사람은 알리지 않는다
   assert.equal((src.match(/this\.noteJoined\(/g) || []).length, 1);
   assert.ok(!/this\.notice\(`\$\{rp\.st\.n\} 님이 퇴장했습니다\.`\)/.test(src), '퇴장 알림을 바로 띄우는 곳이 남아 있지 않다');
 });
+
+test('집 벽의 박제 이름·크기는 그 액자를 눌렀을 때만 잠깐 보인다', () => {
+  // 늘 떠 있으면 벽 바로 아래에 선 캐릭터를 가린다 (2026-11-20 사용자 요청)
+  const world = readFileSync(new URL('../src/game/world.ts', import.meta.url), 'utf8');
+  const render = readFileSync(new URL('../src/game/render.ts', import.meta.url), 'utf8');
+  assert.match(world, /const PLAQUE_SHOW_MS = 3000;/);
+  assert.ok(world.includes('else if (h?.tr?.[String(i)]) this.plaqueShown = { map: this.mapId, slot: i, until: performance.now() + PLAQUE_SHOW_MS };'), '박제 액자를 누르면 그 자리만 켠다');
+  assert.ok(world.includes('show: !!ps && ps.map === this.mapId && ps.slot === i && performance.now() < ps.until'), '누른 자리만, 시간이 남았을 때만');
+  assert.ok(render.includes('if (!p.show || (!p.text && !p.sub)) continue;'), '누르지 않은 박제는 글자를 그리지 않는다');
+});

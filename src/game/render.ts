@@ -73,7 +73,7 @@ export interface RenderState {
   fog?: { x: number; y: number; r: number } | null;    // 마피아 안개: 내 캐릭터(타일 좌표) 둘레 r 칸만 보인다
   snow?: SnowView[];  // 겨울 맵의 눈덩이·눈사람 (내 화면에만 있는 장난감, 클라이언트 로컬)
   objAt?: (x: number, y: number, id: number) => number; // 그 칸에 실제로 그릴 오브젝트 (벤 나무는 그루터기·덤불로. 맵 데이터는 그대로라 길은 계속 막힌다)
-  plaques?: { x: number; y: number; icon: string; text: string; sub?: string; img?: CanvasImageSource | null; frame?: number }[]; // 집 벽에 건 물고기 박제·사진 액자 (타일 좌표). text 이름, sub 크기(둘째 줄). img 가 있으면 사진 액자(frame 1 나무 · 2 금테)
+  plaques?: { x: number; y: number; icon: string; text: string; sub?: string; img?: CanvasImageSource | null; frame?: number; show?: boolean }[]; // 집 벽에 건 물고기 박제·사진 액자 (타일 좌표). text 이름, sub 크기(둘째 줄). img 가 있으면 사진 액자(frame 1 나무 · 2 금테)
   roamers?: PetView[]; // 집 안을 돌아다니는 펫 (homepets.ts)
   night?: DayTint | null; // 낮밤 덧칠 (바깥 맵만. shared/daylight.ts)
   treeLook?: 'autumn' | 'blossom' | null; // 계절 나무: 단풍·벚꽃 (shared/season.ts. 소나무는 그대로)
@@ -394,11 +394,12 @@ export function render(eng: Engine, st: RenderState): void {
     if (!eng.isTileVisible(a.x, a.y, -TILE / 2)) drawEdgeArrow(eng, (a.x + 0.5) * TILE, (a.y + 0.5) * TILE, a.label, st.now);
     else { const [ax, ay] = eng.worldToScreen((a.x + 0.5) * TILE, a.y * TILE); drawLabel(ctx, a.label, ax, ay - 4 * s, '#ffd9b0', 'rgba(70, 14, 0, 0.75)', 12, '#ff7a3c'); }
   }
-  // 집 벽의 물고기 박제 이름: 액자 바로 아래, 닉네임 이름표와 같은 크기 (2026-11-18 사용자 요청. 전에는 맵과 함께 확대돼 글자가 컸다). 옆 칸에 붙어 걸린 것은 한 줄 내려 겹치지 않게
+  // 집 벽의 물고기 박제 이름: 액자 바로 아래 (2026-11-18 사용자 요청. 전에는 맵과 함께 확대돼 글자가 컸다). 옆 칸에 붙어 걸린 것은 한 줄 내려 겹치지 않게.
+  // 그 액자를 눌렀을 때만 잠깐 그린다 (show. 2026-11-20 사용자 요청: 늘 떠 있으면 벽 아래에 선 캐릭터를 가린다)
   {
     let prevX = -9, prevLow = false;
     for (const p of [...(st.plaques ?? [])].sort((a, b) => a.x - b.x)) {
-      if (!p.text && !p.sub) continue; // 사진 액자는 글자가 없다 (옆 자리의 글자를 내릴 필요도 없다)
+      if (!p.show || (!p.text && !p.sub)) continue; // 누르지 않은 박제·사진 액자는 글자가 없다 (옆 자리의 글자를 내릴 필요도 없다)
       const low: boolean = p.x - prevX === 1 && !prevLow;
       const [lx, ly] = eng.worldToScreen(p.x * TILE + TILE / 2, p.y * TILE + TILE - 5); // 액자의 아랫변
       // 2026-11-20 사용자 요청: 글자를 작게(12 → 9px), 이름과 크기를 두 줄로 (옆으로 길어지지 않게)
