@@ -1,6 +1,6 @@
 // 바닥/오브젝트 타일을 코드로 그려 캐시한다.
 import { PixelBuf, shade, mix } from './pixel';
-import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O, O_BED, O_CHEST, O_FIREPLACE, O_AQUARIUM, O_PIANO, O_TV, O_GOLD_VASE, O_GOLD_STATUE, O_SPEAKER, O_DJ, WALLPAPER_BASE, WALLPAPER_COUNT } from './map';
+import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O, O_BED, O_CHEST, O_FIREPLACE, O_AQUARIUM, O_PIANO, O_TV, O_GOLD_VASE, O_GOLD_STATUE, O_SPEAKER, O_DJ, O_ARCADE_ZOO, WALLPAPER_BASE, WALLPAPER_COUNT } from './map';
 import { TILE } from '../shared/config';
 import { seededRandom } from '../shared/hash';
 
@@ -515,6 +515,14 @@ function drawObject(id: number): PixelBuf | null {
       tall.circle(16, 24, 7, '#33333f'); tall.circle(16, 24, 4, '#0c0c10'); tall.circle(16, 24, 1, '#55556a');
       tall.circle(16, 46, 9, '#33333f'); tall.circle(16, 46, 6, '#0c0c10'); tall.circle(16, 46, 2, '#55556a');
       tall.px(8, 14, '#ff5ce1'); tall.px(24, 14, '#5cf2ff');
+      return tall.outline(P.outline);
+    case O_ARCADE_ZOO:
+      // 동물원 탈출 오락기: 주황 몸통, 초록 상단, 하늘빛 화면에 동물 얼굴(곰), 조이스틱과 버튼 (두더지 오락기와 같은 틀에 빛깔만 다르게)
+      tall.rect(4, 6, 24, 56, '#e07a2c'); tall.rect(4, 6, 24, 8, '#3f9b4a'); tall.rect(7, 8, 18, 4, '#fff2a8');
+      tall.rect(7, 17, 18, 15, '#1d4a66'); tall.rect(9, 19, 14, 11, '#8fd3ff');
+      tall.circle(16, 25, 4, '#a26a3a'); tall.rect(12, 20, 2, 2, '#a26a3a'); tall.rect(18, 20, 2, 2, '#a26a3a'); tall.px(14, 24, '#222'); tall.px(17, 24, '#222'); tall.rect(15, 26, 2, 1, '#f4d7b0'); tall.px(15, 27, '#222');
+      tall.rect(6, 35, 20, 7, '#f2a654'); tall.rect(9, 37, 3, 3, '#5cc8ff'); tall.rect(14, 37, 3, 3, '#ffd84d'); tall.rect(19, 36, 2, 5, '#222'); tall.rect(18, 34, 4, 3, '#3f9b4a');
+      tall.rect(6, 46, 20, 12, '#b85e1c'); tall.rect(9, 50, 14, 3, '#8a4412');
       return tall.outline(P.outline);
     case O_DJ:
       // 디제이 탁자 (클럽): 턴테이블 둘과 불빛

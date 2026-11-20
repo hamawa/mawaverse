@@ -272,3 +272,93 @@ test('클럽 DJ 자리: 디제이 탁자 바로 뒤이고, 걸어서 갈 수 있
   for (const p of CLUB_DJ_SPOTS) assert.ok(rule['.write'].includes(`/x').val() == ${p.x}`), `규칙에 x=${p.x}`);
   assert.ok(rule['.validate'].includes('matches(/^[A-Za-z0-9_-]{11}$/)') && rule['.validate'].includes("newData.child('at').val() == now"));
 });
+
+// ---------- 2026-11-20 묶음 (v43) ----------
+const RULES43 = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules;
+
+test('마피아 사보타지: 안개·불의 상태와 시간, 불이 나는 자리, 규칙의 숫자', async () => {
+  const M = await import('../src/shared/mafia.ts');
+  const t = 1_000_000_000_000;
+  assert.equal(M.sabState(null, t), 'none');
+  assert.equal(M.sabState({ k: 1, at: t }, t + M.FOG_MS - 1), 'fog');
+  assert.equal(M.sabState({ k: 1, at: t }, t + M.FOG_MS), 'none');
+  assert.equal(M.sabState({ k: 2, at: t }, t + M.FIRE_MS - 1), 'fire');
+  assert.equal(M.sabState({ k: 2, at: t }, t + M.FIRE_MS), 'lost', '제때 못 끄면 마피아 승리');
+  assert.equal(M.sabState({ k: 2, at: t, a: true }, t + 1000), 'fire', '한 곳만 꺼서는 안 끝난다');
+  assert.equal(M.sabState({ k: 2, at: t, a: true, b: true }, t + M.FIRE_MS + 5000), 'none', '둘 다 끄면 끝');
+  assert.equal(M.sabState({ k: 2, at: t, x: true }, t + M.FIRE_MS + 5000), 'none', '회의가 열리면 풀린다');
+  const ids = new Set(M.TASK_DEFS.map((d) => d.id)), at = (id) => M.TASK_DEFS.find((d) => d.id === id).at;
+  for (let i = 0; i < 20; i++) {
+    const [a, b] = M.firePair(t + i * 7919);
+    assert.ok(ids.has(a) && ids.has(b) && a !== b);
+    assert.ok(Math.abs(at(a)[0] - at(b)[0]) + Math.abs(at(a)[1] - at(b)[1]) >= 25, `${a}·${b} 는 서로 멀다`);
+  }
+  assert.ok(M.FIRE_CD_MS > M.FIRE_MS && M.FOG_CD_MS > M.FOG_MS, '걸려 있는 동안에는 또 못 건다');
+  const w = RULES43.mafia.sab['.write'];
+  assert.ok(w.includes(`(data.child('k').val() == 2 ? ${M.FIRE_CD_MS} : ${M.FOG_CD_MS})`) && w.includes(`root.child('mafia/game/at').val() + ${M.FIRE_AFTER_MS} <= now`));
+  assert.ok(RULES43.mafia.roles.$uid['.read'].includes("root.child('mafia/roles/' + auth.uid).val() == 'm'"), '마피아는 동료를 알아볼 수 있다');
+});
+
+test('모닥불·눈사람·사진: 상수가 규칙의 숫자와 같다', async () => {
+  const C = await import('../src/shared/campfire.ts'), H = await import('../src/shared/home.ts'), S = await import('../src/shared/shop.ts');
+  const fw = RULES43.fires.$map.$pos['.write'];
+  assert.ok(fw.includes(`data.child('at').val() + ${C.CAMPFIRE_MS} <= now`) && fw.includes(`/w').val() - ${C.CAMPFIRE_WOOD})`) && fw.includes(`/own/${C.CAMPFIRE_ID}')`));
+  assert.equal(S.itemById(C.CAMPFIRE_ID)?.price, C.CAMPFIRE_PRICE);
+  assert.deepEqual(C.fireXY(C.fireKey(12, 7)), { x: 12, y: 7 });
+  assert.equal(C.fireXY('a_b'), null);
+  assert.equal(C.fireBurning({ u: 'x', at: 1000 }, 1000 + C.CAMPFIRE_MS - 1), true);
+  assert.equal(C.fireBurning({ u: 'x', at: 1000 }, 1000 + C.CAMPFIRE_MS), false);
+  // 눈사람 (game/snowmen.ts 의 숫자는 화면 모듈이라 글자로 본다)
+  const sn = readFileSync(new URL('../src/game/snowmen.ts', import.meta.url), 'utf8');
+  assert.ok(/SNOWMAN_OWN_MAX = 3;/.test(sn) && /SNOWMAN_MS = 60 \* 60 \* 1000;/.test(sn));
+  assert.ok(RULES43.winter.sm.$pos['.write'].includes("data.child('at').val() + 3600000 <= now"));
+  // 사진 액자
+  assert.ok(H.PHOTO_MAX_CHARS < H.PHOTO_RULE_CHARS);
+  assert.ok(RULES43.homepic.$uid.$slot['.validate'].includes(`length <= ${H.PHOTO_RULE_CHARS}`));
+  for (const f of H.PHOTO_FRAMES) { assert.ok(S.itemById(f.item), f.item); assert.ok(RULES43.homes.$uid.ph.$slot['.validate'].includes(`newData.child('k').val() == ${f.k}`)); }
+  assert.equal(H.vaultOf({ vc: 1234.9 }), 1234);
+  assert.equal(H.vaultOf({}), 0);
+  assert.ok(RULES43.homes.$uid.vc['.validate'].includes("root.child('wallet/' + $uid + '/c').val() - newData.parent().parent().parent().child('wallet/' + $uid + '/c').val()"), '금고가 는 만큼 지갑이 줄어야 한다');
+});
+
+test('펫 꾸미기: 품목·이름 다듬기, 바깥 게임 오락기', async () => {
+  const S = await import('../src/shared/shop.ts'), L = await import('../src/shared/links.ts');
+  const ids = [...S.PET_HATS, ...S.PET_GLASSES].map((i) => i.id);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const id of ids) { assert.ok(S.itemById(id), id); assert.equal(S.isOwnItem(id), true); assert.ok(!S.PET_IDS.includes(id)); }
+  assert.equal(S.EQUIP_KEY.pethat, 'ph'); assert.equal(S.EQUIP_KEY.petglass, 'pg');
+  assert.equal(S.isOwnItem(S.PET_NAME_FEE.id), false, '이름 짓기는 소모품 결제');
+  assert.equal(S.cleanPetName('  멍멍이  '), '멍멍이');
+  assert.equal(S.cleanPetName('<b>나</b>'), 'b나/b');
+  assert.equal([...S.cleanPetName('가나다라마바사아자차카')].length, S.PET_NAME_MAX);
+  assert.equal(S.cleanPetName(null), '');
+  for (const g of Object.values(L.GAME_LINKS)) assert.ok(/^https:\/\//.test(g.url) && g.name && g.hint);
+  assert.equal(L.gameLinkOf('zoo')?.url, 'https://zooescape.web.app/');
+  assert.equal(L.gameLinkOf('nope'), null);
+  const { buildDefaultMap, O, O_ARCADE_ZOO, objectAt, validateZone, isWalkable } = await import('../src/game/map.ts');
+  const m = buildDefaultMap();
+  const mole = m.zones.find((z) => z.kind === 'arcade'), zoo = m.zones.find((z) => z.kind === 'link');
+  assert.ok(mole && zoo && validateZone(zoo));
+  assert.equal(objectAt(m, zoo.x, zoo.y), O_ARCADE_ZOO);
+  assert.ok(Math.abs(zoo.x - mole.x) === 1 && zoo.y === mole.y, '두더지 오락기 바로 옆');
+  assert.ok(!Object.values(O).includes(O_ARCADE_ZOO), '편집기 팔레트에는 없다');
+  assert.ok(L.gameLinkOf(zoo.id));
+  assert.equal(isWalkable(m, zoo.x, zoo.y + 1), true, '앞에 설 수 있다');
+});
+
+test('겨울 놀이: 서버의 눈사람 목록으로 맞추면 길을 막고, 다시 채우기는 내 눈사람만 센다', async () => {
+  const { WinterPlay, MAX_SNOWMEN, SNOW_SEEDS } = await import('../src/game/winterplay.ts');
+  const { buildWinterMap } = await import('../src/game/map.ts');
+  const p = new WinterPlay(buildWinterMap());
+  const [sx, sy] = SNOW_SEEDS[0];
+  assert.equal(p.toyAt(sx, sy), true, '시작 눈덩이');
+  p.setMen([{ x: sx, y: sy }, { x: 3, y: 22 }], 0);
+  assert.equal(p.views().filter((v) => v.kind === 'man').length, 2);
+  assert.equal(p.views().some((v) => v.kind === 'ball' && v.x === sx && v.y === sy), false, '눈사람이 선 칸의 눈덩이는 치운다');
+  assert.equal(p.toyAt(3, 22), true);
+  assert.ok(p.manAhead(3, 23, 3), '남이 세운 눈사람도 앞에서 보인다');
+  p.setMen(Array.from({ length: MAX_SNOWMEN + 2 }, (_, i) => ({ x: 3 + i, y: 22 })), 1);
+  assert.equal(p.views().filter((v) => v.kind === 'man').length, MAX_SNOWMEN + 2, '남의 눈사람이 많아도 다 보인다');
+  p.setMen([], 0);
+  assert.equal(p.toyAt(3, 22), false, '녹으면 사라진다');
+});

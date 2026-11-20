@@ -1,4 +1,4 @@
-import { ref, onValue, update, increment, serverTimestamp, set, remove } from 'firebase/database';
+import { ref, get, onValue, update, increment, serverTimestamp, set, remove } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { O, O_BED, O_CHEST, objectAt, homeCanPlace } from './map';
@@ -15,7 +15,7 @@ import type { TreeMgr } from './trees';
 import type { WorldCtx } from './state';
 import { sfx } from './audio';
 import { GOLD_COST } from '../shared/shop';
-import { WALLS, GUEST_MAX, canTurn, turnOf } from '../shared/home';
+import { WALLS, GUEST_MAX, canTurn, turnOf, vaultOf, PHOTO_FRAMES, PHOTO_RULE_CHARS } from '../shared/home';
 
 // 내 집 (2026-11-17, shared/home.ts 머리말에 설계). 이 클래스는 내 homes/{uid} 를 구독하고, 나무 캐기·짓기·창고·겨울잠과 "지금 들어와 있는 집"의 상태를 맡는다.
 // 맵 이동(들어가기·나가기)은 world.ts 가 포탈과 같은 길(usePortal)로 한다.
@@ -323,9 +323,54 @@ export class HomeMgr {
   }
   // 박제: slot 번째 자리에 물고기를 건다 (id 가 없으면 내린다). 규칙이 내 도감에 그 물고기가 있는지 본다
   async setTrophy(slot: number, id: string | null, size = 0): Promise<boolean> {
-    const n = homeTier(this.data?.t)?.trophyX.length ?? 0;
+    const n = homeTier(this.data?.t)?.trophyX.length ?? 0, uid = this.w.uid;
     if (slot < 0 || slot >= n) return false;
-    try { await update(ref(db, `homes/${this.w.uid}/tr`), { [String(slot)]: id ? { id, s: size } : null }); return true; } catch (e) { console.warn('박제 실패', e); return false; }
+    // 박제를 걸면 그 자리의 사진 액자는 내린다 (한 자리에 하나)
+    try { await update(ref(db), { [`homes/${uid}/tr/${slot}`]: id ? { id, s: size } : null, ...(id && this.data?.ph?.[String(slot)] ? { [`homes/${uid}/ph/${slot}`]: null, [`homepic/${uid}/${slot}`]: null } : {}) }); return true; } catch (e) { console.warn('박제 실패', e); return false; }
+  }
+
+  // ---- 금고 (2026-11-20, shared/home.ts): n > 0 넣기 · n < 0 꺼내기. 지갑과 쓰기 한 번에 (꺼낼 때는 지갑 규칙에 맞게 획득 e 도 같이 올린다) ----
+  get vault(): number { return vaultOf(this.data); }
+  async vaultMove(n: number): Promise<'ok' | 'coins' | 'empty' | 'fail'> {
+    const w = this.w, uid = w.uid;
+    if (!this.tier || this.busy || !Number.isInteger(n) || n === 0) return 'fail';
+    if (n > 0 && w.wallet.balance < n) return 'coins';
+    if (n < 0 && this.vault < -n) return 'empty';
+    this.busy = true;
+    try {
+      await update(ref(db), n > 0 ? { [`wallet/${uid}/c`]: increment(-n), [`homes/${uid}/vc`]: increment(n) } : { [`wallet/${uid}/c`]: increment(-n), [`wallet/${uid}/e`]: increment(-n), [`homes/${uid}/vc`]: increment(n) });
+      return 'ok';
+    } catch (e) { console.warn('금고 실패', e); return 'fail'; } finally { this.busy = false; this.listeners.forEach((f) => f()); }
+  }
+
+  // ---- 사진 액자 (2026-11-20, shared/home.ts) ----
+  private pics = new Map<string, { img: HTMLImageElement | null; at: number }>();
+  // 벽에 건 사진 (그리기용): 처음 볼 때, 그리고 사진이 바뀌었을 때(at) 한 번 내려받는다. 아직이면 null
+  photo(owner: string, slot: number, at: number): HTMLImageElement | null {
+    const key = `${owner}|${slot}`, c = this.pics.get(key);
+    if (c && c.at === at) return c.img;
+    const rec = { img: null as HTMLImageElement | null, at };
+    this.pics.set(key, rec);
+    get(ref(db, `homepic/${owner}/${slot}`)).then((s) => {
+      const v = s.val();
+      if (typeof v !== 'string' || !v.startsWith('data:image/jpeg;base64,') || this.pics.get(key) !== rec) return;
+      const im = new Image(); im.onload = () => { rec.img = im; }; im.src = v;
+    }).catch(() => {});
+    return null;
+  }
+  async setPhoto(slot: number, frame: number, dataUrl: string): Promise<'ok' | 'coins' | 'fail'> {
+    const n = homeTier(this.data?.t)?.trophyX.length ?? 0, uid = this.w.uid, fr = PHOTO_FRAMES.find((f) => f.k === frame);
+    if (slot < 0 || slot >= n || this.busy || !fr || !dataUrl.startsWith('data:image/jpeg;base64,') || dataUrl.length > PHOTO_RULE_CHARS) return 'fail';
+    this.busy = true;
+    try {
+      if (!(await this.pay(fr.item))) return 'coins';
+      await update(ref(db), { [`homepic/${uid}/${slot}`]: dataUrl, [`homes/${uid}/ph/${slot}`]: { k: frame, at: serverTimestamp() }, [`homes/${uid}/tr/${slot}`]: null });
+      return 'ok';
+    } catch (e) { console.warn('사진 걸기 실패', e); return 'fail'; } finally { this.busy = false; this.listeners.forEach((f) => f()); }
+  }
+  // 사진 내리기: 주인, 그리고 관리자(남의 집에 걸린 부적절한 사진을 지울 수 있다)
+  async removePhoto(owner: string, slot: number): Promise<boolean> {
+    try { await update(ref(db), { [`homepic/${owner}/${slot}`]: null, [`homes/${owner}/ph/${slot}`]: null }); this.pics.delete(`${owner}|${slot}`); return true; } catch (e) { console.warn('사진 내리기 실패', e); return false; }
   }
 
   // ---- 창고 ----

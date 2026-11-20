@@ -185,7 +185,7 @@ export function contextMenu(x: number, y: number, title: string, items: MenuItem
   document.body.append(m);
   const r = m.getBoundingClientRect();
   m.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
-  m.style.top = Math.min(y, window.innerHeight - r.height - 8) + 'px';
+  m.style.top = Math.max(8, Math.min(y, window.innerHeight - r.height - 8)) + 'px'; // 화면보다 길면 위에 붙이고 메뉴 안에서 스크롤한다
   openMenu = m;
   setTimeout(() => {
     const off = (e: Event) => { if (!m.contains(e.target as Node)) { closeMenu(); document.removeEventListener('mousedown', off); document.removeEventListener('touchstart', off); } };

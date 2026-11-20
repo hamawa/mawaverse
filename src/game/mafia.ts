@@ -7,6 +7,7 @@ import { serverNow } from '../firebase/db';
 import {
   MAFIA_MIN, MAFIA_MAX, TASKS_PER_PLAYER, TASK_HOLD_MS, KILL_CD_MS, MEET_DISCUSS_MS, MEET_VOTE_MS, MEET_RESULT_MS, GAME_MAX_MS, END_SHOW_MS, WIN_COINS,
   TASK_DEFS, mafiaCountFor, taskProgress, aliveCount, tallyVotes, type MafiaGame, type Role, type TaskDef,
+  FOG_MS, FIRE_MS, FIRE_HOLD_MS, FIRE_AFTER_MS, FIRE_GRACE_MS, firePair, sabCooldownMs, sabState, type MafiaSab,
 } from '../shared/mafia';
 import { nearZone, type Zone } from './map';
 import type { WorldCtx } from './state';
@@ -18,6 +19,7 @@ export type MafiaAction =
   | { kind: 'kill'; uid: string; nick: string }
   | { kind: 'task'; spot: TaskSpot; fake: boolean }
   | { kind: 'report'; uid: string; nick: string }
+  | { kind: 'fire'; spot: TaskSpot; i: number }
   | { kind: 'button' };
 
 export class MafiaMgr {
@@ -30,6 +32,14 @@ export class MafiaMgr {
   private holdStart = 0;                    // 미션 F 누르기 시작 (performance.now)
   private holdSpot: TaskSpot | null = null;
   private holdFake = false;
+  private holdFire = -1;                    // 불 끄는 중인 자리 (0·1. 아니면 -1)
+  sab: MafiaSab | null = null;              // 걸려 있는 사보타지 (mafia/sab)
+  private sabSeen = 0;                      // 알린 사보타지의 시각 (내가 건 것은 추정값 → 서버 값으로 두 번 온다: 가까운 시각은 같은 것으로 본다)
+  private fireDoneSeen = 0;
+  mates = new Set<string>();                // 같은 편 마피아 (내가 마피아일 때만 채운다)
+  private matesFor = '';
+  onInvite: ((nick: string) => void) | null = null; // 초대를 받았다 (world 가 알림을 띄운다)
+  private invSeen = 0;
   private tallying = false;
   private lastHostAct = -1e9;
   private endHandled = '';                  // 종료 처리한 게임 at
@@ -52,7 +62,17 @@ export class MafiaMgr {
     }
     this.board = m.zones.find((z) => z.kind === 'board');
     this.unsubs.push(onValue(ref(db, 'mafia/game'), (s) => { this.game = (s.val() as MafiaGame | null) || null; this.onGame(); }));
-    this.unsubs.push(onValue(ref(db, `mafia/roles/${w.uid}`), (s) => { const v = s.val(); this.role = v === 'm' || v === 'c' ? v : null; this.emit(); }));
+    this.unsubs.push(onValue(ref(db, `mafia/roles/${w.uid}`), (s) => { const v = s.val(); this.role = v === 'm' || v === 'c' ? v : null; this.loadMates(); this.emit(); }));
+    this.unsubs.push(onValue(ref(db, 'mafia/sab'), (s) => { const v = s.val() as MafiaSab | null; this.sab = v && typeof v.at === 'number' ? v : null; this.onSab(); this.emit(); }));
+    // 초대 (2026-11-20): 로비에 있는 사람이 mafia/inv/{내 uid} 에 적는다. 받으면 알리고 바로 지운다
+    this.unsubs.push(onValue(ref(db, `mafia/inv/${w.uid}`), (s) => {
+      const v = s.val() as { f?: string; n?: string; at?: number } | null;
+      if (!v || typeof v.at !== 'number') return;
+      set(ref(db, `mafia/inv/${w.uid}`), null).catch(() => {});
+      if (v.at === this.invSeen || serverNow() - v.at > 60000) return;
+      this.invSeen = v.at;
+      if (this.game?.st === 'lobby' && !this.isParticipant(w.uid)) this.onInvite?.(String(v.n || '누군가').slice(0, 20));
+    }));
   }
   stop(): void { this.unsubs.forEach((u) => u()); this.unsubs = []; this.listeners.clear(); clearTimeout(this.cleanupTimer); }
   listen(f: () => void): () => void { this.listeners.add(f); return () => this.listeners.delete(f); }
@@ -95,7 +115,9 @@ export class MafiaMgr {
     const t = this.game?.tasks?.[this.w.uid]; if (!t) return [];
     return Object.entries(t).map(([id, done]) => ({ spot: this.spots.find((s) => s.def.id === id)!, done })).filter((x) => x.spot);
   }
-  holdProgress(): number { return this.holdStart ? Math.min(1, (performance.now() - this.holdStart) / TASK_HOLD_MS) : 0; }
+  private holdMs(): number { return this.holdFire >= 0 ? FIRE_HOLD_MS : TASK_HOLD_MS; }
+  holdProgress(): number { return this.holdStart ? Math.min(1, (performance.now() - this.holdStart) / this.holdMs()) : 0; }
+  holdingFire(): boolean { return !!this.holdStart && this.holdFire >= 0; }
   holding(): TaskSpot | null { return this.holdStart ? this.holdSpot : null; }
   killCooldownLeft(): number { return Math.max(0, KILL_CD_MS - (performance.now() - this.lastKill)); }
 
@@ -107,8 +129,12 @@ export class MafiaMgr {
     if (this.isAlive(w.uid)) {
       // 시체 신고
       for (const [uid, b] of Object.entries(g.bodies || {})) if (near(b.x, b.y)) return { kind: 'report', uid, nick: b.n };
-      // 긴급 소집 (게시판 옆, 1인 1회). 2026-11-10 분수 → 게시판 (분수는 미션 자리라 소집이 먼저 잡혀 미션을 못 했다)
-      if (this.board && !g.used?.[w.uid] && nearZone(this.board, me.x, me.y, 1)) return { kind: 'button' };
+      // 불 끄기 (사보타지): 시민은 신고 다음으로 먼저. 마피아는 옆에 처치할 사람이 없을 때만 (끄는 척도 할 수 있다)
+      const fires = this.fireSpots();
+      const fire = fires.findIndex((f) => !f.out && near(f.spot.x, f.spot.y));
+      if (fire >= 0 && this.role !== 'm') return { kind: 'fire', spot: fires[fire].spot, i: fire };
+      // 긴급 소집 (게시판 옆, 1인 1회). 2026-11-10 분수 → 게시판 (분수는 미션 자리라 소집이 먼저 잡혀 미션을 못 했다). 불이 난 동안에는 못 한다
+      if (this.board && !g.used?.[w.uid] && !fires.length && nearZone(this.board, me.x, me.y, 1)) return { kind: 'button' };
       // 마피아: 옆의 산 참가자 처치
       if (this.role === 'm') {
         for (const rp of w.players.values()) {
@@ -116,6 +142,7 @@ export class MafiaMgr {
           if (near(Math.round(rp.x), Math.round(rp.y))) return { kind: 'kill', uid: rp.uid, nick: rp.st.n };
         }
       }
+      if (fire >= 0) return { kind: 'fire', spot: fires[fire].spot, i: fire };
     }
     // 미션 (유령도 가능). 마피아는 가짜 미션(동작만)
     const mine = g.tasks?.[w.uid] || {};
@@ -170,12 +197,13 @@ export class MafiaMgr {
         'mafia/roles': roles,
         'mafia/chat': null,
         'mafia/game': { st: 'play', host: w.uid, at: serverTimestamp(), n: 0, players, tasks, bodies: null, meet: null, used: null, end: null },
+        'mafia/sab': null,
       });
       return 'ok';
     } catch (e) { console.warn('start failed', e); return 'fail'; }
   }
   private async clearGame(): Promise<void> {
-    await update(ref(db), { 'mafia/game': null, 'mafia/roles': null, 'mafia/chat': null }).catch(() => {});
+    await update(ref(db), { 'mafia/game': null, 'mafia/roles': null, 'mafia/chat': null, 'mafia/sab': null }).catch(() => {});
   }
 
   // ---- 행동 ----
@@ -198,14 +226,73 @@ export class MafiaMgr {
   // 미션: F 를 누르고 있는 동안 tick 이 진행도를 올린다. 움직이면 취소
   beginTask(spot: TaskSpot, fake: boolean): void {
     if (this.holdStart) return;
-    this.holdStart = performance.now(); this.holdSpot = spot; this.holdFake = fake;
+    this.holdStart = performance.now(); this.holdSpot = spot; this.holdFake = fake; this.holdFire = -1;
   }
-  cancelTask(): void { if (this.holdStart) { this.holdStart = 0; this.holdSpot = null; } }
+  beginFire(spot: TaskSpot, i: number): void {
+    if (this.holdStart) return;
+    this.holdStart = performance.now(); this.holdSpot = spot; this.holdFake = false; this.holdFire = i;
+  }
+  cancelTask(): void { if (this.holdStart) { this.holdStart = 0; this.holdSpot = null; this.holdFire = -1; } }
+  // 회의를 여는 쓰기에 같이 싣는다: 걸려 있던 사보타지는 회의가 열리면 풀린다 (지우지 않고 x 표시: 다시 쓰기까지의 대기는 남는다)
+  private sabOff(): Record<string, unknown> { return this.sab && !this.sab.x ? { 'mafia/sab/x': true } : {}; }
+
+  // ---- 사보타지 (shared/mafia.ts 머리말) ----
+  sabNow(): 'none' | 'fog' | 'fire' | 'lost' { const g = this.game; return g && g.st === 'play' && !g.meet ? sabState(this.sab, serverNow()) : 'none'; }
+  sabLeftMs(): number { const s = this.sab, st = this.sabNow(); return s && st === 'fog' ? Math.max(0, FOG_MS - (serverNow() - s.at)) : s && st === 'fire' ? Math.max(0, FIRE_MS - (serverNow() - s.at)) : 0; }
+  // 안개가 내 화면을 가리나: 살아 있는 시민 참가자만 (마피아·유령·구경꾼은 그대로 본다)
+  fogged(): boolean { const w = this.w; return this.sabNow() === 'fog' && this.isAlive(w.uid) && this.role !== 'm' && w.mapId === MAIN_MAP_ID; }
+  // 불이 난 두 자리 (불이 난 동안만. 미션 자리가 맵에 없으면 앞·뒤에서 대신 고른다)
+  fireSpots(): { spot: TaskSpot; out: boolean }[] {
+    const s = this.sab;
+    if (!s || this.sabNow() !== 'fire' || this.spots.length < 2) return [];
+    const [ia, ib] = firePair(s.at);
+    const a = this.spots.find((x) => x.def.id === ia) ?? this.spots[0], b = this.spots.find((x) => x.def.id === ib && x !== a) ?? this.spots.filter((x) => x !== a).slice(-1)[0];
+    return [{ spot: a, out: !!s.a }, { spot: b, out: !!s.b }];
+  }
+  sabCooldownLeft(kind: number): number {
+    const g = this.game, s = this.sab, now = serverNow();
+    let left = s ? sabCooldownMs(s.k) - (now - s.at) : 0;
+    if (kind === 2 && g) left = Math.max(left, FIRE_AFTER_MS - (now - g.at));
+    return Math.max(0, left);
+  }
+  canSabotage(): boolean { const g = this.game, w = this.w; return !!g && g.st === 'play' && !g.meet && this.role === 'm' && this.isAlive(w.uid); }
+  async sabotage(kind: 1 | 2): Promise<boolean> {
+    if (!this.canSabotage() || this.sabCooldownLeft(kind) > 0 || this.sabNow() === 'fire') return false;
+    try { await set(ref(db, 'mafia/sab'), { k: kind, at: serverTimestamp() }); return true; } catch (e) { console.warn('sabotage failed', e); return false; }
+  }
+  // 사보타지가 바뀔 때: 새로 걸렸으면 참가자에게 알린다 (화면 가운데 알림은 world 의 'mafiaSab' 이벤트가 띄운다)
+  private onSab(): void {
+    const s = this.sab, w = this.w;
+    if (!s) { this.sabSeen = 0; this.fireDoneSeen = 0; return; }
+    if (!this.isParticipant(w.uid) || this.game?.st !== 'play') return;
+    if (Math.abs(s.at - this.sabSeen) > 5000 && !s.x && serverNow() - s.at < 10000) { this.sabSeen = s.at; w.events.emit('mafiaSab', { kind: s.k, mafia: this.role === 'm' }); }
+    if (s.k === 2 && s.a && s.b && Math.abs(s.at - this.fireDoneSeen) > 5000) { this.fireDoneSeen = s.at; if (!s.x) w.toast('🔥 불을 모두 껐습니다!'); }
+  }
+  // 같은 편 마피아 (2026-11-20 건의): 마피아는 다른 참가자의 역할을 읽을 수 있다(규칙). 게임마다 한 번 읽는다
+  private loadMates(): void {
+    const g = this.game, w = this.w;
+    if (!g || g.st === 'lobby' || this.role !== 'm') { if (!g || g.st === 'lobby') { this.mates.clear(); this.matesFor = ''; } return; }
+    const key = String(g.host) + '|' + Object.keys(g.players || {}).sort().join(',');
+    if (this.matesFor === key) return;
+    this.matesFor = key;
+    for (const uid of Object.keys(g.players || {})) {
+      if (uid === w.uid) continue;
+      get(ref(db, `mafia/roles/${uid}`)).then((s) => { if (s.val() === 'm' && this.matesFor === key) { this.mates.add(uid); this.emit(); } }).catch(() => {});
+    }
+  }
+  isMate(uid: string): boolean { return this.role === 'm' && this.mates.has(uid) && !!this.game && this.game.st !== 'lobby'; }
+  // 초대 (2026-11-20 건의): 로비에 있는 사람이 접속자를 골라 부른다. 한 사람에게 10초에 한 번(규칙)
+  async invite(uids: string[]): Promise<number> {
+    const g = this.game, w = this.w;
+    if (!g || g.st !== 'lobby' || !this.isParticipant(w.uid)) return 0;
+    const rs = await Promise.allSettled(uids.slice(0, 20).map((u) => set(ref(db, `mafia/inv/${u}`), { f: w.uid, n: w.profile.nick, at: serverTimestamp() })));
+    return rs.filter((r) => r.status === 'fulfilled').length;
+  }
   // 시체 신고: 회의를 열면서 그 시체는 바로 치운다 (2026-11-10. 신고 안 된 다른 시체는 회의가 끝날 때 정리)
   async report(bodyUid: string): Promise<boolean> {
     const g = this.game, w = this.w;
     if (!g || g.st !== 'play' || g.meet || !this.isAlive(w.uid)) return false;
-    try { await update(ref(db), { 'mafia/game/meet': { by: w.uid, kind: 'report', body: bodyUid, at: serverTimestamp() }, [`mafia/game/bodies/${bodyUid}`]: null }); return true; } catch { return false; }
+    try { await update(ref(db), { 'mafia/game/meet': { by: w.uid, kind: 'report', body: bodyUid, at: serverTimestamp() }, [`mafia/game/bodies/${bodyUid}`]: null, ...this.sabOff() }); return true; } catch { return false; }
   }
   // 미션 표시용 (2026-11-10): 시민·유령은 내 미완료 미션(화살표·금색 테두리), 마피아는 모든 미션 자리(흐린 테두리, 가짜 미션용)
   marks(): { spots: TaskSpot[]; mine: boolean } | null {
@@ -216,8 +303,8 @@ export class MafiaMgr {
   }
   async callMeeting(): Promise<boolean> {
     const g = this.game, w = this.w;
-    if (!g || g.st !== 'play' || g.meet || !this.isAlive(w.uid) || g.used?.[w.uid]) return false;
-    try { await update(ref(db), { 'mafia/game/meet': { by: w.uid, kind: 'button', at: serverTimestamp() }, [`mafia/game/used/${w.uid}`]: true }); return true; } catch { return false; }
+    if (!g || g.st !== 'play' || g.meet || !this.isAlive(w.uid) || g.used?.[w.uid] || this.sabNow() === 'fire') return false;
+    try { await update(ref(db), { 'mafia/game/meet': { by: w.uid, kind: 'button', at: serverTimestamp() }, [`mafia/game/used/${w.uid}`]: true, ...this.sabOff() }); return true; } catch { return false; }
   }
   async vote(target: string): Promise<boolean> {
     const g = this.game, w = this.w;
@@ -231,10 +318,12 @@ export class MafiaMgr {
     // 미션 버티기
     if (this.holdStart) {
       if (w.me.moving || !g || g.st !== 'play' || g.meet) this.cancelTask();
-      else if (now - this.holdStart >= TASK_HOLD_MS) {
-        const spot = this.holdSpot!; const fake = this.holdFake;
-        this.holdStart = 0; this.holdSpot = null;
-        if (!fake) {
+      else if (this.holdFire >= 0 && !this.fireSpots().some((f, i) => i === this.holdFire && !f.out)) this.cancelTask(); // 끄던 불이 이미 꺼졌거나 사보타지가 끝났다
+      else if (now - this.holdStart >= this.holdMs()) {
+        const spot = this.holdSpot!; const fake = this.holdFake; const fire = this.holdFire;
+        this.holdStart = 0; this.holdSpot = null; this.holdFire = -1;
+        if (fire >= 0) { set(ref(db, `mafia/sab/${fire ? 'b' : 'a'}`), true).catch(() => {}); w.toast('🔥 불을 껐습니다!'); sfx('on'); }
+        else if (!fake) {
           set(ref(db, `mafia/game/tasks/${w.uid}/${spot.def.id}`), true).catch(() => {});
           w.toast(`✅ ${spot.def.verb} 완료!`);
         } else w.toast('…그런 척했다.');
@@ -285,7 +374,9 @@ export class MafiaMgr {
     const now = serverNow();
     const { done, total } = taskProgress(g);
     let win: Role | null = null, reason = '';
-    if (total > 0 && done >= total) { win = 'c'; reason = '미션을 모두 끝냈다!'; }
+    const sb = this.sab;
+    if (sb && !g.meet && sabState(sb, now) === 'lost' && now - sb.at >= FIRE_MS + FIRE_GRACE_MS) { win = 'm'; reason = '불을 끄지 못해 마을이 타 버렸다…'; }
+    else if (total > 0 && done >= total) { win = 'c'; reason = '미션을 모두 끝냈다!'; }
     else if (now - g.at > GAME_MAX_MS) { win = 'c'; reason = '15분을 버텨냈다!'; }
     else {
       if (!this.rolesCache) { try { this.rolesCache = (await get(ref(db, 'mafia/roles'))).val() as Record<string, Role> | null; } catch { this.rolesCache = null; } }
@@ -305,10 +396,11 @@ export class MafiaMgr {
   private onGame(): void {
     const g = this.game, w = this.w;
     if (!g) { this.rolesCache = null; this.endHandled = ''; this.lobbyToastFor = ''; }
+    this.loadMates();
     // 모집 알림 (내가 연 게 아니면 한 번)
     if (g?.st === 'lobby' && g.host !== w.uid && this.lobbyToastFor !== g.host + g.at) {
       this.lobbyToastFor = g.host + g.at;
-      if (!this.isParticipant(w.uid)) w.toast(`🕵 ${g.players?.[g.host]?.n || '누군가'} 님이 마피아 모집 중! 내 메뉴 → 🕵 마피아`);
+      if (!this.isParticipant(w.uid)) { w.toast(`🕵 ${g.players?.[g.host]?.n || '누군가'} 님이 마피아 모집 중! 내 메뉴 → 🕵 마피아`); w.events.emit('mafiaLobby', { nick: g.players?.[g.host]?.n || '누군가' }); }
     }
     // 유령 채팅 켜고 끄기
     const ghost = this.isGhost(w.uid);

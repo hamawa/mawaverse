@@ -70,6 +70,8 @@ export type WorldEvents = {
   wave: [number, number, number, number]; // 장풍이 나에게 날아왔다 (fx, fy, tx, ty): 💨 효과용
   hook: [number, number, number, number]; // 갈고리가 나에게 날아왔다 (fx, fy, tx, ty): ⚓ 효과용
   ghost: [boolean];                 // 마피아: 내가 유령이 됐다/풀렸다 (유령 채팅 구독 전환)
+  mafiaLobby: [{ nick: string }];   // 마피아 모집이 열렸다 (화면 가운데 알림)
+  mafiaSab: [{ kind: number; mafia: boolean }]; // 마피아 사보타지가 걸렸다 (1 안개 · 2 불)
 };
 
 // 모듈 간 공유되는 월드 컨텍스트 (world.ts 의 World 클래스가 구현)

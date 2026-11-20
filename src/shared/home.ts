@@ -10,7 +10,16 @@
 // - 겨울잠: 내 집 침대에서 SLEEP_MS 를 자면 물고기 SHIELD_FISH 마리를 먹고 든든함 +1 (최대 SHIELD_MAX). 든든함 하나가 빠따 한 번을 막는다 (상대 빠따는 그대로 소모)
 //   "하루 동안 빠따 면역"은 넣지 않았다: 갑옷·펫 방어를 대부분 갖춰 빠따가 유일한 공격 수단이라, 집 있는 사람이 전부 면역이 되면 빠따가 쓸모없어진다
 // 꾸미기 (2026-11-17 저녁, 사용자 요청): fu 만든 가구 종류(오브젝트 id → true. 한 번 만들면 몇 개든 놓는다), d 놓은 가구("x_y" → 오브젝트 id), fl 바닥재(바닥 id), tr 박제(자리 번호 → { id 물고기, s 크기 })
-export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number; fu?: Record<string, true>; d?: Record<string, number>; dr?: Record<string, number>; fl?: number; wl?: number; tr?: Record<string, { id: string; s?: number }>; gb?: Record<string, GuestNote> }
+export interface HomeData { t?: number; w?: number; wa?: number; f?: number; fa?: number; s?: number; lk?: boolean | null; sh?: number; fu?: Record<string, true>; d?: Record<string, number>; dr?: Record<string, number>; fl?: number; wl?: number; tr?: Record<string, { id: string; s?: number }>; gb?: Record<string, GuestNote>; vc?: number; ph?: Record<string, { k: number; at: number }> }
+// 금고 (2026-11-20 건의): vc = 넣어 둔 코인. 이자는 없다 (가만히 있어도 코인이 생기는 길을 만들지 않는다). 넣고 빼는 쓰기는 지갑과 한 번에 가고, 규칙이 "금고가 는 만큼 지갑이 줄었는가"를 본다
+// 사진 액자 (2026-11-20 사용자 요청): ph/{자리} = { k: 액자 종류, at }. 자리는 박제와 같은 벽 자리를 쓴다 (한 자리에 박제 아니면 사진). 사진 자체는 homepic/{uid}/{자리} 에 따로 둔다:
+// homes/{uid} 는 주인이 늘 구독하고 손님도 들어와 있는 동안 구독하므로, 거기에 사진을 넣으면 집 값이 바뀔 때마다 사진까지 다시 내려받게 된다.
+// 무료 플랜이라 사진 저장소(Storage)를 쓸 수 없어 DB 에 글자(JPEG data URL)로 넣는다. 올릴 때 화면이 줄인다 (PHOTO_EDGE·PHOTO_MAX_CHARS. 규칙의 한도는 조금 넉넉하다)
+export const PHOTO_FRAMES: readonly { k: number; item: string; name: string }[] = [{ k: 1, item: 'frame1', name: '나무 액자' }, { k: 2, item: 'frame2', name: '금테 액자' }];
+export const PHOTO_EDGE = 480;          // 긴 변 (px)
+export const PHOTO_MAX_CHARS = 80000;   // data URL 길이 (약 60KB)
+export const PHOTO_RULE_CHARS = 120000; // 규칙이 받는 최대 길이
+export function vaultOf(h: HomeData | null | undefined): number { const v = h?.vc; return typeof v === 'number' && v > 0 ? Math.floor(v) : 0; }
 // 방명록 (2026-11-18): homes/{주인}/gb/{쓴 사람 uid} = 한 사람이 한 집에 한 줄 (다시 쓰면 바뀐다). 쓴 사람과 집주인이 지울 수 있다
 export interface GuestNote { n: string; t: string; at: number }
 export const GUEST_MAX = 60; // 한 줄의 글자 수 (규칙과 같아야 한다)

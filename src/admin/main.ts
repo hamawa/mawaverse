@@ -119,7 +119,7 @@ async function deleteUserData(uid: string, u: UserProfile, action = 'delete-user
   const upd: Record<string, null> = {
     [`signups/${uid}`]: null, [`approved/${uid}`]: null,
     [`users/${uid}`]: null, [`ids/${safeKey(idKey(u.id))}`]: null, [`nicknames/${nickKey(u.nick)}`]: null,
-    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`stock/h/${uid}`]: null, [`duelInv/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null, [`homes/${uid}`]: null, ...(await guestNotesOf(uid)), [`winter/events/${uid}`]: null,
+    [`players/${uid}`]: null, [`sessions/${uid}`]: null, [`chat/whisper/${uid}`]: null, [`stock/h/${uid}`]: null, [`homepic/${uid}`]: null, [`duelInv/${uid}`]: null, [`fish/book/${uid}`]: null, [`bug/book/${uid}`]: null, [`wallet/${uid}`]: null, [`homes/${uid}`]: null, ...(await guestNotesOf(uid)), [`winter/events/${uid}`]: null,
   };
   await update(ref(db), upd);
   adminLog(action, uid, action === 'reject' ? undefined : u.id);

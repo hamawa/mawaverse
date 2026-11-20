@@ -39,6 +39,8 @@ export const O_FIREPLACE = 36, O_AQUARIUM = 37, O_PIANO = 38, O_TV = 39, O_GOLD_
 export const WALLPAPER_BASE = 42, WALLPAPER_COUNT = 3;
 // 클럽 (2026-11-18): 스피커(두 칸 높이)와 디제이 탁자
 export const O_SPEAKER = 51, O_DJ = 52;
+// 바깥 게임으로 가는 오락기 (2026-11-20, 사용자 요청: 동물원 탈출 대소동). zone kind 'link' 와 함께 놓는다. 편집기 팔레트에는 없다 (라이브 맵에는 admin SDK 로 넣는다)
+export const O_ARCADE_ZOO = 53;
 export function wallpaperObjects(n: number | null | undefined): { wall: number; side: number; window: number } | null {
   if (!n || n < 1 || n > WALLPAPER_COUNT || n % 1 !== 0) return null;
   const b = WALLPAPER_BASE + (n - 1) * 3;
@@ -49,11 +51,11 @@ export const WALKABLE_OBJECTS = new Set<number>([O.NONE, O.MAT]);
 // 들어갈 수 없는 바닥. 물은 수영으로 들어갈 수 있으므로 현재 비어 있음
 export const SOLID_GROUND = new Set<number>([G_GOLD, G_ICE_HOLE]);
 // 2타일 높이로 그려지는 오브젝트 (아랫칸 기준, 윗칸을 덮음)
-export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE, O_GOLD_STATUE, O_SPEAKER]);
+export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE, O_GOLD_STATUE, O_SPEAKER, O_ARCADE_ZOO]);
 
 export interface Zone {
   id: string;
-  kind: 'room' | 'casino' | 'board' | 'label' | 'fish' | 'arcade' | 'portal' | 'mine'; // mine: 거대한 금덩어리(금광 맵에만. 그림 한 장으로 그린다), room: 옛 커피 내기 방(2026-11-12 에 없앴다. 저장된 맵에 남아 있어도 아무 동작 없다), casino: 카지노(정원 있음. 들어가면 자리에 고정), fish: 낚시 기록 표지판, arcade: 두더지 잡기 오락기 (옆에서 F), portal: 다른 맵으로 이동
+  kind: 'room' | 'casino' | 'board' | 'label' | 'fish' | 'arcade' | 'portal' | 'mine' | 'link'; // link: 바깥 게임으로 가는 오락기 (옆에서 F → 확인 창 → 새 탭. 어디로 가는지는 zone id 로 shared/links.ts 에서 찾는다), mine: 거대한 금덩어리(금광 맵에만. 그림 한 장으로 그린다), room: 옛 커피 내기 방(2026-11-12 에 없앴다. 저장된 맵에 남아 있어도 아무 동작 없다), casino: 카지노(정원 있음. 들어가면 자리에 고정), fish: 낚시 기록 표지판, arcade: 두더지 잡기 오락기 (옆에서 F), portal: 다른 맵으로 이동
   x: number; y: number; w: number; h: number;
   cap?: number;
   door?: { x: number; y: number };
@@ -121,7 +123,7 @@ export function validateZone(z: unknown): z is Zone {
   if (!Number.isInteger(zone.w) || (zone.w as number) <= 0) return false;
   if (!Number.isInteger(zone.h) || (zone.h as number) <= 0) return false;
   if (zone.kind === 'portal') return validatePortalZone(z);
-  const validKinds = new Set(['room', 'casino', 'board', 'label', 'fish', 'arcade']);
+  const validKinds = new Set(['room', 'casino', 'board', 'label', 'fish', 'arcade', 'link']);
   if (typeof zone.kind !== 'string' || !validKinds.has(zone.kind)) return false;
   return true;
 }
@@ -325,7 +327,12 @@ export function buildDefaultMap(): MapData {
   m.zones.push({ id: 'fishsign', kind: 'fish', x: 45, y: 20, w: 1, h: 1, label: '낚시 기록' });
   // 광장 오른쪽 위 구석의 두더지 잡기 오락기
   for (const [ax, ay] of [[38, 15], [37, 15], [38, 16], [21, 15]]) {
-    if (m.objects[ay * m.w + ax] === O.NONE) { setO(ax, ay, O.ARCADE); m.zones.push({ id: 'arcade', kind: 'arcade', x: ax, y: ay, w: 1, h: 1, label: '두더지 잡기' }); break; }
+    if (m.objects[ay * m.w + ax] === O.NONE) {
+      setO(ax, ay, O.ARCADE); m.zones.push({ id: 'arcade', kind: 'arcade', x: ax, y: ay, w: 1, h: 1, label: '두더지 잡기' });
+      // 그 옆에 동물원 탈출 오락기 (2026-11-20. zone id 'zoo' 가 shared/links.ts 의 주소를 가리킨다). 왼쪽 칸의 화초는 치우고 그 자리에 (사용자 결정. 라이브 맵도 같다)
+      for (const zx of [ax - 1, ax + 1]) { const zo = m.objects[ay * m.w + zx]; if (zo === O.NONE || (zx === ax - 1 && zo === O.PLANT)) { setO(zx, ay, O_ARCADE_ZOO); m.zones.push({ id: 'zoo', kind: 'link', x: zx, y: ay, w: 1, h: 1, label: '동물원 탈출 대소동' }); break; } }
+      break;
+    }
   }
   m.zones.push({ id: 'lbl-park', kind: 'label', x: 40, y: 13, w: 19, h: 25, label: '공원' });
 

@@ -30,6 +30,7 @@ export class WinterPlay {
   private map: MapData;
   private balls: Ball[] = [];
   private men: { x: number; y: number }[] = [];
+  private ownMen: number | null = null; // 모두에게 보이는 눈사람을 쓸 때: 그중 내 것의 수 (다시 채우기 한도는 내 것만 센다). null 이면 men 전체
   private rev = 0; // 눈덩이·눈사람이 바뀔 때마다 +1 (밀기를 되돌릴 때, 그 사이 다른 변화가 없었는지 본다)
   private slideDir: Dir | null = null;
   private slideLeft = 0;
@@ -106,6 +107,16 @@ export class WinterPlay {
     const mx = x + DX[dir], my = y + DY[dir];
     return this.men.some((m) => m.x === mx && m.y === my) ? { x: mx, y: my } : null;
   }
+  // 서버의 눈사람 목록으로 맞춘다 (2026-11-20: 눈사람이 모두에게 보인다. game/snowmen.ts). own: 그중 내 것의 수. 바뀐 것이 없으면 그대로 둔다 (진행 중인 밀기 되돌리기를 깨지 않게)
+  setMen(list: { x: number; y: number }[], own: number): void {
+    if (!this.active) return;
+    this.ownMen = own;
+    const sig = (a: { x: number; y: number }[]) => a.map((m) => `${m.x}_${m.y}`).sort().join('|');
+    if (sig(list) === sig(this.men)) return;
+    this.men = list.map((m) => ({ x: m.x, y: m.y }));
+    this.balls = this.balls.filter((b) => !this.men.some((m) => m.x === b.x && m.y === b.y)); // 남이 그 칸에 눈사람을 세웠다
+    this.rev++;
+  }
   removeMan(x: number, y: number): boolean {
     const n = this.men.length;
     this.men = this.men.filter((m) => !(m.x === x && m.y === y));
@@ -114,7 +125,7 @@ export class WinterPlay {
     return true;
   }
   private refill(blocked: Blocked): void {
-    if (this.men.length >= MAX_SNOWMEN || this.balls.length >= MIN_BALLS) return;
+    if ((this.ownMen ?? this.men.length) >= MAX_SNOWMEN || this.balls.length >= MIN_BALLS) return;
     for (const [x, y] of SNOW_SEEDS) {
       if (this.balls.length >= SNOW_SEEDS.length) break;
       if (this.balls.some((b) => b.x === x && b.y === y) || !this.canLand(x, y, blocked)) continue;

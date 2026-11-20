@@ -2,7 +2,7 @@
 // 가격은 config/prices/{id} 로 관리자가 덮어쓸 수 있다 (priceOf)
 import { snowActive } from './snowpenalty';
 
-export type ItemKind = 'hat' | 'name' | 'fx' | 'title' | 'pet' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
+export type ItemKind = 'hat' | 'name' | 'fx' | 'title' | 'pet' | 'pethat' | 'petglass' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
 export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
 export interface ShopItem { id: string; kind: ItemKind; name: string; price: number; icon: string; desc: string; color?: string }
 
@@ -65,6 +65,21 @@ export const PET_GOODS: ShopItem[] = [
   { id: 'pethamster', kind: 'pet', name: '햄스터', price: 5000, icon: '🐹', desc: PET_DESC }, // 2026-11-16 건의 반영
   { id: 'petparrot', kind: 'pet', name: '앵무새', price: 5000, icon: '🦜', desc: PET_DESC + ' 주인이 한 말을 따라 해요.' }, // 2026-11-19 사용자 요청
 ];
+// 펫 꾸미기 (2026-11-20 건의): 펫 모자(착용 칸 ph)·펫 안경(pg). 데리고 다니는 펫이 쓴다 (탈 때는 안 보인다). 그림은 cosmetics.ts drawPetHat·drawPet
+export const PET_HATS: ShopItem[] = [
+  { id: 'ph_ribbon', kind: 'pethat', name: '펫 리본', price: 1000, icon: '🎀', desc: '펫 머리에 분홍 리본.' },
+  { id: 'ph_straw', kind: 'pethat', name: '펫 밀짚모자', price: 1000, icon: '👒', desc: '펫에게 밀짚모자.' },
+  { id: 'ph_party', kind: 'pethat', name: '펫 고깔모자', price: 1500, icon: '🎉', desc: '펫에게 알록달록 고깔.' },
+  { id: 'ph_crown', kind: 'pethat', name: '펫 왕관', price: 5000, icon: '👑', desc: '펫에게 작은 왕관.' },
+];
+export const PET_GLASSES: ShopItem[] = [
+  { id: 'pg_round', kind: 'petglass', name: '펫 동그란 안경', price: 1000, icon: '👓', desc: '똑똑해 보이는 안경.' },
+  { id: 'pg_sun', kind: 'petglass', name: '펫 선글라스', price: 2000, icon: '🕶', desc: '클럽 밖에서도 선글라스.' },
+];
+// 펫 이름 (2026-11-20 건의): 펫마다 하나 (users/{uid}/eq/pns/{펫 id}). 지을 때마다 요금을 낸다 (외모·닉네임 변경과 같은 소모품 결제. 이름을 없애는 것은 무료)
+export const PET_NAME_FEE: ShopItem = { id: 'petnamefee', kind: 'use', name: '펫 이름 짓기', price: 2000, icon: '✏', desc: '펫 이름을 지을 때마다 낸다.' };
+export const PET_NAME_MAX = 8;
+export function cleanPetName(v: unknown): string { return typeof v === 'string' ? [...v.replace(/[\u0000-\u001f\u007f<>&"'`]/g, '').replace(/\s+/g, ' ').trim()].slice(0, PET_NAME_MAX).join('') : ''; }
 export const PET_IDS = PET_GOODS.map((p) => p.id); // 규칙 생성기(tools/gen-rules.cjs)의 PET_IDS 와 같아야 한다
 
 // ---- 펫 먹이·레벨 (2026-11-10) ----
@@ -146,6 +161,7 @@ export function pushTierOf(own?: Record<string, true> | null): number { return o
 
 // 만 코인 영구 장비. 장풍·말랑이 보따리는 가지고만 있으면 적용(범위는 game/area.ts: 앞 4칸 × 옆 4칸), 갑옷 둘은 입고 벗는다 (users/{uid}/eq 의 pa·ta, presence 에도 실림)
 export const GEAR_GOODS: ShopItem[] = [
+  { id: 'campfire', kind: 'gear', name: '모닥불 키트', price: 3000, icon: '🔥', desc: '바깥에서 내 앞 칸에 모닥불을 피운다 (내 메뉴 → 모닥불 피우기). 피울 때마다 나무 30개, 10분 동안 탄다. 모두에게 보이고 밤에는 둘레가 밝아진다. 영구.' }, // 2026-11-20 (shared/campfire.ts)
   { id: 'wave', kind: 'gear', name: '장풍', price: 10000, icon: '🌀', desc: '밀치기(0)가 장풍이 된다: 앞 4칸 × 옆 4칸 안의 모두를 두 칸 밀어낸다. 막힌 칸에서 멈춤. 영구.' },
   { id: 'tossbag', kind: 'gear', name: '말랑이 보따리', price: 10000, icon: '🎁', desc: '말랑이를 앞 4칸 × 옆 4칸 안의 모두에게 한꺼번에 던진다. 영구.' },
   { id: 'pusharmor', kind: 'gear', name: '철벽 갑옷', price: 10000, icon: '🛡', desc: '입고 있으면 밀치기가 안 먹힌다. 입고 벗을 수 있음. 영구.' },
@@ -286,6 +302,9 @@ export const HOME_GOODS: ShopItem[] = [
   // 금덩이 가구: 코인 값과 함께 금덩이가 든다 (GOLD_COST)
   { id: 'gg40', kind: 'home', name: '황금 화분', price: 10000, icon: '🏺', desc: '집에 놓는 가구. 금덩이 200개가 함께 든다.' },
   { id: 'gg41', kind: 'home', name: '황금 동상', price: 30000, icon: '🗿', desc: '집에 놓는 가구. 금덩이 500개가 함께 든다.' },
+  // 사진 액자 (2026-11-20): 사면 집 벽의 어느 자리에든 그 액자로 사진을 걸 수 있다 (homes 의 ph)
+  { id: 'frame1', kind: 'home', name: '나무 액자', price: 3000, icon: '🖼', desc: '집 벽에 사진을 거는 나무 액자.' },
+  { id: 'frame2', kind: 'home', name: '금테 액자', price: 30000, icon: '🖼', desc: '집 벽에 사진을 거는 금테 액자.' },
   // 벽지: 사면 집 벽을 그 빛깔로 바꿀 수 있다 (homes 의 wl)
   { id: 'wall1', kind: 'home', name: '분홍 벽지', price: 30000, icon: '🌸', desc: '집 벽을 분홍빛으로.' },
   { id: 'wall2', kind: 'home', name: '민트 벽지', price: 30000, icon: '🍃', desc: '집 벽을 민트빛으로.' },
@@ -298,7 +317,7 @@ export const NICK_FEE: ShopItem = { id: 'nickfee', kind: 'use', name: '닉네임
 // 받은 사람은 변경할 때 요금 대신 교환권을 쓰고, 쓴 뒤에 보관함에서 지운다. 종류마다 한 장만 가질 수 있다 (이미 가진 사람에게는 선물이 안 된다). 값은 변경 요금과 같다
 export const AVATAR_TICKET: ShopItem = { id: 'avatarticket', kind: 'ticket', name: '외모 교환권', price: 1000, icon: '🎟', desc: '받은 사람이 외모를 한 번 무료로 바꿀 수 있다. 선물 전용.' };
 export const NICK_TICKET: ShopItem = { id: 'nickticket', kind: 'ticket', name: '닉네임 교환권', price: 5000, icon: '🎟', desc: '받은 사람이 닉네임을 한 번 무료로 바꿀 수 있다. 선물 전용.' };
-export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...TITLES, ...PET_GOODS, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
+export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...TITLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }
 // 보관함(users/{uid}/own)에 들어가는 품목인가 (소모품인 자동 낚시·미끼·자동 채집·펫 먹이·강화 주문서는 지갑에만 기록된다)
@@ -329,9 +348,10 @@ export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?:
 export interface GiftMark { f: string; fn: string; i: string; m?: string; at: number }
 export const GIFT_MSG_MAX = 40;
 // users/{uid}/eq: 착용 중인 모자(h), 이름표 색(nc), 이동 이펙트(fx), 펫(pt), 철벽 갑옷(pa), 푹신 갑옷(ta). players/{uid} 에도 같은 키로 실린다
-export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; tt?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null }
+export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; tt?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null; ph?: string | null; pg?: string | null; pns?: Record<string, string> | null }
+// ph·pg: 펫 모자·안경 (2026-11-20). pns: 펫 이름 (펫 id → 이름. presence 에는 데리고 있는 펫의 이름만 pn 으로 싣는다)
 // sg: 스키 장갑을 낀 상태 (프로필에만. presence 에는 안 싣는다. 규칙: 보유해야 켤 수 있다)
 // nr: 만렙(Lv10) 펫을 타지 않고 데리고 다닌다 (2026-11-12 건의 반영. 없으면 지금까지처럼 탄다). 걷기 속도 등 펫 효과는 타든 안 타든 같다: 모습만 바뀐다
-export const EQUIP_KEY: Record<CosmeticKind, keyof Equip> = { hat: 'h', name: 'nc', fx: 'fx', title: 'tt', pet: 'pt' }; // tt: 칭호 (2026-11-18)
+export const EQUIP_KEY: Record<CosmeticKind, 'h' | 'nc' | 'fx' | 'tt' | 'pt' | 'ph' | 'pg'> = { hat: 'h', name: 'nc', fx: 'fx', title: 'tt', pet: 'pt', pethat: 'ph', petglass: 'pg' }; // tt: 칭호 (2026-11-18)
 
 export const fmtCoins = (n: number): string => `💰 ${Math.floor(n).toLocaleString('ko-KR')}`;

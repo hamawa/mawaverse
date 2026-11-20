@@ -1117,7 +1117,9 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('사기: 수수료를 안 냄', 'deny', () => ok.ref().update({ 'wallet/OK/c': 100000 - S.buyCost(1, 1000) - 1000, [`${HO}/a/q`]: 2 }));
   await expect('사기: 코인은 그대로 두고 보유만 늘리기', 'deny', () => ok.ref(`${HO}/a/q`).set(50));
   await expect('사기: 보유만 새 종목으로 적기', 'deny', () => ok.ref(`${HO}/b`).set({ q: 10 }));
-  await expect('사기: 한도(100주) 넘기', 'deny', () => ok.ref().update({ 'wallet/OK/c': 100000 - S.buyCost(1, 1000) - S.buyCost(100, 1000), [`${HO}/a/q`]: 101 }));
+  await root.ref(`${HO}/a/q`).set(S.STOCK_CAP); // 한도까지 채운 것으로 두고 한 주 더 사 본다 (금액은 맞게)
+  await expect(`사기: 한도(${S.STOCK_CAP}주) 넘기`, 'deny', () => ok.ref().update({ 'wallet/OK/c': 100000 - S.buyCost(1, 1000) - S.buyCost(1, 1000), [`${HO}/a/q`]: S.STOCK_CAP + 1 }));
+  await root.ref(`${HO}/a/q`).set(1);
   await expect('사기: 소수 주', 'deny', () => ok.ref().update({ 'wallet/OK/c': 100000 - S.buyCost(1, 1000) - 510, [`${HO}/a/q`]: 1.5 }));
   const c1 = 100000 - S.buyCost(1, 1000);
   await expect('사기: 다른 종목 10주', 'allow', () => ok.ref().update({ 'wallet/OK/c': c1 - S.buyCost(10, 800), [`${HO}/b/q`]: 10 }));
@@ -1173,6 +1175,132 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('DJ: 관리자가 끄기', 'allow', () => admin.ref('club/dj').remove());
   await expect('DJ: 틀면서 남기는 기록 (채팅 로그)', 'allow', () => ok.ref('logs/chat/djtest1').set({ u: 'OK', n: '디제이', c: 'dj', t: '🎧 유튜브 ' + ID, ts: SV }));
   await root.ref().update({ club: null, players: null, 'logs/chat/djtest1': null, 'approved/OTHER': null });
+}
+
+// ---------- 2026-11-20 묶음 (v43): 마피아 동료·사보타지·초대, 모닥불, 눈사람, 금고, 사진 액자, 펫 꾸미기 ----------
+{
+  const SV = { '.sv': 'timestamp' };
+  await setNow('2026-11-14 12:00:00');
+  const third = as('THIRD');
+  const P = (n) => ({ n, a: 'm-1', alive: true, j: 1 });
+  await root.ref().update({ 'approved/OK': true, 'approved/OTHER': true, 'approved/THIRD': true, players: { OK: presence, OTHER: presence, THIRD: presence }, occ: null, 'config/hoursBlock': null,
+    mafia: { game: { st: 'play', host: 'OK', at: Date.now() - 120000, players: { OK: P('a'), OTHER: P('b'), ADMIN: P('c') } }, roles: { OK: 'm', OTHER: 'c', ADMIN: 'm' } } });
+  await expect('마피아 동료: 마피아는 다른 참가자의 역할을 읽는다', 'allow', () => ok.ref('mafia/roles/ADMIN').get());
+  await expect('마피아 동료: 시민은 남의 역할을 못 읽는다', 'deny', () => other.ref('mafia/roles/OK').get());
+  await expect('사보타지: 누구나 읽는다', 'allow', () => other.ref('mafia/sab').get());
+  await expect('사보타지: 시민이 걸기', 'deny', () => other.ref('mafia/sab').set({ k: 1, at: SV }));
+  await expect('사보타지: 참가자가 아닌 사람이 걸기', 'deny', () => third.ref('mafia/sab').set({ k: 1, at: SV }));
+  await expect('사보타지: 시각을 마음대로', 'deny', () => ok.ref('mafia/sab').set({ k: 1, at: 123 }));
+  await expect('사보타지: 모르는 종류', 'deny', () => ok.ref('mafia/sab').set({ k: 3, at: SV }));
+  await expect('사보타지: 꺼진 표시를 미리 넣기', 'deny', () => ok.ref('mafia/sab').set({ k: 2, at: SV, a: true }));
+  await expect('사보타지: 누가 걸었는지 끼워 넣기', 'deny', () => ok.ref('mafia/sab').set({ k: 1, at: SV, by: 'OK' }));
+  await expect('사보타지: 마피아가 안개', 'allow', () => ok.ref('mafia/sab').set({ k: 1, at: SV }));
+  await expect('사보타지: 60초 안에 또 걸기', 'deny', () => ok.ref('mafia/sab').set({ k: 1, at: SV }));
+  await expect('안개: 꺼짐 표시는 불에만', 'deny', () => other.ref('mafia/sab/a').set(true));
+  await root.ref('mafia/sab/at').set(Date.now() - 61000);
+  await expect('사보타지: 60초 뒤 불 지르기', 'allow', () => ok.ref('mafia/sab').set({ k: 2, at: SV }));
+  await expect('불: 참가자가 아닌 사람이 끄기', 'deny', () => third.ref('mafia/sab/a').set(true));
+  await expect('불: 시민이 끄기', 'allow', () => other.ref('mafia/sab/a').set(true));
+  await expect('불: 꺼진 표시 지우기 (다시 켜기)', 'deny', () => ok.ref('mafia/sab/a').remove());
+  await expect('불: 종류 바꾸기', 'deny', () => other.ref('mafia/sab/k').set(1));
+  await expect('불: 시각 바꾸기', 'deny', () => other.ref('mafia/sab/at').set(SV));
+  await expect('불: 불 뒤 90초 안에는 못 건다 (61초 지남)', 'deny', async () => { await root.ref('mafia/sab/at').set(Date.now() - 61000); await ok.ref('mafia/sab').set({ k: 1, at: SV }); });
+  await expect('사보타지: 회의 없이 풀림 표시', 'deny', () => other.ref('mafia/sab/x').set(true));
+  await expect('사보타지: 회의를 열며 풀기', 'allow', () => other.ref().update({ 'mafia/game/meet': { by: 'OTHER', kind: 'button', at: SV }, 'mafia/game/used/OTHER': true, 'mafia/sab/x': true }));
+  await root.ref('mafia/sab/at').set(Date.now() - 200000);
+  await expect('사보타지: 회의 중에는 못 건다', 'deny', () => ok.ref('mafia/sab').set({ k: 1, at: SV }));
+  await expect('사보타지: 시민이 지우기', 'deny', () => other.ref('mafia/sab').remove());
+  await expect('사보타지: 방장이 지우기', 'allow', () => ok.ref('mafia/sab').remove());
+  await root.ref().update({ 'mafia/game/meet': null, 'mafia/game/at': Date.now() - 5000 });
+  await expect('불: 게임 시작 직후에는 못 지른다', 'deny', () => ok.ref('mafia/sab').set({ k: 2, at: SV }));
+  await expect('안개: 게임 시작 직후에도 된다', 'allow', () => ok.ref('mafia/sab').set({ k: 1, at: SV }));
+  await root.ref('mafia/game/players/OK/alive').set(false);
+  await root.ref('mafia/sab').remove();
+  await expect('사보타지: 죽은 마피아는 못 건다', 'deny', () => ok.ref('mafia/sab').set({ k: 1, at: SV }));
+  // 초대
+  await root.ref().update({ 'mafia/sab': null, 'mafia/roles': null, 'mafia/game': { st: 'lobby', host: 'OK', at: Date.now(), players: { OK: P('a') } } });
+  await expect('초대: 방에 있는 사람이 보내기', 'allow', () => ok.ref('mafia/inv/OTHER').set({ f: 'OK', n: '닉', at: SV }));
+  await expect('초대: 10초 안에 같은 사람에게 또', 'deny', () => ok.ref('mafia/inv/OTHER').set({ f: 'OK', n: '닉', at: SV }));
+  await expect('초대: 방에 없는 사람이 보내기', 'deny', () => other.ref('mafia/inv/THIRD').set({ f: 'OTHER', n: '닉', at: SV }));
+  await expect('초대: 남의 이름으로', 'deny', () => ok.ref('mafia/inv/THIRD').set({ f: 'OTHER', n: '닉', at: SV }));
+  await expect('초대: 모르는 칸 끼워 넣기', 'deny', () => ok.ref('mafia/inv/THIRD').set({ f: 'OK', n: '닉', at: SV, x: 1 }));
+  await expect('초대: 남의 초대 읽기', 'deny', () => third.ref('mafia/inv/OTHER').get());
+  await expect('초대: 받은 사람이 읽기', 'allow', () => other.ref('mafia/inv/OTHER').get());
+  await expect('초대: 남이 지우기', 'deny', () => third.ref('mafia/inv/OTHER').remove());
+  await expect('초대: 받은 사람이 지우기', 'allow', () => other.ref('mafia/inv/OTHER').remove());
+  await root.ref('mafia').remove();
+
+  // 모닥불
+  await root.ref().update({ 'users/OK': profile('ok', '승인됨'), 'users/OTHER': profile('other', '다른이'), fires: null, 'homes/OK': { t: 1, w: 100 }, 'homes/OTHER': { t: 1, w: 100 } });
+  await root.ref('users/OK/own/campfire').set(true);
+  await expect('모닥불: 나무를 안 내고', 'deny', () => ok.ref('fires/main/5_5').set({ u: 'OK', at: SV }));
+  await expect('모닥불: 나무를 덜 내고', 'deny', () => ok.ref().update({ 'fires/main/5_5': { u: 'OK', at: SV }, 'homes/OK/w': 90 }));
+  await expect('모닥불: 키트 없는 사람', 'deny', () => other.ref().update({ 'fires/main/6_6': { u: 'OTHER', at: SV }, 'homes/OTHER/w': 70 }));
+  await expect('모닥불: 다른 맵에', 'deny', () => ok.ref().update({ 'fires/winter/5_5': { u: 'OK', at: SV }, 'homes/OK/w': 70 }));
+  await expect('모닥불: 남의 이름으로', 'deny', () => ok.ref().update({ 'fires/main/5_5': { u: 'OTHER', at: SV }, 'homes/OK/w': 70 }));
+  await expect('모닥불: 나무 30개를 내고 피우기', 'allow', () => ok.ref().update({ 'fires/main/3_4': { u: 'OK', at: SV }, 'homes/OK/w': 70 }));
+  await expect('모닥불: 타고 있는 자리에 또', 'deny', () => ok.ref().update({ 'fires/main/3_4': { u: 'OK', at: SV }, 'homes/OK/w': 40 }));
+  await expect('모닥불: 누구나 본다', 'allow', () => other.ref('fires/main').get());
+  await expect('모닥불: 남의 불 끄기', 'deny', () => other.ref('fires/main/3_4').remove());
+  await root.ref('fires/main/3_4/at').set(Date.now() - 601000);
+  await expect('모닥불: 다 탄 기록은 아무나 치운다', 'allow', () => other.ref('fires/main/3_4').remove());
+
+  // 눈사람
+  await root.ref().update({ 'players/OK': { ...presence, m: 'winter' }, 'players/OTHER': { ...presence, m: 'winter' }, 'winter/sm': null, 'winter/events': null });
+  await expect('눈사람: 겨울 맵에서 세우기', 'allow', () => ok.ref('winter/sm/5_5').set({ u: 'OK', at: SV }));
+  await expect('눈사람: 누구나 본다', 'allow', () => other.ref('winter/sm').get());
+  await expect('눈사람: 남의 이름으로', 'deny', () => ok.ref('winter/sm/6_6').set({ u: 'OTHER', at: SV }));
+  await expect('눈사람: 시각을 마음대로', 'deny', () => ok.ref('winter/sm/6_6').set({ u: 'OK', at: 5 }));
+  await expect('눈사람: 있는 자리에 또', 'deny', () => other.ref('winter/sm/5_5').set({ u: 'OTHER', at: SV }));
+  await expect('눈사람: 벌칙 없이 남의 것 지우기', 'deny', () => other.ref('winter/sm/5_5').remove());
+  await expect('눈사람: 벌칙과 함께 부수기', 'allow', () => other.ref().update({ 'winter/sm/5_5': null, 'users/OTHER/snowBrokenAt': SV, 'players/OTHER/sn': SV, 'winter/events/OTHER': { ts: SV } }));
+  await expect('눈사람: 내 것은 벌칙 없이 치운다', 'allow', async () => { await ok.ref('winter/sm/7_7').set({ u: 'OK', at: SV }); await ok.ref('winter/sm/7_7').remove(); });
+  await root.ref('winter/sm/8_8').set({ u: 'OK', at: Date.now() - 3601000 });
+  await expect('눈사람: 녹은 기록은 아무나 치운다', 'allow', () => third.ref('winter/sm/8_8').remove());
+  await root.ref('players/OK/m').remove();
+  await expect('눈사람: 다른 맵에서는 못 세운다', 'deny', () => ok.ref('winter/sm/9_9').set({ u: 'OK', at: SV }));
+  await root.ref().update({ 'users/OTHER/snowBrokenAt': null, 'players/OTHER': presence, 'winter/sm': null, 'winter/events': null });
+
+  // 금고
+  await root.ref().update({ 'wallet/OK': { c: 10000, e: 10000 }, 'wallet/THIRD': { c: 10000, e: 10000 }, 'homes/OK': { t: 1, w: 0 }, 'homes/THIRD': null });
+  await expect('금고: 넣기', 'allow', () => ok.ref().update({ 'wallet/OK/c': 7000, 'homes/OK/vc': 3000 }));
+  await expect('금고: 지갑은 그대로 두고 금고만 늘리기', 'deny', () => ok.ref('homes/OK/vc').set(9000));
+  await expect('금고: 덜 내고 더 넣기', 'deny', () => ok.ref().update({ 'wallet/OK/c': 6000, 'homes/OK/vc': 5000 }));
+  await expect('금고: 소수', 'deny', () => ok.ref().update({ 'wallet/OK/c': 6999.5, 'homes/OK/vc': 3000.5 }));
+  await expect('금고: 꺼내기', 'allow', () => ok.ref().update({ 'wallet/OK/c': 9000, 'wallet/OK/e': 12000, 'homes/OK/vc': 1000 }));
+  await expect('금고: 넣은 것보다 많이 꺼내기', 'deny', () => ok.ref().update({ 'wallet/OK/c': 12000, 'wallet/OK/e': 15000, 'homes/OK/vc': -2000 }));
+  await expect('금고: 다 꺼내면 0', 'allow', () => ok.ref().update({ 'wallet/OK/c': 10000, 'wallet/OK/e': 13000, 'homes/OK/vc': 0 }));
+  await expect('금고: 집이 없으면 못 쓴다', 'deny', () => third.ref().update({ 'wallet/THIRD/c': 9000, 'homes/THIRD/vc': 1000 }));
+
+  // 사진 액자
+  const PIC = 'data:image/jpeg;base64,' + 'A'.repeat(200);
+  await root.ref().update({ homepic: null, 'users/OK/own/frame1': true });
+  await expect('사진: 액자를 가진 사람이 걸기', 'allow', () => ok.ref().update({ 'homepic/OK/0': PIC, 'homes/OK/ph/0': { k: 1, at: SV } }));
+  await expect('사진: 없는 액자로', 'deny', () => ok.ref('homes/OK/ph/0').set({ k: 2, at: SV }));
+  await expect('사진: 초가집에 둘째 자리', 'deny', () => ok.ref('homes/OK/ph/1').set({ k: 1, at: SV }));
+  await expect('사진: JPEG 가 아닌 글자', 'deny', () => ok.ref('homepic/OK/0').set('<script>alert(1)</script>'));
+  await expect('사진: 너무 큰 사진', 'deny', () => ok.ref('homepic/OK/0').set('data:image/jpeg;base64,' + 'A'.repeat(120000)));
+  await expect('사진: 없는 자리 번호', 'deny', () => ok.ref('homepic/OK/9').set(PIC));
+  await expect('사진: 남의 집에 걸기', 'deny', () => other.ref('homepic/OK/0').set(PIC));
+  await expect('사진: 집이 없는 사람', 'deny', () => third.ref('homepic/THIRD/0').set(PIC));
+  await expect('사진: 승인된 사용자는 본다', 'allow', () => other.ref('homepic/OK/0').get());
+  await expect('사진: 대기 중인 사용자는 못 본다', 'deny', () => pend.ref('homepic/OK/0').get());
+  await expect('사진: 남이 내리기', 'deny', () => other.ref('homepic/OK/0').remove());
+  await expect('사진: 관리자가 내리기', 'allow', () => admin.ref().update({ 'homepic/OK/0': null, 'homes/OK/ph/0': null }));
+
+  // 펫 꾸미기·낚싯대 성 (presence 와 착용 칸)
+  await root.ref().update({ 'users/OK/own/ph_crown': true, 'users/OK/own/petdog': true, 'players/OK': { ...presence, pt: 'petdog' } });
+  await expect('펫 모자: 가진 것 착용', 'allow', () => ok.ref().update({ 'users/OK/eq/ph': 'ph_crown', 'players/OK/ph': 'ph_crown' }));
+  await expect('펫 안경: 안 가진 것 (presence)', 'deny', () => ok.ref('players/OK/pg').set('pg_sun'));
+  await expect('펫 안경: 안 가진 것 (착용 칸)', 'deny', () => ok.ref('users/OK/eq/pg').set('pg_sun'));
+  await expect('펫 이름: 8자까지', 'allow', () => ok.ref().update({ 'users/OK/eq/pns/petdog': '멍멍이', 'players/OK/pn': '멍멍이' }));
+  await expect('펫 이름: 9자 (presence)', 'deny', () => ok.ref('players/OK/pn').set('가나다라마바사아자'));
+  await expect('펫 이름: 9자 (착용 칸)', 'deny', () => ok.ref('users/OK/eq/pns/petdog').set('가나다라마바사아자'));
+  await expect('펫 이름: 지우기', 'allow', () => ok.ref().update({ 'users/OK/eq/pns/petdog': null, 'players/OK/pn': null }));
+  await expect('낚싯대 성: 숫자', 'allow', () => ok.ref('players/OK/rs').set(12));
+  await expect('낚싯대 성: 범위 밖', 'deny', () => ok.ref('players/OK/rs').set(99));
+  await expect('펫 꾸미기: 남의 presence 에 쓰기', 'deny', () => other.ref('players/OK/ph').set('ph_crown'));
+  await root.ref().update({ players: null, users: null, homes: null, homepic: null, fires: null, wallet: null, 'approved/THIRD': null, 'approved/OTHER': null });
 }
 
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);

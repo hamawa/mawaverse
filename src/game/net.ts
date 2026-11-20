@@ -14,18 +14,20 @@ import type { WorldCtx, RemotePlayer } from './state';
 import { MAIN_MAP_ID, occupancyKey, playerMapId } from '../shared/maps';
 import { lastPosOf, mapSwitchUpdate } from './portal';
 import { snowActive } from '../shared/snowpenalty';
-import { batGuardField, ANON, type BatKind } from '../shared/shop';
+import { batGuardField, ANON, type BatKind, cleanPetName } from '../shared/shop';
+
 import { sfx, sfxAt, type Sfx } from './audio';
 // 남의 동작(이모트)에 붙는 소리: 밀치기·잠자리채·말랑이·삽질(도끼질)·끌기
 const EMOTE_SFX: Record<number, Sfx> = { 10: 'push', 11: 'swing', 12: 'toss', 13: 'chop', 14: 'pull' };
 
 // 착용 중인 꾸미기를 presence 에 싣는다 (짧은 키). 규칙이 "가진 것만" 허용하므로 보유 목록에 없는 건 뺀다 (어긋난 데이터로 입장이 막히지 않게)
 // pl: 데리고 있는 펫의 누적 먹이 (지갑 px 값. 규칙이 지갑과 대조). 펫이 없으면 싣지 않는다
-function cosmetics(p: _UP, petXp: (id: string) => number): Pick<PlayerState, 'h' | 'nc' | 'fx' | 'tt' | 'pt' | 'pl' | 'pa' | 'ta' | 'nr'> {
+function cosmetics(p: _UP, petXp: (id: string) => number): Pick<PlayerState, 'h' | 'nc' | 'fx' | 'tt' | 'pt' | 'pl' | 'pa' | 'ta' | 'nr' | 'ph' | 'pg' | 'pn'> {
   const own = p.own || {};
   const has = (id?: string | null) => (id && own[id] ? id : null);
   const pt = has(p.eq?.pt);
-  return { h: has(p.eq?.h), nc: has(p.eq?.nc), fx: has(p.eq?.fx), tt: has(p.eq?.tt), pt, ...(pt && petXp(pt) > 0 ? { pl: petXp(pt) } : {}), pa: p.eq?.pa && own.pusharmor ? true : null, ta: p.eq?.ta && own.tossarmor ? true : null, nr: p.eq?.nr ? true : null };
+  return { h: has(p.eq?.h), nc: has(p.eq?.nc), fx: has(p.eq?.fx), tt: has(p.eq?.tt), pt, ...(pt && petXp(pt) > 0 ? { pl: petXp(pt) } : {}), pa: p.eq?.pa && own.pusharmor ? true : null, ta: p.eq?.ta && own.tossarmor ? true : null, nr: p.eq?.nr ? true : null,
+    ph: pt ? has(p.eq?.ph) : null, pg: pt ? has(p.eq?.pg) : null, pn: (pt && cleanPetName(p.eq?.pns?.[pt])) || null }; // 펫 모자·안경·이름 (2026-11-20): 펫을 데리고 있을 때만
 }
 
 export class Net {
@@ -91,7 +93,7 @@ export class Net {
 
   private currentState(): PlayerState {
     const w = this.w;
-    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.snowField(), ...this.duelField(), ...w.homeMarks(), ...(w.sitting() ? { si: true } : {}) };
+    return { n: w.profile.nick, a: w.profile.avatar, x: w.me.x, y: w.me.y, d: w.me.dir, s: w.sessionId, e: null, r: w.me.roomId, j: serverNow(), ...cosmetics(w.profile, (id) => w.wallet.petXp(id)), ...(w.wallet.shownStars > 0 ? { rs: w.wallet.shownStars } : {}), z: this.afk ? true : null, v: CLIENT_VERSION, ...this.mapField(), ...this.guardField(), ...this.snowField(), ...this.duelField(), ...w.homeMarks(), ...(w.sitting() ? { si: true } : {}) };
   }
 
   // 월드 입장: 현재 접속자 스냅샷을 읽고 빈 타일을 잡은 뒤 presence 등록
@@ -435,6 +437,8 @@ export class Net {
     return update(ref(db, `users/${w.uid}`), { lastPos: lastPosOf(w.mapId, w.me.x, w.me.y, w.me.dir) }).catch(() => {});
   }
 
+  // 낚싯대 강화 성이 바뀌었다: 프로필에 보이게 presence 에 싣는다 (2026-11-20)
+  setStars(n: number): void { update(this.playerRef(), { rs: n > 0 ? n : null }).catch(() => {}); }
   setDir(dir: Dir): void {
     const now = Date.now();
     if (now - this.lastDirWrite < 120) return;

@@ -37,6 +37,10 @@ import { ContestMgr } from './contest';
 import { BugHunt } from './bugs';
 import { TossMgr } from './toss';
 import { openMole } from './moleui';
+import { gameLinkOf } from '../shared/links';
+import { CampfireMgr } from './campfire';
+import { CAMPFIRE_WOOD } from '../shared/campfire';
+import { SnowmenMgr } from './snowmen';
 import { DigMgr } from './dig';
 import { MineMgr } from './mine';
 import { HomeMgr, homeOpen } from './home';
@@ -53,9 +57,9 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, PET_IDS, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
+import { PET_NAME_FEE, PET_NAME_MAX, cleanPetName, rodTierOf, ROD_GOODS, fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, PET_IDS, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
 import { SnowfightState, snowGateAt, snowfightAction, SNOW_PACK_HINT, SNOW_THROW_HINT, type SnowGate } from './snowfight';
-import { TASK_FOOTPRINT } from '../shared/mafia';
+import { TASK_FOOTPRINT, FOG_RADIUS } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
 import { openRoulette, watchRouletteFeed } from './rouletteui';
 import { WinterPlay } from './winterplay';
@@ -156,6 +160,10 @@ export class World implements WorldCtx {
   dj = new DjMgr(this);       // 클럽 DJ: 유튜브 링크로 노래 틀기 (game/dj.ts)
   private djPanel: DjPanel | null = null;
   mine = new MineMgr(this, this.net);
+  private sentStars = 0; // presence 에 실은 낚싯대 성 (입장할 때 실은 값과 같으면 한 번 더 쓸 뿐이다)
+  campfire!: CampfireMgr;      // 모닥불 (shared/campfire.ts)
+  snowmen!: SnowmenMgr;        // 모두에게 보이는 눈사람 (game/snowmen.ts)
+  private lastSnowSync = 0;
   trees = new TreeMgr(); // 벤 나무 (그루터기 → 덤불 → 5분 뒤 다시 나무. shared/home.ts)
   home = new HomeMgr(this, this.net, { leave: (why) => this.leaveHome(why), swing: () => this.doEmote(13), refresh: () => this.refreshHome(), trees: this.trees }); // 내 집: 나무·창고·겨울잠 (shared/home.ts)
   winter = new WinterPlay(this.map); // 겨울 맵의 빙판 관성·눈덩이 (눈덩이는 이 브라우저에만 있는 장난감. 맵에 들어올 때마다 새로: resetWinter)
@@ -172,6 +180,7 @@ export class World implements WorldCtx {
   private boardZone: Zone | undefined;
   private fishZone: Zone | undefined;
   private arcadeZone: Zone | undefined;
+  private linkZones: Zone[] = []; // 바깥 게임으로 가는 오락기 (shared/links.ts)
 
   constructor(private root: HTMLElement, public uid: string, public profile: UserProfile, public isAdmin: boolean) {
     this.me = { x: 0, y: 0, fromX: 0, fromY: 0, dispX: 0, dispY: 0, moveStart: 0, moveDur: STEP_MS, moving: false, dir: 0, pose: 'none', poseAt: 0, emoteId: 0, bubble: null, pushAt: -1, pushDir: 0, hitAt: -1e9, blockAt: -1e9, pushMore: null, stunUntil: 0, lastPushAt: -1e9, locked: false, roomId: null };
@@ -186,7 +195,28 @@ export class World implements WorldCtx {
   catchLog: CatchLog;
   get nick(): string { return this.profile.nick; }
   catchNote(kind: 'fish' | 'bug' | 'etc', text: string): void { catchNote(text); this.catchLog.add(kind, text); }
-  fishCaught(size: number): void { this.duel.onCatch(size); this.home.onCatch(); }
+  fishCaught(size: number): void { this.duel.onCatch(size); this.home.onCatch(); this.petCheerAt = performance.now(); }
+  // 펫 꾸미기·고유 동작 (2026-11-20, cosmetics.ts PetLook). 고유 동작은 보는 재미뿐이고 서버로 가는 것이 없다: 남의 펫은 이 화면에서 알 수 있는 것(멈춰 있음·맞음)에만 반응하고,
+  // 낚았을 때의 반응(강아지 멍!·햄스터 볼 빵빵)은 내 펫만 내 화면에서 한다 (남이 낚은 것은 전송되지 않는다)
+  private petIdle = new Map<string, number>();
+  private petCheerAt = -1e9;
+  private petLook(e: Entity, now: number): import('./cosmetics').PetLook {
+    const p = e.pet!, mine = e.uid === this.uid, st = mine ? null : this.players.get(e.uid)?.st;
+    const eq = this.profile.eq, own = this.profile.own || {};
+    const look: import('./cosmetics').PetLook = {
+      hat: mine ? (eq?.ph && own[eq.ph] ? eq.ph : null) : st?.ph ?? null,
+      glass: mine ? (eq?.pg && own[eq.pg] ? eq.pg : null) : st?.pg ?? null,
+      name: (mine ? cleanPetName(eq?.pns?.[p.id]) : cleanPetName(st?.pn)) || null,
+    };
+    if (e.moving || !this.petIdle.has(e.uid)) this.petIdle.set(e.uid, now);
+    const idle = now - (this.petIdle.get(e.uid) ?? now), cheer = mine ? now - this.petCheerAt : 1e9, hit = Math.min(now - e.hitAt, now - e.pushAt);
+    if (p.id === 'petcat') look.sleep = idle > 6000;                        // 주인이 가만히 있으면 존다
+    else if (p.id === 'petturtle') look.hide = hit >= 0 && hit < 2500;      // 주인이 맞으면 등껍질 속으로
+    else if (p.id === 'pethamster') look.puff = cheer >= 0 && cheer < 3000; // 주인이 낚으면 볼 빵빵
+    else if (p.id === 'petdog') { if (cheer >= 0 && cheer < 1200) { look.say = '멍!'; if (cheer < 350) p.hopAt = this.petCheerAt; } } // 주인이 낚으면 폴짝
+    else if (p.id === 'petchick') { let hsh = 0; for (let i = 0; i < e.uid.length; i++) hsh = (hsh * 31 + e.uid.charCodeAt(i)) % 11000; if (!e.moving && (now + hsh) % 11000 < 1200) look.say = '삐약'; } // 가끔 삐약
+    return look;
+  }
   note(text: string): void { catchNote(text); } // 한 줄 알림만 (기록 없음): 말랑이 결과 등
   banner(title: string, sub = ''): void { banner(title, sub); }
 
@@ -246,8 +276,12 @@ export class World implements WorldCtx {
     this.wireEvents(canvas);
     this.wallet.listen(() => this.hud.setCoins(this.coinText()));
     this.wallet.listen(() => this.petRide.sync());
+    // 낚싯대 강화 성이 바뀌면 presence 에 싣는다 (남들이 프로필에서 본다. 2026-11-20)
+    this.wallet.listen(() => { const s = this.wallet.shownStars; if (s !== this.sentStars) { this.sentStars = s; this.net.setStars(s); } });
     this.wallet.start();
     this.home.start(); this.home.entered(this.mapId); this.trees.watch(this.mapId);
+    this.campfire = new CampfireMgr(this); this.campfire.watch(this.mapId);
+    this.snowmen = new SnowmenMgr(this.uid); this.snowmen.onChange = () => this.syncSnowmen(); this.snowmen.watch(this.mapId);
     this.loadGuestPets();
     startWakeLock();
     // 화면 갱신이 멈춰 있는 동안(다른 창·탭) 하던 곡괭이질을 이어 간다 (2026-11-18. 나무 캐기는 HomeMgr.slowTick 이 같은 일을 한다)
@@ -332,6 +366,13 @@ export class World implements WorldCtx {
     this.events.on('ghost', (on) => { this.chat.watchGhostChat(on); if (on) this.toast('👻 유령이 되었습니다. 유령끼리만 보이고, 채팅도 유령끼리만 들립니다. 미션은 계속 할 수 있어요.'); });
     // 마피아 회의 중 채팅은 회의 판의 얼굴 옆 말풍선으로도 (2026-11-10)
     this.events.on('log', (e) => { if ((e.channel === 'near' || e.channel === 'g') && e.uid) this.mafiaHud.chat(e.uid, e.text); });
+    // 마피아 알림 (2026-11-20 건의): 방이 열리면 화면 가운데에 2초, 사보타지가 걸리면 참가자에게
+    this.events.on('mafiaLobby', (e) => banner('🕵 마피아 방이 열렸습니다', `${e.nick} 님이 모집 중 · 내 메뉴 → 🕵 마피아`, 2000));
+    this.events.on('mafiaSab', (e) => {
+      if (e.kind === 2) { banner('🔥 불이야!', '60초 안에 두 곳의 불을 꺼야 해요. 화살표를 따라가 불 옆에서 F 3초', 3500); sfx('alarm'); }
+      else { banner('🌫 안개가 꼈습니다', e.mafia ? '시민은 30초 동안 자기 둘레만 봐요' : '30초 동안 내 둘레만 보여요', 2500); sfx('horn'); }
+    });
+    this.mafia.onInvite = (nick) => this.showMafiaInvite(nick);
     this.input.onAction = (a) => {
       if (a === 'chat') { this.hud.focusChat(); return; }
       if (a === 'escape') { closeMenu(); this.hud.blurChat(); return; }
@@ -398,7 +439,7 @@ export class World implements WorldCtx {
           let undo: (() => void) | null = null;
           void this.tryMove(nx, ny, turned, push ? (ok) => { if (!ok) undo?.(); } : undefined);
           // 방향키로 직접 시작한 걸음만 관성을 건다 (떼면 빙판에서 몇 칸 더). 걸음이 안 나갔으면 건 관성이 없다
-          if (me.moving && me.x === nx && me.y === ny) { this.winter.armSlide(d); if (push) undo = this.winter.applyPush(push, now, this.winterBlockedFn); } else this.winter.resetSlide();
+          if (me.moving && me.x === nx && me.y === ny) { this.winter.armSlide(d); if (push) { undo = this.winter.applyPush(push, now, this.winterBlockedFn); if (push.kind === 'snowman') void this.snowmen.add(push.x, push.y); } } else this.winter.resetSlide();
         } else { this.winter.resetSlide(); if (turned) this.net.setDir(d); }
       } else if (this.winter.sliding) {
         if (this.input.enabled) this.slideOn(); else this.winter.resetSlide(); // 채팅창 등으로 입력이 막히면 멈춘다
@@ -414,6 +455,7 @@ export class World implements WorldCtx {
     this.casino.tick();
     this.syncCasinoPanel();
     this.mafia.tick(now);
+    if (this.winter.active && now - this.lastSnowSync > 5000) { this.lastSnowSync = now; this.syncSnowmen(); }
     if (now - this.lastMafiaHud > 250) { this.lastMafiaHud = now; this.mafiaHud.update(); }
     if (now - this.lastCoinTick > 1000) { this.lastCoinTick = now; const t = this.coinText(); if (t !== this.lastCoinText) { this.lastCoinText = t; this.hud.setCoins(t); } }
     for (const rp of this.players.values()) {
@@ -426,7 +468,7 @@ export class World implements WorldCtx {
     this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
     this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView(), treeLook: this.treeTint, club: this.clubView() });
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView(), treeLook: this.treeTint, club: this.clubView(), fog: this.fogView(), fires: this.fireViews(), alerts: this.fireAlerts() });
     if (now - this.sceneAt > 1000) { this.sceneAt = now; setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow()))); this.weatherTick(); } // 배경음악: 지금 상황에 맞는 곡 (1초에 한 번 본다)
   }
 
@@ -435,6 +477,35 @@ export class World implements WorldCtx {
     const m = this.mafia.marks();
     if (!m) return null;
     return { mine: m.mine, spots: m.spots.map((s) => { const fp = TASK_FOOTPRINT[s.def.obj] || [1, 1]; return { x: s.x, y: s.y, w: fp[0], h: fp[1], label: s.def.verb }; }) };
+  }
+  // 마피아 사보타지 (2026-11-20): 안개는 살아 있는 시민의 화면만 가린다. 불은 기본 맵의 두 자리에 그리고, 참가자에게는 화면 밖이면 화살표로 가리킨다
+  private fogView(): { x: number; y: number; r: number } | null { return this.mafia.fogged() ? { x: this.me.dispX, y: this.me.dispY, r: FOG_RADIUS } : null; }
+  private fireViews(): { x: number; y: number }[] {
+    const out: { x: number; y: number }[] = this.campfire.views();
+    if (this.mapId === MAIN_MAP_ID) for (const f of this.mafia.fireSpots()) if (!f.out) out.push({ x: f.spot.x, y: f.spot.y });
+    return out;
+  }
+  private fireAlerts(): { x: number; y: number; label: string }[] | undefined {
+    if (this.mapId !== MAIN_MAP_ID || !this.mafia.isParticipant(this.uid)) return undefined;
+    return this.mafia.fireSpots().filter((f) => !f.out).map((f) => ({ x: f.spot.x, y: f.spot.y, label: '🔥 불 끄기' }));
+  }
+  // 마피아 초대를 받았다: 화면 위에 작은 카드로 20초 (하던 일을 막지 않는다)
+  private inviteEl: HTMLElement | null = null;
+  private showMafiaInvite(nick: string): void {
+    this.inviteEl?.remove();
+    const join = el('button', { class: 'btn small primary', text: '참가' }), no = el('button', { class: 'btn small', text: '닫기' });
+    const box = el('div', { id: 'mafia-invite' }, [el('span', { text: `🕵 ${nick} 님이 마피아에 초대했어요` }), join, no]);
+    const close = () => { box.remove(); if (this.inviteEl === box) this.inviteEl = null; };
+    join.onclick = async () => {
+      close();
+      if (this.mapId !== MAIN_MAP_ID) { this.toast('마피아는 광장이 있는 기본 맵에서만 참가할 수 있어요.', true); return; }
+      const r = await this.mafia.join();
+      this.toast(r === 'ok' ? '🕵 마피아에 참가했어요. 시작을 기다려 주세요.' : r === 'full' ? '꽉 찼어요.' : '참가하지 못했어요. (모집이 끝났을 수 있어요)', r !== 'ok');
+    };
+    no.onclick = close;
+    (document.getElementById('app') || document.body).append(box);
+    this.inviteEl = box; sfx('ui');
+    window.setTimeout(close, 20000);
   }
   // 마피아 시체 (모두에게 보임)
   private bodyViews(): import('./render').BodyView[] {
@@ -467,7 +538,7 @@ export class World implements WorldCtx {
       const seat = !rp.st.si ? null : onSeat ? { x: rp.toX, y: rp.toY } : this.seatOf(rp.toX, rp.toY, rp.st.d ?? 0); // 앉아 있는 사람: 바라보는 쪽 옆 칸의 가구 위에 그린다
       const dance = this.danceOf(rp.emoteId, rp.poseAt, now);
       list.push({
-        uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat && !onSeat ? seat.x : rp.x, y: seat && !onSeat ? seat.y : rp.y, dir: seat ? this.seatFace(seat) : rp.st.d ?? 0, sit: !!seat && !(onSeat && rp.moveStart > 0), moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
+        uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (this.mafia.isMate(rp.uid) ? ' 🔪' : '') + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat && !onSeat ? seat.x : rp.x, y: seat && !onSeat ? seat.y : rp.y, dir: seat ? this.seatFace(seat) : rp.st.d ?? 0, sit: !!seat && !(onSeat && rp.moveStart > 0), moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
         pose: dance ? 'dance' : rp.pose, poseAt: dance ? now : rp.poseAt, emoteId: dance ? 0 : rp.emoteId, dance: dance || undefined, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
@@ -476,6 +547,7 @@ export class World implements WorldCtx {
         ghost, mining: !!rp.st.mn, snowBrokenAt: rp.st.sn || 0,
       });
     }
+    for (const e of list) if (e.pet && !e.pet.ride) e.pet.look = this.petLook(e, now);
     return list;
   }
   // 내가 데리고 다니는 펫 (가진 것일 때만)
@@ -698,7 +770,13 @@ export class World implements WorldCtx {
   }
 
   // ---------- 겨울 맵 놀이 (빙판 관성 · 눈덩이. winterplay.ts) ----------
-  private resetWinter(): void { this.winter = new WinterPlay(this.map, this.winterBlockedFn); this.smash = null; this.snowfight.reset(); } // 뭉친 눈도 맵을 옮기면 사라진다
+  private resetWinter(): void { this.winter = new WinterPlay(this.map, this.winterBlockedFn); this.smash = null; this.snowfight.reset(); this.syncSnowmen(); }
+  // 모두에게 보이는 눈사람을 겨울 놀이에 맞춘다 (목록이 바뀔 때, 그리고 녹는 시각을 넘기려고 5초에 한 번)
+  private syncSnowmen(): void {
+    if (!this.winter?.active || !this.snowmen) return;
+    const list = this.snowmen.list();
+    this.winter.setMen(list, list.filter((m) => m.mine).length);
+  } // 뭉친 눈도 맵을 옮기면 사라진다
   // ---- 스키 장갑 눈싸움 (snowfight.ts): 눈 위에서 F 로 뭉치고 다음 F 로 던진다. 뭉친 눈은 이 브라우저에만 있다 ----
   private snowfight = new SnowfightState();
   private glovesOn(): boolean { return !!this.profile.eq?.[SKI_GLOVES_EQ] && !!this.profile.own?.[SKI_GLOVES_ID]; } // 가지고 있고 직접 낀 것만
@@ -751,7 +829,7 @@ export class World implements WorldCtx {
     this.smashing = true;
     const play = this.winter;
     let ok = false;
-    try { ok = await this.snowPenalty.breakSnowman(); } catch (e) { console.warn('snowman penalty failed', e); }
+    try { ok = await this.snowPenalty.breakSnowman(this.snowmen.removeUpdate(man.x, man.y)); } catch (e) { console.warn('snowman penalty failed', e); }
     this.smashing = false; this.smash = null;
     if (ok) play.removeMan(man.x, man.y);
     else this.toast('눈사람을 부수지 못했어요. 잠시 후 다시 시도하세요.', true);
@@ -765,6 +843,7 @@ export class World implements WorldCtx {
     this.boardZone = map.zones.find((z) => z.kind === 'board');
     this.fishZone = map.zones.find((z) => z.kind === 'fish');
     this.arcadeZone = map.zones.find((z) => z.kind === 'arcade');
+    this.linkZones = map.zones.filter((z) => z.kind === 'link' && !!gameLinkOf(z.id));
   }
   private builtinMaps = new Map<string, MapData>(); // 코드에 든 맵은 한 번 만들어 두고 다시 쓴다
   // ---- 집 안을 돌아다니는 펫 (2026-11-18, homepets.ts): 집 주인이 가진 펫 전부 + 손님들이 데리고 온 펫. 집 안에서는 아무도 펫을 달고 다니지 않는다 (entities 가 따라다니는 펫을 그리지 않는다) ----
@@ -1040,16 +1119,38 @@ export class World implements WorldCtx {
     this.setMap(m);
   }
   // 집 벽에 건 물고기 박제 (그리기용)
-  private homePlaques(): { x: number; y: number; icon: string; text: string }[] | undefined {
+  private homePlaques(): import('./render').RenderState['plaques'] {
     if (!isHomeMapId(this.mapId)) return undefined;
     const h = this.home.here(), t = homeTier(h?.t);
-    if (!t || !h?.tr) return undefined;
-    const out: { x: number; y: number; icon: string; text: string }[] = [];
+    if (!t || (!h?.tr && !h?.ph)) return undefined;
+    const out: NonNullable<import('./render').RenderState['plaques']> = [];
+    const owner = homeOwnerOf(this.mapId);
     t.trophyX.forEach((x, i) => {
+      const ph = h.ph?.[String(i)];
+      if (ph) { out.push({ x, y: 0, icon: '🖼', text: '', img: this.home.photo(owner, i, ph.at), frame: ph.k }); return; } // 사진 액자 (2026-11-20)
       const tr = h.tr?.[String(i)], f = tr ? (fishById(tr.id) ?? winterFishById(tr.id)) : undefined;
-      if (tr && f) out.push({ x, y: 0, icon: f.icon, text: `${f.name}${tr.s ? ` ${fmtSize(tr.s)}` : ''}` });
+      if (tr && f) out.push({ x, y: 0, icon: f.icon, text: f.name, sub: tr.s ? fmtSize(tr.s) : undefined }); // 이름과 크기는 두 줄로 (2026-11-20)
     });
     return out;
+  }
+  // 바로 앞 벽의 사진 액자 (위쪽 벽 바로 아래 칸에서 벽을 보고 섰을 때)
+  private photoAhead(): { x: number; slot: number } | null {
+    if (!isHomeMapId(this.mapId)) return null;
+    const h = this.home.here(), t = homeTier(h?.t), me = this.me;
+    if (!t || !h?.ph || me.moving || me.dir !== 3 || me.y !== 1) return null;
+    const i = t.trophyX.indexOf(me.x);
+    return i >= 0 && h.ph[String(i)] ? { x: me.x, slot: i } : null;
+  }
+  private openPhoto(): void {
+    const pa = this.photoAhead(); if (!pa) return;
+    const owner = homeOwnerOf(this.mapId), ph = this.home.here()?.ph?.[String(pa.slot)]; if (!ph) return;
+    const img = this.home.photo(owner, pa.slot, ph.at);
+    if (!img) { this.toast('사진을 불러오는 중이에요. 잠시 뒤에 다시 눌러 주세요.'); return; }
+    this.input.releaseAll();
+    const body = el('div', { style: 'text-align:center' }, [el('img', { src: img.src, alt: '벽에 건 사진', style: 'max-width:100%;max-height:70vh;border-radius:8px' })]);
+    const acts: import('./ui').ModalAction[] = [{ label: '닫기', onClick: () => {} }];
+    if (owner === this.uid || this.isAdmin) acts.unshift({ label: '사진 내리기', danger: true, onClick: async () => { this.toast((await this.home.removePhoto(owner, pa.slot)) ? '사진을 내렸어요.' : '내리지 못했습니다.'); } });
+    modal('🖼 사진', body, acts);
   }
   // 벽돌집 안: 밀치기·끌기·말랑이가 안 통한다
   homeSafe(): boolean { return this.home.safeHere(); }
@@ -1069,7 +1170,7 @@ export class World implements WorldCtx {
     this.waterHoldUntil = 0;
     this.resetWinter(); // 눈덩이·눈사람·관성은 맵을 나가면 사라지고 들어올 때 새로 놓인다
     this.fishing.cancel(); // 맵을 읽는 사이 자동 낚시가 옛 맵 물에 다시 던졌을 수 있다
-    this.bugs.clear(); this.toss.clear(); this.pets.forget(this.uid); this.mine.left(); this.home.entered(id); this.trees.watch(id);
+    this.bugs.clear(); this.toss.clear(); this.pets.forget(this.uid); this.mine.left(); this.home.entered(id); this.trees.watch(id); this.campfire.watch(id); this.snowmen.watch(id);
     for (const rp of this.players.values()) rp.bubble = null;
     // lastHint 는 그대로 둔다: 여기서 비우면 화면의 '이동 중…' 안내와 어긋나, 도착한 칸에 안내가 없을 때 그 문구가 지워지지 않는다. 다음 프레임의 updateHint 가 새 맵 기준으로 맞춘다
     this.events.emit('players');
@@ -1087,7 +1188,7 @@ export class World implements WorldCtx {
 
   // ---------- 상호작용 ----------
   // F 로 할 수 있는 것과 그 안내 위치. 우선순위: 게시판 → 낚시 중 → 물가(낚시 시작) → 낚시 표지판
-  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' | 'decoPlace' | 'decoRemove' | 'sit' | 'sitting' | 'dj' } | null {
+  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' | 'decoPlace' | 'decoRemove' | 'sit' | 'sitting' | 'dj' | 'link' | 'photo' | 'fire' } | null {
     const me = this.me;
     if (me.roomId) return null;
     if (this.switching) return { x: me.x, y: me.y - 1, text: '🌀 이동 중…', kind: 'portal' };
@@ -1099,6 +1200,7 @@ export class World implements WorldCtx {
       if (ma.kind === 'kill') return { x: me.x, y: me.y - 1, text: `F 처치: ${ma.nick}`, kind: 'mafia' };
       if (ma.kind === 'report') return { x: me.x, y: me.y - 1, text: `F 시체 신고 (${ma.nick})`, kind: 'mafia' };
       if (ma.kind === 'button') return { x: me.x, y: me.y - 1, text: 'F 긴급 소집 (1회)', kind: 'mafia' };
+      if (ma.kind === 'fire') return { x: ma.spot.x, y: ma.spot.y - 1, text: this.mafia.holdingFire() ? '불 끄는 중… 움직이지 마세요' : 'F 불 끄기 (3초 버티기)', kind: 'mafia' };
       return { x: ma.spot.x, y: ma.spot.y - 1, text: this.mafia.holding() ? `${ma.spot.def.verb} 중… 움직이지 마세요` : `F ${ma.spot.def.verb} (5초 버티기)`, kind: 'mafia' };
     }
     if (this.boardZone && nearZone(this.boardZone, me.x, me.y, 1)) return { x: this.boardZone.x + 1, y: this.boardZone.y - 1, text: 'F 게시판 보기', kind: 'board' };
@@ -1134,10 +1236,16 @@ export class World implements WorldCtx {
     if (sf === 'throw' || (sf === 'pack' && !t)) return { x: me.x, y: me.y - 1, text: sf === 'pack' ? SNOW_PACK_HINT : SNOW_THROW_HINT, kind: 'snowfight' };
     if (t) return { x: t.x, y: t.y, text: 'F 낚시', kind: 'cast' };
     if (this.fishZone && nearZone(this.fishZone, me.x, me.y, 1)) return { x: this.fishZone.x, y: this.fishZone.y - 1, text: 'F 낚시 기록 보기', kind: 'sign' };
-    if (this.arcadeZone && nearZone(this.arcadeZone, me.x, me.y, 1)) return { x: this.arcadeZone.x, y: this.arcadeZone.y - 1, text: 'F 두더지 잡기', kind: 'arcade' };
+    // 오락기 둘이 붙어 있다: 둘 다 닿는 자리에서는 더 가까운 쪽(바로 앞에 선 쪽)을 연다
+    const az = this.arcadeZone && nearZone(this.arcadeZone, me.x, me.y, 1) ? this.arcadeZone : null, lz = this.nearLink();
+    const zd = (z: Zone) => Math.abs(z.x - me.x) + Math.abs(z.y - me.y);
+    if (lz && (!az || zd(lz) < zd(az))) return { x: lz.x, y: lz.y - 1, text: gameLinkOf(lz.id)!.hint, kind: 'link' };
+    if (az) return { x: az.x, y: az.y - 1, text: 'F 두더지 잡기', kind: 'arcade' };
     if (this.dig.active) return { x: me.x, y: me.y, text: '삽질 중… (이동하면 취소)', kind: 'digging' };
     const spot = this.dig.spotHere();
     if (spot) return { x: spot.x, y: spot.y, text: 'F 땅 파기', kind: 'dig' };
+    const pa = this.photoAhead();
+    if (pa) return { x: pa.x, y: 0, text: 'F 사진 보기', kind: 'photo' };
     const tree = this.home.chopTarget();
     if (tree) return { x: tree.x, y: tree.y, text: `F 나무 캐기 (${CHOP_SWINGS}번)`, kind: 'chop' };
     const seat = this.seatAhead();
@@ -1199,12 +1307,32 @@ export class World implements WorldCtx {
     else if (ch.kind === 'snowfight') this.snowfightF();
     else if (ch.kind === 'arcade') { this.input.releaseAll(); openMole({ uid: this.uid, nick: this.profile.nick, wallet: this.wallet, input: this.input, toast: (m, e) => this.toast(m, e), stat: (k) => this.net.stat(k) }); }
     else if (ch.kind === 'sign') { this.input.releaseAll(); this.openFishBook(); }
+    else if (ch.kind === 'link') this.openGameLink();
+    else if (ch.kind === 'photo') this.openPhoto();
+  }
+  // 바깥 게임 오락기 가운데 가장 가까운 것 (옆 1칸, 대각선 포함)
+  private nearLink(): Zone | null {
+    const me = this.me;
+    let best: Zone | null = null, bd = 9;
+    for (const z of this.linkZones) { if (!nearZone(z, me.x, me.y, 1)) continue; const d = Math.abs(z.x - me.x) + Math.abs(z.y - me.y); if (d < bd) { bd = d; best = z; } }
+    return best;
+  }
+  // 확인 창의 링크를 직접 눌러 새 탭으로 연다 (F 에서 바로 열면 폰 브라우저가 팝업으로 보고 막을 때가 있다). 이 탭의 게임은 그대로 켜져 있다
+  private openGameLink(): void {
+    const z = this.nearLink(), g = gameLinkOf(z?.id);
+    if (!g) return;
+    this.input.releaseAll();
+    const a = el('a', { class: 'btn primary', href: g.url, target: '_blank', rel: 'noopener noreferrer', text: '새 탭에서 열기', style: 'display:inline-block;text-decoration:none;margin-top:6px' });
+    const body = el('div', {}, [el('p', { text: g.desc }), el('p', { class: 'muted', style: 'font-size:12px', text: '다른 사이트라 새 탭에서 열려요. MawaVerse 는 이 탭에 그대로 켜져 있어요.' }), a]);
+    const m = modal(`🎮 ${g.name}`, body, [{ label: '닫기', onClick: () => {} }]);
+    a.addEventListener('click', () => m.close());
   }
   // 마피아 F: 처치 / 미션 시작(누르고 있는 동안 tick 이 진행) / 신고 / 긴급 소집
   private async mafiaInteract(): Promise<void> {
     const a = this.mafia.action(); if (!a) return;
     if (a.kind === 'kill') { if (await this.mafia.kill(a.uid)) { this.doEmote(10); this.toast(`🔪 ${a.nick} 처치`); } }
     else if (a.kind === 'task') this.mafia.beginTask(a.spot, a.fake);
+    else if (a.kind === 'fire') this.mafia.beginFire(a.spot, a.i);
     else if (a.kind === 'report') { if (await this.mafia.report(a.uid)) this.toast('🩸 시체를 신고했습니다! 회의가 열립니다.'); }
     else if (a.kind === 'button') { if (await confirmModal('긴급 소집을 할까요? 한 게임에 한 번만 쓸 수 있어요.')) { if (await this.mafia.callMeeting()) this.toast('🚨 긴급 소집!'); } }
   }
@@ -1357,12 +1485,21 @@ export class World implements WorldCtx {
       { label: this.dayOff ? '🌙 낮밤 효과 켜기' : '🌙 낮밤 효과 끄기', onClick: () => { this.dayOff = !this.dayOff; try { localStorage.setItem('mv-daylight-off', this.dayOff ? '1' : '0'); } catch { /* ignore */ } this.toast(this.dayOff ? '🌙 낮밤 효과를 껐습니다. 언제나 낮처럼 보여요.' : '🌙 낮밤 효과를 켰습니다. 실제 시각에 따라 하늘빛이 바뀌어요.'); } },
       ...(wakeLockSupported() ? [{ label: wakeLockOn() ? '📱 화면 꺼짐 방지 끄기' : '📱 화면 꺼짐 방지 켜기', onClick: async () => { const on = !wakeLockOn(); const ok = await setWakeLock(on); this.toast(!on ? '📱 화면 꺼짐 방지를 껐습니다.' : ok ? '📱 화면 꺼짐 방지를 켰습니다. 게임을 띄워 둔 동안 화면이 꺼지지 않아요. (배터리를 더 씁니다)' : '화면 꺼짐 방지를 켜지 못했어요. 기기가 배터리 절약 중일 수 있어요.', on && !ok); } }] : []),
       { label: this.mafia.game ? (this.mafia.game.st === 'lobby' ? '🕵 마피아 (모집 중!)' : '🕵 마피아 (진행 중)') : '🕵 마피아 모집', onClick: () => openMafiaLobby(this) },
+      ...(this.campfire.owns() ? [{ label: `🔥 모닥불 피우기 (나무 ${CAMPFIRE_WOOD}개)`, onClick: () => { void this.lightCampfire(); } }] : []),
     ];
     items.push({ label: this.duel.optedOut() ? '🎲 내기 신청 받기 (지금: 안 받음)' : '🚫 내기 신청 받지 않기', onClick: () => { const on = !this.duel.optedOut(); this.duel.setOptOut(on); this.toast(on ? '🚫 내기 신청을 받지 않습니다.' : '🎲 내기 신청을 다시 받습니다.'); } });
     items.push({ label: '🔑 비밀번호 변경', onClick: () => this.changePasswordFlow() });
     items.push({ label: '🚪 회원 탈퇴', danger: true, onClick: () => this.withdrawFlow() });
     items.push({ label: '⏻ 로그아웃', danger: true, onClick: () => this.logoutFlow() });
     contextMenu(x, y, `${this.profile.nick} (나)`, items);
+  }
+  // 내 메뉴 → 모닥불 피우기 (2026-11-20): 키트를 가진 사람이 바깥에서 자기 앞 칸에. 나무가 든다
+  private async lightCampfire(): Promise<void> {
+    const wood = this.home.wood;
+    const r = await this.campfire.light(wood, this.outdoors());
+    const msg: Record<string, string> = { ok: '🔥 모닥불을 피웠어요. 10분 동안 타요.', noitem: '모닥불 키트가 있어야 해요. (상점 → 장비)', nowood: `나무가 ${CAMPFIRE_WOOD}개 있어야 해요. (지금 ${wood}개. 나무를 보고 F 로 캘 수 있어요)`, indoor: '모닥불은 바깥에서만 피울 수 있어요.', blocked: '바로 앞 칸이 비어 있어야 해요. (물·벽·사람·다른 불이 없는 칸)', have: '내 모닥불이 이미 타고 있어요.', fail: '피우지 못했습니다.' };
+    this.toast(msg[r], r !== 'ok');
+    if (r === 'ok') sfx('on');
   }
   // 내 메뉴 → 리스폰: 구석에서 다른 사람이 길을 막아 갇혔을 때 시작 지점으로 순간이동. 낚시 중이면 취소, 방에 있으면 나간다
   private async respawnFlow(): Promise<void> {
@@ -1442,6 +1579,7 @@ export class World implements WorldCtx {
       uid: this.uid, profile: this.profile, wallet: this.wallet, config: this.config, toast: (m, e) => this.toast(m, e),
       onlineList: () => [...this.players.values()].map((p) => ({ uid: p.uid, nick: p.st.n })),
       previewFx: (id) => this.previewFx(id),
+      namePet: (id) => { void this.petNameFlow(id); },
       // 선물 받을 사람을 아이디로 찾기: ids/{키} → uid → 닉네임
       lookupId: async (id) => {
         const uid = (await get(ref(db, `ids/${idPathKey(id)}`))).val();
@@ -1495,12 +1633,37 @@ export class World implements WorldCtx {
     await logout().catch(() => {});
     this.events.emit('logout', msg);
   }
+  // 펫 이름 짓기 (2026-11-20 건의): 상점의 펫 카드에서. 지을 때마다 요금, 이름을 없애는 것은 무료. 바뀐 뒤에 낸다 (실패했을 때 돈만 나가지 않게)
+  private async petNameFlow(petId: string): Promise<void> {
+    const it = itemById(petId);
+    if (!it || !this.wallet.owns(petId)) return;
+    const cur = this.wallet.petName(petId), fee = priceOf(PET_NAME_FEE, this.config.prices);
+    const v = await promptModal(`✏ ${it.icon} ${it.name} 이름${fee > 0 ? ` (${fmtCoins(fee)})` : ''}`, `이름 (${PET_NAME_MAX}자까지. 비우면 이름을 없애요)`, cur, PET_NAME_MAX);
+    if (v === null) return;
+    const name = cleanPetName(v);
+    if (name === cur) return;
+    if (name && this.wallet.balance < fee) { this.toast(`코인이 모자랍니다. 펫 이름 짓기는 ${fmtCoins(fee)} 입니다.`, true); return; }
+    if (!(await this.wallet.setPetName(petId, name || null))) { this.toast('이름을 바꾸지 못했습니다.', true); return; }
+    if (name && fee > 0) await this.wallet.payFee(PET_NAME_FEE.id, fee);
+    this.toast(name ? `${it.icon} 이제 이름은 “${name}”!${fee > 0 ? ` (-${fmtCoins(fee)})` : ''}` : `${it.icon} 이름을 없앴어요.`);
+  }
   private async showProfile(uid: string): Promise<void> {
     const rp = this.players.get(uid);
-    const fish = await fishSummaryOf(uid);
+    // 2026-11-20 건의: 낚싯대·강화 성·칭호·집·갑옷도 보여 준다. 낚싯대 종류는 보유 목록(누구나 읽을 수 있다), 성은 presence 의 rs, 집은 homes 의 단계
+    const [fish, own, ht] = await Promise.all([
+      fishSummaryOf(uid),
+      get(ref(db, `users/${uid}/own`)).then((s) => (s.val() || {}) as Record<string, true>).catch(() => ({} as Record<string, true>)),
+      get(ref(db, `homes/${uid}/t`)).then((s) => s.val() as unknown).catch(() => null),
+    ]);
+    const esc = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
     const pet = rp?.st.pt ? itemById(rp.st.pt) : null;
-    const petTxt = pet ? `펫: ${pet.icon} ${pet.name} Lv.${petLevel(rp?.st.pl || 0)}${petRiding(rp?.st.pl || 0, rp?.st.nr) ? ' (탑승 중)' : petGuard(rp?.st.pl || 0) ? ' (방어)' : ''}<br>` : '';
-    const body = el('div', { html: `<p><b>${this.nickOf(uid)}</b></p><p class="muted">${petTxt}${fish}</p>` });
+    const pn = cleanPetName(rp?.st.pn);
+    const petTxt = pet ? `펫: ${pet.icon} ${pet.name}${pn ? ` “${esc(pn)}”` : ''} Lv.${petLevel(rp?.st.pl || 0)}${petRiding(rp?.st.pl || 0, rp?.st.nr) ? ' (탑승 중)' : petGuard(rp?.st.pl || 0) ? ' (방어)' : ''}<br>` : '';
+    const tier = rodTierOf(own), rod = tier > 0 ? ROD_GOODS[tier - 1] : null, rs = typeof rp?.st.rs === 'number' ? rp.st.rs : 0;
+    const rodTxt = `낚싯대: ${rod ? `${rod.icon} ${rod.name}${rs > 0 ? ` ★${rs}` : ''}` : '기본 낚싯대'}${own.iceRod ? ' · 🧊 얼음 낚싯대' : ''}<br>`;
+    const title = rp?.st.tt ? itemById(rp.st.tt) : null, home = homeTier(ht);
+    const more = `${title ? `칭호: ${title.icon} ${esc(title.name)}<br>` : ''}${home ? `집: ${home.icon} ${home.name}<br>` : ''}${rp?.st.pa || rp?.st.ta ? `갑옷: ${[rp?.st.pa ? '🛡 철벽' : '', rp?.st.ta ? '🧥 푹신' : ''].filter(Boolean).join(' · ')}<br>` : ''}`;
+    const body = el('div', { html: `<p><b>${esc(this.nickOf(uid))}</b></p><p class="muted">${rodTxt}${petTxt}${more}${fish}</p>` });
     modal('프로필', body, [{ label: '닫기', onClick: () => {} }]);
   }
 
@@ -1513,7 +1676,7 @@ export class World implements WorldCtx {
     this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
-    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.wallet.stop(); this.stock.stop(); this.dj.stop(); this.djPanel?.close(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
+    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.campfire?.stop(); this.snowmen?.stop(); this.wallet.stop(); this.stock.stop(); this.dj.stop(); this.djPanel?.close(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});
     await this.net.leave(replaced);
     document.body.classList.remove('mobile');

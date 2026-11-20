@@ -29,7 +29,7 @@ export const stockOf = (sym: string): StockDef | undefined => STOCKS.find((s) =>
 export const TICK_MS = 300000;        // 가격이 바뀌는 간격 (5분)
 export const STOCK_BASE = 1000;       // 되돌아오는 중심 가격 (시작 가격)
 export const STOCK_MIN = 100, STOCK_MAX = 9999;
-export const STOCK_CAP = 100;         // 종목당 보유 한도 (주)
+export const STOCK_CAP = 1000;        // 종목당 보유 한도 (주). 2026-11-20 에 100 → 1000 (건의 "무한 매수"에 사용자가 정한 값. 최고 수익도 손실도 그만큼 커진다)
 export const STOCK_FEE_DIV = 50;      // 수수료 = 거래액 / 50 (2%), 올림
 export const HIST_SLOTS = 96;         // 가격 기록 칸 수 (5분 × 96 = 8시간. 굴림 번호 % 96 자리에 덮어쓴다)
 

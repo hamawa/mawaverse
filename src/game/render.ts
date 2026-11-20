@@ -53,7 +53,7 @@ export interface Entity {
 // 마피아 시체: 죽은 자리에 누운 아바타
 export interface BodyView { uid: string; avatar: string; nick: string; x: number; y: number }
 // 펫 표시: 타일 좌표(보간), 이동 중 여부·진행, 마지막 점프(벌레 잡기) 시각. scale: 레벨에 따른 크기 (2026-11-10), ride: 주인이 타고 있다 (주인 발밑에 그린다)
-export interface PetView { id: string; x: number; y: number; moving: boolean; moveT: number; hopAt: number; dir: Dir; scale: number; ride: boolean }
+export interface PetView { id: string; x: number; y: number; moving: boolean; moveT: number; hopAt: number; dir: Dir; scale: number; ride: boolean; look?: import('./cosmetics').PetLook | null } // look: 꾸미기·이름·고유 동작 (2026-11-20)
 // 마피아 미션 자리 표시 (2026-11-10): 테두리(mine 이면 금색 깜빡임, 아니면 흐리게) + 화면 밖이면 가장자리 화살표(mine 일 때만)
 export interface TaskMark { x: number; y: number; w: number; h: number; label: string }
 
@@ -68,9 +68,12 @@ export interface RenderState {
   tosses: TossView[]; // 날아가는 말랑이
   bodies?: BodyView[]; // 마피아 시체
   marks?: { spots: TaskMark[]; mine: boolean } | null; // 마피아 미션 자리
+  fires?: { x: number; y: number }[];                  // 불 (모닥불·마피아 사보타지. 타일 좌표). 밤에는 둘레가 밝다
+  alerts?: { x: number; y: number; label: string }[];  // 급한 자리 (마피아의 불): 화면 밖이면 가장자리 화살표, 안이면 그 위에 이름
+  fog?: { x: number; y: number; r: number } | null;    // 마피아 안개: 내 캐릭터(타일 좌표) 둘레 r 칸만 보인다
   snow?: SnowView[];  // 겨울 맵의 눈덩이·눈사람 (내 화면에만 있는 장난감, 클라이언트 로컬)
   objAt?: (x: number, y: number, id: number) => number; // 그 칸에 실제로 그릴 오브젝트 (벤 나무는 그루터기·덤불로. 맵 데이터는 그대로라 길은 계속 막힌다)
-  plaques?: { x: number; y: number; icon: string; text: string }[]; // 집 벽에 건 물고기 박제 (타일 좌표)
+  plaques?: { x: number; y: number; icon: string; text: string; sub?: string; img?: CanvasImageSource | null; frame?: number }[]; // 집 벽에 건 물고기 박제·사진 액자 (타일 좌표). text 이름, sub 크기(둘째 줄). img 가 있으면 사진 액자(frame 1 나무 · 2 금테)
   roamers?: PetView[]; // 집 안을 돌아다니는 펫 (homepets.ts)
   night?: DayTint | null; // 낮밤 덧칠 (바깥 맵만. shared/daylight.ts)
   treeLook?: 'autumn' | 'blossom' | null; // 계절 나무: 단풍·벚꽃 (shared/season.ts. 소나무는 그대로)
@@ -158,6 +161,23 @@ export function render(eng: Engine, st: RenderState): void {
   // 집 벽의 물고기 박제: 나무 판에 물고기 그림, 아래에 이름과 크기
   for (const p of st.plaques ?? []) items.push({ sortY: p.y + 0.95, order: 1, draw: () => {
     const px = p.x * TILE, py = p.y * TILE;
+    if (p.frame) {
+      // 사진 액자 (2026-11-20): 나무(1)·금테(2) 틀 안에 사진을 가운데 맞춰 잘라 넣는다. 아직 못 받았으면 빈 종이
+      const gold = p.frame === 2;
+      ctx.fillStyle = gold ? '#b8860b' : '#5a3a1e'; roundRect(ctx, px + 2, py + 2, TILE - 4, TILE - 6, 3); ctx.fill();
+      ctx.fillStyle = gold ? '#ffd84d' : '#8a5a2e'; roundRect(ctx, px + 3, py + 3, TILE - 6, TILE - 8, 3); ctx.fill();
+      if (gold) { ctx.fillStyle = '#fff2a8'; ctx.fillRect(px + 4, py + 3, TILE - 8, 1); }
+      const ix = px + 5, iy = py + 5, iw = TILE - 10, ih = TILE - 12;
+      ctx.fillStyle = '#f4ead2'; ctx.fillRect(ix, iy, iw, ih);
+      const im = p.img as (CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }) | null | undefined;
+      if (im && im.naturalWidth && im.naturalHeight) {
+        const ar = iw / ih, sw = Math.min(im.naturalWidth, im.naturalHeight * ar), sh = sw / ar;
+        const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(im, (im.naturalWidth - sw) / 2, (im.naturalHeight - sh) / 2, sw, sh, ix, iy, iw, ih);
+        ctx.imageSmoothingEnabled = was;
+      }
+      return;
+    }
     ctx.fillStyle = '#6e4620'; roundRect(ctx, px + 3, py + 3, TILE - 6, TILE - 8, 4); ctx.fill();
     ctx.fillStyle = '#f4ead2'; roundRect(ctx, px + 5, py + 5, TILE - 10, TILE - 12, 3); ctx.fill();
     ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#222';
@@ -241,7 +261,7 @@ export function render(eng: Engine, st: RenderState): void {
     // 찌는 물 타일 위에, 캐릭터보다 뒤에 그린다
     if (e.fishing) { const fv = e.fishing; items.push({ sortY: fv.y + 0.5, order: 1, draw: () => drawBobber(ctx, e, fv, st.now) }); }
     // 펫: 자기 타일의 y 순서로 (주인과 겹치면 주인보다 앞뒤가 자연스럽게)
-    if (e.pet && !ride) { const p = e.pet; items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale, false, !!st.club) }); }
+    if (e.pet && !ride) { const p = e.pet; items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale, false, !!st.club, p.look) }); }
     items.push({
       sortY: e.y + (sitBack ? 0.85 : 1), order: 1, draw: () => { // 뒤를 보는 가구에 앉았으면 그 가구(y + 0.9)보다 먼저 그린다
         const cx = e.x * TILE + TILE / 2;
@@ -291,12 +311,13 @@ export function render(eng: Engine, st: RenderState): void {
     });
   }
   // 집 안을 돌아다니는 펫: 따라다니는 펫과 같은 그림, 자기 칸의 y 순서로
-  for (const p of st.roamers ?? []) items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale) });
+  for (const p of st.roamers ?? []) items.push({ sortY: p.y + 0.95, order: 1, draw: () => drawPet(ctx, p.id, p.x, p.y, TILE, st.now, p.moving, p.moveT, p.hopAt, p.dir, p.scale, false, false, p.look) });
   // 눈덩이·눈사람: 칸 아랫줄 기준으로 정렬해 사람과 앞뒤가 맞는다
   for (const sv of st.snow || []) {
     if (!eng.isTileVisible(sv.x, sv.y, TILE)) continue;
     items.push({ sortY: sv.y + 0.85, order: 0, draw: () => (sv.kind === 'man' ? drawSnowman(ctx, sv.x * TILE + TILE / 2, sv.y * TILE + TILE - 3) : drawSnowball(ctx, sv.x * TILE + TILE / 2, sv.y * TILE + TILE - 3, sv.large ? 11 : 5 + sv.rolls)) });
   }
+  for (const f of st.fires ?? []) { if (!eng.isTileVisible(f.x, f.y, TILE)) continue; items.push({ sortY: f.y + 0.9, order: 0, draw: () => drawFire(ctx, f.x * TILE, f.y * TILE, st.now + (f.x * 37 + f.y * 91) * 13) }); }
   // 마피아 시체: 옆으로 누운 아바타 + 🩸 (모두에게 보임)
   for (const b of st.bodies || []) {
     items.push({ sortY: b.y + 0.9, order: 0, draw: () => {
@@ -336,7 +357,7 @@ export function render(eng: Engine, st: RenderState): void {
   }
 
   // ---- 낮과 밤: 이름표·말풍선·안내보다 먼저 덧칠한다 (글자는 어두워지지 않는다) ----
-  if (st.night && st.night.a > 0.005) drawNight(eng, map, vis, st.night);
+  if (st.night && st.night.a > 0.005) drawNight(eng, map, vis, st.night, st.fires);
   if (st.club) drawClubLights(eng, st.club, st.now);
 
   // ---- 화면 좌표 오버레이 ----
@@ -353,13 +374,27 @@ export function render(eng: Engine, st: RenderState): void {
   }
   // 마피아 미션: 화면 밖의 내 미션은 가장자리 화살표 + 이름 (2026-11-10)
   if (st.marks?.mine) for (const m of st.marks.spots) if (!eng.isTileVisible(m.x + m.w / 2 - 0.5, m.y + m.h / 2 - 0.5, -TILE / 2)) drawEdgeArrow(eng, (m.x + m.w / 2) * TILE, (m.y + m.h / 2) * TILE, m.label, st.now);
+  // 펫 이름 (2026-11-20): 펫 머리 위에 작게 (맵과 함께 커지지 않게 화면 좌표에서). 타고 있을 때는 그리지 않는다
+  for (const p of [...st.entities.map((e) => e.pet), ...(st.roamers ?? [])]) {
+    if (!p || p.ride || !p.look?.name) continue;
+    const [nx, ny] = eng.worldToScreen((p.x + 0.5) * TILE, (p.y + 1) * TILE - 3 - Math.round(10 * p.scale) - (p.look.hat ? Math.round(4 * p.scale) : 0));
+    drawLabel(ctx, p.look.name, nx, ny - 2, '#fff7d6', 'rgba(0,0,0,0.45)', 9);
+  }
+  for (const a of st.alerts ?? []) {
+    if (!eng.isTileVisible(a.x, a.y, -TILE / 2)) drawEdgeArrow(eng, (a.x + 0.5) * TILE, (a.y + 0.5) * TILE, a.label, st.now);
+    else { const [ax, ay] = eng.worldToScreen((a.x + 0.5) * TILE, a.y * TILE); drawLabel(ctx, a.label, ax, ay - 4 * s, '#ffd9b0', 'rgba(70, 14, 0, 0.75)', 12, '#ff7a3c'); }
+  }
   // 집 벽의 물고기 박제 이름: 액자 바로 아래, 닉네임 이름표와 같은 크기 (2026-11-18 사용자 요청. 전에는 맵과 함께 확대돼 글자가 컸다). 옆 칸에 붙어 걸린 것은 한 줄 내려 겹치지 않게
   {
     let prevX = -9, prevLow = false;
     for (const p of [...(st.plaques ?? [])].sort((a, b) => a.x - b.x)) {
+      if (!p.text && !p.sub) continue; // 사진 액자는 글자가 없다 (옆 자리의 글자를 내릴 필요도 없다)
       const low: boolean = p.x - prevX === 1 && !prevLow;
       const [lx, ly] = eng.worldToScreen(p.x * TILE + TILE / 2, p.y * TILE + TILE - 5); // 액자의 아랫변
-      drawLabel(ctx, p.text, lx, ly + 1 + 18 + (low ? 19 : 0), '#ffffff', 'rgba(0,0,0,0.55)', 12);
+      // 2026-11-20 사용자 요청: 글자를 작게(12 → 9px), 이름과 크기를 두 줄로 (옆으로 길어지지 않게)
+      const base = ly + 16 + (low ? 30 : 0);
+      if (p.text) drawLabel(ctx, p.text, lx, base, '#ffffff', 'rgba(0,0,0,0.55)', 9);
+      if (p.sub) drawLabel(ctx, p.sub, lx, base + (p.text ? 14 : 0), '#ffe9a8', 'rgba(0,0,0,0.55)', 9);
       prevX = p.x; prevLow = low;
     }
   }
@@ -422,6 +457,38 @@ export function render(eng: Engine, st: RenderState): void {
       if (echo) drawEcho(ctx, `🦜 ${echo}`, box.x + box.w - 6, box.y + 4, s);
     }
   }
+  // 마피아 안개: 맨 마지막에 덮는다 (남의 이름표·말풍선·화살표도 가린다. 화면 위쪽 표시와 채팅은 DOM 이라 그대로 보인다)
+  if (st.fog) drawFog(eng, st.fog);
+}
+
+// 불 (모닥불·마피아 사보타지): 장작 위에서 네 장면으로 일렁인다. 타일 왼쪽 위 좌표
+function drawFire(ctx: CanvasRenderingContext2D, px: number, py: number, now: number): void {
+  const f = Math.floor(now / 140) % 4, h = [14, 17, 15, 18][f], lean = [0, 1, 0, -1][f], top = py + 25 - h;
+  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(px + 6, py + 28, 20, 2);
+  ctx.fillStyle = '#5a3a1e'; ctx.fillRect(px + 7, py + 25, 18, 3); ctx.fillStyle = '#7a5230'; ctx.fillRect(px + 9, py + 23, 14, 2); ctx.fillStyle = '#3d2712'; ctx.fillRect(px + 6, py + 27, 20, 1);
+  ctx.fillStyle = '#e8501c'; ctx.fillRect(px + 10, top + 6, 12, h - 6); ctx.fillRect(px + 12 + lean, top + 2, 8, 5); ctx.fillRect(px + 14 + lean * 2, top, 4, 3);
+  ctx.fillStyle = '#ffa32b'; ctx.fillRect(px + 12, top + 9, 8, h - 9); ctx.fillRect(px + 13 + lean, top + 5, 6, 5);
+  ctx.fillStyle = '#ffe36b'; ctx.fillRect(px + 14, top + 12, 4, h - 12);
+  const rise = Math.floor(now / 60) % 12;
+  ctx.fillStyle = 'rgba(255, 205, 100, 0.9)'; ctx.fillRect(px + 9 + (Math.floor(now / 200) % 14), top - rise, 1, 1); ctx.fillRect(px + 21 - (Math.floor(now / 260) % 9), top + 4 - rise, 1, 1);
+}
+
+let fogCv: HTMLCanvasElement | null = null;
+function drawFog(eng: Engine, f: { x: number; y: number; r: number }): void {
+  const { ctx, canvas } = eng;
+  const k = eng.scale * eng.dpr;
+  if (!fogCv) fogCv = document.createElement('canvas');
+  if (fogCv.width !== canvas.width || fogCv.height !== canvas.height) { fogCv.width = canvas.width; fogCv.height = canvas.height; }
+  const fc = fogCv.getContext('2d')!;
+  fc.globalCompositeOperation = 'source-over';
+  fc.clearRect(0, 0, fogCv.width, fogCv.height);
+  fc.fillStyle = 'rgb(206, 213, 222)'; fc.fillRect(0, 0, fogCv.width, fogCv.height);
+  const cx = ((f.x + 0.5) * TILE - eng.cam.x) * k, cy = ((f.y + 0.3) * TILE - eng.cam.y) * k, r = f.r * TILE * k;
+  fc.globalCompositeOperation = 'destination-out';
+  const g = fc.createRadialGradient(cx, cy, r * 0.45, cx, cy, r);
+  g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+  fc.fillStyle = g; fc.fillRect(cx - r, cy - r, r * 2, r * 2);
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(fogCv, 0, 0); ctx.restore();
 }
 // 앉는 면의 높이: 타일 위에서부터 몇 px 에 엉덩이가 오는가 (tiles.ts 의 의자·소파·벤치 그림 기준). 뒤를 보는 가구는 머리가 등받이 위로 나오게 조금 높인다
 const SEAT_Y = 21, SEAT_BACK_Y = 18, SEAT_SIDE_X = 3;
@@ -578,7 +645,7 @@ function drawRain(eng: Engine, now: number, level: number, snow: boolean): void 
 // 낮과 밤 (2026-11-18): 화면 전체에 그 시각의 빛깔을 덧칠하고, 가로등·창문 둘레는 덜 어둡게 남긴 뒤 따뜻한 불빛을 살짝 더한다.
 // 불빛이 화면에 없으면 한 번 칠하는 것으로 끝난다. 있으면 따로 둔 캔버스에 어둠을 칠하고 불빛 자리를 도려내 얹는다
 let nightCv: HTMLCanvasElement | null = null;
-function drawNight(eng: Engine, map: MapData, vis: { x0: number; y0: number; x1: number; y1: number }, n: DayTint): void {
+function drawNight(eng: Engine, map: MapData, vis: { x0: number; y0: number; x1: number; y1: number }, n: DayTint, fires?: { x: number; y: number }[]): void {
   const { ctx, canvas } = eng;
   const k = eng.scale * eng.dpr;
   const lights: { x: number; y: number; r: number; s: number }[] = [];
@@ -587,6 +654,7 @@ function drawNight(eng: Engine, map: MapData, vis: { x0: number; y0: number; x1:
     if (o === O.LAMP) lights.push({ x: ((x + 0.5) * TILE - eng.cam.x) * k, y: ((y - 0.4) * TILE - eng.cam.y) * k, r: 3 * TILE * k, s: 1 }); // 가로등 머리는 한 칸 위에 그려진다
     else if (o === O.WALL_WINDOW) lights.push({ x: ((x + 0.5) * TILE - eng.cam.x) * k, y: ((y + 0.5) * TILE - eng.cam.y) * k, r: 1.4 * TILE * k, s: 0.6 });
   }
+  if (n.lamp > 0.02) for (const f of fires ?? []) lights.push({ x: ((f.x + 0.5) * TILE - eng.cam.x) * k, y: ((f.y + 0.5) * TILE - eng.cam.y) * k, r: 3.4 * TILE * k, s: 1 }); // 모닥불 둘레도 밝다
   const fill = `rgba(${n.r},${n.g},${n.b},${n.a})`;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (!lights.length) { ctx.fillStyle = fill; ctx.fillRect(0, 0, canvas.width, canvas.height); return; }

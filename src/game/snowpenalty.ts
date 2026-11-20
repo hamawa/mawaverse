@@ -64,13 +64,13 @@ export class SnowPenaltyMgr {
   // 눈사람을 부쉈다: 벌칙 시각(서버 시각)과 내 알림 기록(winter/events/{uid})을 쓰기 한 번에. 쓰기가 서버에 받아들여졌을 때만 true (규칙이 거부하거나 연결이 없으면 false → 눈사람을 지우지 않고 알림도 없다).
   // 직전에 부순 지 SNOW_BREAK_GAP_MS 가 안 지났으면 쓰지도 않고 false (규칙도 같은 간격을 요구한다). 다시 부수면 시각이 새로 써져 30분이 처음부터 다시 시작된다. 빠따의 방어 깨짐(gb, 60초)과는 별개다.
   // 내 전체 알림은 여기서 쓰기가 받아들여진 뒤 정확히 한 번 낸다 (구독은 내 기록을 무시한다)
-  async breakSnowman(): Promise<boolean> {
+  async breakSnowman(extra: Record<string, unknown> = {}): Promise<boolean> {
     if (this.pending || this.waitMs() > 0) return false;
     this.pending = true; this.seen = [];
     try {
       // players/{uid}/sn 도 같은 쓰기에 실린다: 규칙은 벌칙 중인 사람의 presence 쓰기마다 sn 이 저장된 시각과 같기를 요구하므로, 따로 쓰면 그 사이(그리고 sn 쓰기가 실패하면 다음 하트비트까지)
       // 걸음·하트비트가 거부된다. presence 노드가 없으면(접속이 끊긴 순간) players/{uid} 부모 검증이 sn 만 있는 노드를 거부하므로 이 쓰기는 통째로 실패한다(반쪽 노드도, 벌칙 시각도, 알림 기록도 남지 않는다) → false
-      await update(ref(db), { [`users/${this.uid}/snowBrokenAt`]: serverTimestamp(), [`players/${this.uid}/sn`]: serverTimestamp(), [`winter/events/${this.uid}`]: { ts: serverTimestamp() } });
+      await update(ref(db), { [`users/${this.uid}/snowBrokenAt`]: serverTimestamp(), [`players/${this.uid}/sn`]: serverTimestamp(), [`winter/events/${this.uid}`]: { ts: serverTimestamp() }, ...extra }); // extra: 모두에게 보이는 눈사람 지우기 (game/snowmen.ts)
     } catch {
       this.pending = false; this.seen = [];
       return false;

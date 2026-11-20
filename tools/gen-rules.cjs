@@ -351,6 +351,9 @@ function ownEqLines(pre, ind) {
     `${ind}  "ta": { ".validate": ${q(armorEq(pre, 'tossarmor'))} },`,
     `${ind}  "sg": { ".validate": ${q(armorEq(pre, 'skigloves'))} },`, // 스키 장갑 낌 (프로필에만. 보유해야 켤 수 있다. 던지기 규칙이 이 칸을 본다)
     `${ind}  "nr": { ".validate": "newData.isBoolean()" },`, // 만렙 펫을 타지 않고 데리고 다닌다 (2026-11-12)
+    `${ind}  "ph": { ".validate": ${q(ownsStr(pre))} },`, // 펫 모자 (2026-11-20)
+    `${ind}  "pg": { ".validate": ${q(ownsStr(pre))} },`, // 펫 안경
+    `${ind}  "pns": { "$pet": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 8" } },`, // 펫 이름 (펫 id → 이름)
     `${ind}  "$other": { ".validate": false }`,
     `${ind}}`,
   ].join('\n');
@@ -365,6 +368,10 @@ function playerCosLines(pre, ind) {
     `${ind}"pa": { ".validate": ${q(armorPl(pre, 'pusharmor'))} },`,
     `${ind}"ta": { ".validate": ${q(armorPl(pre, 'tossarmor'))} },`,
     `${ind}"z": { ".validate": "newData.isBoolean()" },`,
+    `${ind}"ph": { ".validate": ${q(ownsStr(pre))} },`, // 펫 모자·안경·이름, 낚싯대 성 (2026-11-20)
+    `${ind}"pg": { ".validate": ${q(ownsStr(pre))} },`,
+    `${ind}"pn": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 8" },`,
+    `${ind}"rs": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 35" },`,
   ].join('\n');
 }
 // presence 의 펫 경험치(pl)는 지갑 px 의 그 펫 값 이하 (2026-11-10)

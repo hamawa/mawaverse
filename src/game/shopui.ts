@@ -2,9 +2,9 @@ import { el } from '../shared/util';
 import { modal, withCloseX, confirmModal } from './ui';
 import { getSprite, FRAME_W, FRAME_H } from './sprites';
 import { spriteTop, drawLabel } from './render';
-import { drawHat, nameStyle, titleStyle, petCanvas, mountCanvas } from './cosmetics';
+import { drawHat, nameStyle, titleStyle, petCanvas, mountCanvas, petLookCanvas } from './cosmetics';
 import {
-  HATS, NAME_COLORS, FX, TITLES, GOLD_COST, PET_GOODS, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
+  HATS, NAME_COLORS, FX, TITLES, GOLD_COST, PET_GOODS, PET_HATS, PET_GLASSES, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
   BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
 } from '../shared/shop';
@@ -18,6 +18,7 @@ export interface ShopHost {
   uid: string; profile: UserProfile; wallet: WalletMgr; config: ServerConfig; toast(msg: string, err?: boolean): void;
   onlineList?: () => { uid: string; nick: string }[];                 // 선물 받을 사람 고르기 (접속 중)
   lookupId?: (id: string) => Promise<{ uid: string; nick: string } | null>; // 아이디로 찾기
+  namePet?: (id: string) => void;                                      // 펫 이름 짓기 (2026-11-20)
   previewFx?: (id: string) => void;                                    // 이펙트를 잠깐 입혀 본다 (2026-11-19 건의. 내 화면에만)
 }
 
@@ -157,9 +158,11 @@ export function openShop(h: ShopHost): void {
     else if (kind === 'name') card.append(namePreview(h.profile.nick, item.id));
     else if (kind === 'title') card.append(titlePreview(item.id));
     else if (kind === 'pet') card.append(petPreview(item.id, petScale(xp), riding));
+    else if (kind === 'pethat' || kind === 'petglass') card.append(petLookCanvas(h.wallet.equipped('pet') || 'petdog', kind === 'pethat' ? { hat: item.id } : { glass: item.id })); // 데리고 있는 펫(없으면 강아지)에게 입혀 본 모습
     else card.append(el('div', { class: 'ic', text: item.icon }));
     const lv = petLevel(xp);
-    card.append(el('div', { class: 'nm', text: kind === 'pet' ? `${item.name} Lv.${lv}${riding ? ' 🏇' : ''}` : item.name }));
+    const petNm = kind === 'pet' ? h.wallet.petName(item.id) : '';
+    card.append(el('div', { class: 'nm', text: kind === 'pet' ? `${item.name}${petNm ? ` “${petNm}”` : ''} Lv.${lv}${riding ? ' 🏇' : ''}` : item.name }));
     // 이펙트 미리보기 (2026-11-19 건의): 상점을 닫고 내 캐릭터에 잠깐 입혀 걸어 본다. 사지 않아도 볼 수 있다
     if (kind === 'fx' && h.previewFx) {
       const pv = el('button', { class: 'btn small', text: '👀 미리보기' });
@@ -227,6 +230,12 @@ export function openShop(h: ShopHost): void {
       rb.dataset.ride = item.id;
       rb.onclick = async () => { rb.disabled = true; await h.wallet.setRide(!h.wallet.rideOn()); render(`[data-ride="${item.id}"]`); };
       card.append(rb);
+    }
+    // 펫 이름 짓기 (2026-11-20 건의): 가진 펫마다
+    if (pet && owned && h.namePet) {
+      const nb = el('button', { class: 'btn small', text: petNm ? '✏ 이름 바꾸기' : '✏ 이름 짓기', style: 'margin-top:4px' });
+      nb.onclick = () => { m.close(); h.namePet!(item.id); };
+      card.append(nb);
     }
     return card;
   };
@@ -511,6 +520,14 @@ export function openShop(h: ShopHost): void {
       const list = tab === 'hat' ? HATS : tab === 'name' ? NAME_COLORS : tab === 'pet' ? PET_GOODS : tab === 'title' ? TITLES : FX;
       for (const item of list) grid.append(cosmeticCard(item, tab));
       pane.append(grid);
+      if (tab === 'pet') {
+        // 펫 꾸미기 (2026-11-20 건의): 모자·안경. 데리고 다니는 펫이 쓴다
+        pane.append(el('div', { style: 'font-weight:700;margin:14px 0 6px', text: '🎀 펫 꾸미기 · 데리고 다니는 펫이 써요 (탈 때는 안 보여요)' }));
+        const g2 = el('div', { class: 'shop-grid' });
+        for (const it of PET_HATS) g2.append(cosmeticCard(it, 'pethat'));
+        for (const it of PET_GLASSES) g2.append(cosmeticCard(it, 'petglass'));
+        pane.append(g2);
+      }
     }
     if (lastTab === tab) for (const [k, top] of scrollers) { const t = k === 'grid' ? pane.querySelector<HTMLElement>('.shop-grid') : k; if (t) t.scrollTop = top; }
     lastTab = tab;

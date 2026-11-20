@@ -1,7 +1,7 @@
 import { ref, get, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { type BatKind, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
+import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
 import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
@@ -466,8 +466,22 @@ export class WalletMgr {
     const p = this.w.profile;
     const eq: Equip = { ...(p.eq || {}), [key]: itemId };
     p.eq = eq;
-    await update(ref(db), { [`users/${this.w.uid}/eq/${key}`]: itemId, [`players/${this.w.uid}/${key}`]: itemId }).catch(() => {});
+    // 펫을 바꾸면 그 펫의 이름을 presence 에 싣는다. 펫을 집에 두면 펫 모자·안경·이름도 presence 에서 내린다 (프로필의 착용 값은 그대로)
+    const extra: Record<string, unknown> = kind === 'pet' ? { [`players/${this.w.uid}/pn`]: (itemId && cleanPetName(eq.pns?.[itemId])) || null, [`players/${this.w.uid}/ph`]: itemId && eq.ph && this.owns(eq.ph) ? eq.ph : null, [`players/${this.w.uid}/pg`]: itemId && eq.pg && this.owns(eq.pg) ? eq.pg : null } : {};
+    const pres = (kind === 'pethat' || kind === 'petglass') && !(eq.pt && this.owns(eq.pt)) ? null : itemId; // 펫이 없으면 presence 에는 싣지 않는다
+    await update(ref(db), { [`users/${this.w.uid}/eq/${key}`]: itemId, [`players/${this.w.uid}/${key}`]: pres, ...extra }).catch(() => {});
     this.listeners.forEach((f) => f());
+  }
+  // 펫 이름 (2026-11-20): 펫마다 하나. 프로필에 적고, 지금 데리고 있는 펫이면 presence 에도
+  petName(petId: string): string { return cleanPetName(this.w.profile.eq?.pns?.[petId]); }
+  async setPetName(petId: string, name: string | null): Promise<boolean> {
+    const p = this.w.profile, nm = cleanPetName(name) || null;
+    const pns = { ...(p.eq?.pns || {}) };
+    if (nm) pns[petId] = nm; else delete pns[petId];
+    try { await update(ref(db), { [`users/${this.w.uid}/eq/pns/${petId}`]: nm, ...(p.eq?.pt === petId ? { [`players/${this.w.uid}/pn`]: nm } : {}) }); } catch (e) { console.warn('펫 이름 실패', e); return false; }
+    p.eq = { ...(p.eq || {}), pns };
+    this.listeners.forEach((f) => f());
+    return true;
   }
   // 갑옷 입기/벗기 (철벽 pa, 푹신 ta): 프로필과 presence 에 같이. 벗으면 키를 지운다
   // 만렙 펫을 탈지(기본) 내려서 데리고 다닐지. 프로필과 presence 에 같이 쓴다 (타는 쪽이 기본이라 그때는 칸을 지운다)

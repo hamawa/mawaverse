@@ -1,8 +1,8 @@
 import { ref, get } from 'firebase/database';
 import { db } from '../firebase/app';
 import { el } from '../shared/util';
-import { modal, withCloseX, confirmModal } from './ui';
-import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, GUEST_MAX, TROPHY_MIN_RARITY, furnitureOf, TURN_NAMES, TURN_ORDER, woodBonus } from '../shared/home';
+import { modal, withCloseX, confirmModal, promptModal } from './ui';
+import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, GUEST_MAX, TROPHY_MIN_RARITY, PHOTO_FRAMES, PHOTO_EDGE, PHOTO_MAX_CHARS, furnitureOf, TURN_NAMES, TURN_ORDER, woodBonus } from '../shared/home';
 import { fishById, fmtSize, RARITY_NAME, type FishBookEntry } from '../shared/fish';
 import { winterFishById } from '../shared/winter';
 import { itemById, priceOf, fmtCoins, GOLD_COST } from '../shared/shop';
@@ -59,6 +59,12 @@ export function openHome(w: World): void {
       ...(t.tier >= 2 ? [btn(h.locked ? '🔓 문 열기 (지금: 잠김)' : '🔒 문 잠그기 (지금: 열림)', async () => { if (!(await h.setLock(!h.locked))) w.toast('바꾸지 못했습니다.', true); })] : []),
     ));
     body.append(line(t.tier >= 2 ? '문을 잠그면 남이 못 들어오고, 안에 있던 사람은 밖으로 나가요.' : '초가집은 문을 못 잠가요. 누구나 들어올 수 있어요.', true));
+
+    // 금고 (2026-11-20 건의): 코인을 넣어 두고 꺼내 쓴다. 이자 없음
+    body.append(title('🔐 금고'));
+    body.append(line(`💰 ${n(h.vault)}코인 보관 중`));
+    body.append(line('넣어 둔 코인은 꺼내기 전까지 상점·도박·내기·거래소에 쓰이지 않아요. 이자는 없어요.', true));
+    body.append(row(btn('넣기', () => vaultFlow(w, 1), w.wallet.balance > 0), btn('꺼내기', () => vaultFlow(w, -1), h.vault > 0)));
 
     body.append(title('📦 창고'));
     body.append(line(`🐟 ${n(h.fish)} / ${n(h.capacity)}마리 (${h.slots}칸 · 한 칸 ${SLOT_FISH}마리)`));
@@ -128,14 +134,16 @@ export function openHome(w: World): void {
         }, cur !== wl.n && (own || w.wallet.balance >= price));
       })));
 
-    body.append(title('🏆 물고기 박제'));
-    body.append(line('내가 잡은 적 있는 전설·신화 물고기를 벽에 걸 수 있어요.', true));
+    body.append(title('🏆 박제 · 🖼 사진 액자'));
+    body.append(line('벽의 자리마다 내가 잡은 전설·신화 물고기나 사진을 걸 수 있어요. 사진은 액자(나무·금테)를 사서 걸고, 사진 앞에서 F 를 누르면 크게 보여요.', true));
     t.trophyX.forEach((_x, i) => {
       const tr = h.data?.tr?.[String(i)], f = tr ? (fishById(tr.id) ?? winterFishById(tr.id)) : undefined;
+      const ph = h.data?.ph?.[String(i)];
       body.append(row(
-        line(`${i + 1}번 자리: ${tr && f ? `${f.icon} ${f.name}${tr.s ? ` ${fmtSize(tr.s)}` : ''}` : '비어 있음'}`),
-        btn('고르기', () => pickTrophy(w, i)),
-        ...(tr ? [btn('내리기', async () => { if (!(await h.setTrophy(i, null))) w.toast('내리지 못했습니다.', true); })] : []),
+        line(`${i + 1}번 자리: ${ph ? `🖼 사진 (${PHOTO_FRAMES.find((x) => x.k === ph.k)?.name || '액자'})` : tr && f ? `${f.icon} ${f.name}${tr.s ? ` ${fmtSize(tr.s)}` : ''}` : '비어 있음'}`),
+        btn('물고기', () => pickTrophy(w, i)),
+        btn('📷 사진', () => pickPhoto(w, i)),
+        ...(ph ? [btn('내리기', async () => { if (!(await h.removePhoto(w.uid, i))) w.toast('내리지 못했습니다.', true); })] : tr ? [btn('내리기', async () => { if (!(await h.setTrophy(i, null))) w.toast('내리지 못했습니다.', true); })] : []),
       ));
     });
   };
@@ -280,6 +288,70 @@ export function openFurnitureEdit(w: World, x: number, y: number, o: number): vo
   if (bg) { bg.style.alignItems = 'flex-end'; bg.style.background = 'transparent'; bg.style.paddingBottom = '14vh'; }
   picker = m; close = m.close;
   render();
+}
+
+// 금고에 넣기(+1)·꺼내기(-1): 금액을 묻는다
+async function vaultFlow(w: World, sign: 1 | -1): Promise<void> {
+  const max = sign > 0 ? w.wallet.balance : w.home.vault;
+  const v = await promptModal(sign > 0 ? '🔐 금고에 넣기' : '🔐 금고에서 꺼내기', `${sign > 0 ? '넣을' : '꺼낼'} 코인 (최대 ${max.toLocaleString('ko-KR')})`, String(max), 12);
+  if (v === null) return;
+  const amt = Math.min(max, Math.floor(Number(v.replace(/[^0-9]/g, ''))));
+  if (!amt || amt < 1) { w.toast('1 이상의 숫자를 적어 주세요.', true); return; }
+  const r = await w.home.vaultMove(sign * amt);
+  w.toast(r === 'ok' ? (sign > 0 ? `🔐 ${fmtCoins(amt)}을 금고에 넣었어요.` : `💰 ${fmtCoins(amt)}을 금고에서 꺼냈어요.`) : r === 'coins' ? '코인이 모자랍니다.' : r === 'empty' ? '금고에 그만큼 없어요.' : '처리하지 못했습니다.', r !== 'ok');
+}
+
+// 사진을 올리기 좋게 줄인다: 긴 변 PHOTO_EDGE 부터 시작해 글자 수가 PHOTO_MAX_CHARS 안에 들 때까지 화질·크기를 낮춘다 (무료 플랜이라 DB 에 넣는다)
+async function shrinkPhoto(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('load')); im.src = url; });
+    let edge = PHOTO_EDGE;
+    for (let tries = 0; tries < 7; tries++) {
+      const k = Math.min(1, edge / Math.max(img.naturalWidth, img.naturalHeight, 1));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(img.naturalWidth * k)); cv.height = Math.max(1, Math.round(img.naturalHeight * k));
+      const c = cv.getContext('2d')!; c.fillStyle = '#fff'; c.fillRect(0, 0, cv.width, cv.height); c.drawImage(img, 0, 0, cv.width, cv.height);
+      for (const q of [0.82, 0.7, 0.55]) { const d = cv.toDataURL('image/jpeg', q); if (d.startsWith('data:image/jpeg;base64,') && d.length <= PHOTO_MAX_CHARS) return d; }
+      edge = Math.round(edge * 0.8);
+    }
+    throw new Error('too big');
+  } finally { URL.revokeObjectURL(url); }
+}
+// 사진 액자 걸기: 액자를 고르고 사진을 고른다
+function pickPhoto(w: World, slot: number): void {
+  const prices = w.config.prices;
+  const body = el('div', { style: 'min-width:240px;max-width:380px;line-height:1.5;display:flex;flex-direction:column;gap:8px' });
+  let frame = w.wallet.owns('frame2') && !w.wallet.owns('frame1') ? 2 : 1, data = '';
+  const frames = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' });
+  const prev = el('img', { style: 'max-width:100%;max-height:220px;display:none;border-radius:6px;align-self:center', alt: '고른 사진' });
+  const file = el('input', { type: 'file', accept: 'image/*' });
+  const drawFrames = (): void => {
+    frames.innerHTML = '';
+    for (const f of PHOTO_FRAMES) {
+      const it = itemById(f.item), own = w.wallet.owns(f.item);
+      const b = el('button', { class: 'btn small' + (frame === f.k ? ' primary' : ''), text: `${f.name} ${own ? '(보유)' : it ? fmtCoins(priceOf(it, prices)) : ''}` });
+      b.onclick = () => { frame = f.k; drawFrames(); };
+      frames.append(b);
+    }
+  };
+  drawFrames();
+  file.onchange = async () => {
+    const f = file.files?.[0]; if (!f) return;
+    try { data = await shrinkPhoto(f); prev.src = data; prev.style.display = ''; } catch { data = ''; prev.style.display = 'none'; w.toast('사진을 읽지 못했어요. 다른 사진으로 해 보세요.', true); }
+  };
+  body.append(el('div', { text: '액자' }), frames, el('div', { text: '사진' }), file, prev,
+    el('div', { class: 'muted', style: 'font-size:12px', text: '사진은 올릴 때 작게 줄어들어요. 이 집에 들어온 사람 모두가 볼 수 있으니 남이 봐도 괜찮은 사진만 걸어 주세요. 문제가 있는 사진은 관리자가 내릴 수 있어요.' }));
+  const m = modal(`🖼 ${slot + 1}번 자리에 걸 사진`, body, [
+    { label: '걸기', primary: true, keep: true, onClick: async () => {
+      if (!data) { w.toast('사진을 먼저 골라 주세요.', true); return; }
+      const fr = PHOTO_FRAMES.find((x) => x.k === frame)!, it = itemById(fr.item);
+      if (!w.wallet.owns(fr.item) && !(await confirmModal(`${fr.name}를 ${it ? fmtCoins(priceOf(it, prices)) : ''}에 살까요? 한 번 사면 다른 자리에도 쓸 수 있어요.`))) return;
+      const r = await w.home.setPhoto(slot, frame, data);
+      if (r === 'ok') { w.toast('🖼 사진을 걸었어요.'); m.close(); } else w.toast(r === 'coins' ? '코인이 모자랍니다.' : '걸지 못했습니다.', true);
+    } },
+    { label: '닫기', onClick: () => {} },
+  ]);
 }
 
 // 박제할 물고기 고르기: 내 도감에서 전설·신화만

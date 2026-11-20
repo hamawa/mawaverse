@@ -80,3 +80,31 @@ export function tallyVotes(votes: Record<string, string>, aliveN: number): { out
   if (!best || tie || bestN * 2 <= aliveN) return { out: null, tie, counts };
   return { out: best, tie: false, counts };
 }
+
+// ---- 사보타지 (2026-11-20, 건의 + 사용자 결정). mafia/sab = { k, at, a?, b?, x? } 한 줄 ----
+// k 1 안개: 마피아가 걸면 FOG_MS 동안 살아 있는 시민의 화면이 캐릭터 둘레만 보인다 (야외라 "정전"이 아니라 안개).
+// k 2 불: 맵에서 멀리 떨어진 두 곳(firePair)에 불이 난다. 살아 있는 사람이 각 자리 옆에서 F 를 FIRE_HOLD_MS 동안 누르면 꺼지고(a·b),
+//         FIRE_MS 안에 두 곳을 다 끄지 못하면 마피아가 이긴다 (방장 화면이 판정). 불이 난 동안에는 긴급 소집을 못 한다.
+// 회의가 열리면 풀린다(x: 회의를 여는 쓰기가 같이 적는다). 지우지 않고 표시만 하는 것은 다시 쓰기까지의 대기(at 기준)를 남기려는 것이다.
+// 다시 쓰기: 안개 뒤 FOG_CD_MS, 불 뒤 FIRE_CD_MS (걸린 시각부터). 불은 게임 시작 FIRE_AFTER_MS 뒤부터. 규칙(mafia/sab)에 같은 숫자가 글자로 들어 있다.
+// 누가 걸었는지는 적지 않는다 (적으면 화면을 고친 시민이 마피아를 알아낸다).
+export const FOG_MS = 30000;
+export const FOG_CD_MS = 60000;
+export const FOG_RADIUS = 2.6;           // 안개 속에서 보이는 반지름 (칸)
+export const FIRE_MS = 60000;
+export const FIRE_CD_MS = 90000;
+export const FIRE_HOLD_MS = 3000;
+export const FIRE_AFTER_MS = 60000;
+export const FIRE_GRACE_MS = 1500;       // 방장이 "못 껐다"로 판정하기 전에 두는 여유 (마지막 순간에 끈 쓰기가 도착할 시간)
+export interface MafiaSab { k: number; at: number; a?: boolean | null; b?: boolean | null; x?: boolean | null }
+// 불이 나는 두 자리 (미션 자리 id 의 짝. 서로 맵의 반대쪽). 걸린 시각으로 고른다: 모두 같은 자리를 본다
+export const FIRE_PAIRS: readonly (readonly [string, string])[] = [['vending', 'flower'], ['lamp', 'stump'], ['shelf', 'pot'], ['umbrella', 'bench']];
+export function firePair(at: number): readonly [string, string] { return FIRE_PAIRS[Math.abs(Math.floor(at)) % FIRE_PAIRS.length]; }
+export const sabCooldownMs = (k: number): number => (k === 2 ? FIRE_CD_MS : FOG_CD_MS);
+// 지금 걸려 있는 사보타지: 'lost' = 불을 제때 못 껐다 (방장이 마피아 승리로 끝낸다)
+export function sabState(s: MafiaSab | null | undefined, now: number): 'none' | 'fog' | 'fire' | 'lost' {
+  if (!s || s.x) return 'none';
+  if (s.k === 1) return now - s.at < FOG_MS ? 'fog' : 'none';
+  if (s.k !== 2 || (s.a && s.b)) return 'none';
+  return now - s.at < FIRE_MS ? 'fire' : 'lost';
+}

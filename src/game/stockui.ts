@@ -7,7 +7,7 @@ import type { StockMgr, HistPoint, TradeResult } from './stock';
 
 export interface StockHost { stock: StockMgr; balance(): number; toast(msg: string, err?: boolean): void; onWallet(fn: () => void): () => void }
 
-const QTYS = [1, 10, 50, STOCK_CAP];
+const QTYS = [1, 10, 100, STOCK_CAP];
 const MSG: Record<Exclude<TradeResult, 'ok'>, string> = {
   wait: '가격이 바뀌는 중이에요. 잠깐 뒤에 다시 눌러 주세요.',
   coins: '코인이 모자랍니다.',

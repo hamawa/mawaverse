@@ -275,29 +275,118 @@ function petShades(id: string): { row: number; x0: number; x1: number } | null {
   shadesCache.set(id, out);
   return out;
 }
-export function drawPet(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, tile: number, now: number, moving: boolean, moveT: number, hopAt: number, dir: Dir, scale = 1, ride = false, shades = false): void {
-  const cv = petCanvas(id);
+// 펫 꾸미기·고유 동작 (2026-11-20, 건의 + 사용자 결정). 이름은 render 가 화면 좌표에 따로 그린다.
+// 고유 동작은 앵무새의 따라 말하기처럼 보는 재미뿐이다 (종류별 능력 차이는 밸런스 때문에 2026-11-10 에 없앴고 되살리지 않는다):
+// 토끼 높이 깡충깡충 · 슬라임 빛깔이 천천히 바뀜 (둘은 여기서 종류로) · 고양이 sleep · 거북이 hide · 햄스터 puff · 강아지·병아리 say (world.petLook 이 정한다)
+export interface PetLook { name?: string | null; hat?: string | null; glass?: string | null; sleep?: boolean; hide?: boolean; puff?: boolean; say?: string | null }
+function hueShift(hex: string, deg: number): string {
+  const n = parseInt(hex.slice(1), 16), r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, bl = (n & 255) / 255;
+  const mx = Math.max(r, g, bl), mn = Math.min(r, g, bl), l = (mx + mn) / 2, d = mx - mn;
+  if (d < 0.02) return hex; // 무채색(눈·테두리)은 그대로
+  const sat = d / (1 - Math.abs(2 * l - 1) || 1);
+  let hh = mx === r ? ((g - bl) / d) % 6 : mx === g ? (bl - r) / d + 2 : (r - g) / d + 4;
+  hh = (((hh * 60 + deg) % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * sat, xx = c * (1 - Math.abs(((hh / 60) % 2) - 1)), m = l - c / 2;
+  const [r1, g1, b1] = hh < 60 ? [c, xx, 0] : hh < 120 ? [xx, c, 0] : hh < 180 ? [0, c, xx] : hh < 240 ? [0, xx, c] : hh < 300 ? [xx, 0, c] : [c, 0, xx];
+  const to = (v: number) => Math.max(0, Math.min(255, Math.round((v + m) * 255))).toString(16).padStart(2, '0');
+  return `#${to(r1)}${to(g1)}${to(b1)}`;
+}
+// 슬라임: 열두 빛깔을 만들어 두고 2.5초마다 다음 빛깔로
+const slimeCache = new Map<number, HTMLCanvasElement>();
+function slimeCanvas(now: number): HTMLCanvasElement | null {
+  const step = Math.floor(Math.max(0, now) / 2500) % 12;
+  if (step === 0) return petCanvas('petslime');
+  let cv = slimeCache.get(step);
+  if (!cv) {
+    const art = PET_ART.petslime;
+    if (!art) return null;
+    cv = document.createElement('canvas');
+    cv.width = 12; cv.height = art.rows.length;
+    const c = cv.getContext('2d')!;
+    art.rows.forEach((row, y) => { for (let x = 0; x < row.length; x++) { const k = row[x]; if (k !== '.' && art.pal[k]) { c.fillStyle = hueShift(art.pal[k], step * 30); c.fillRect(x, y, 1, 1); } } });
+    slimeCache.set(step, cv);
+  }
+  return cv;
+}
+// 머리 꼭대기 줄 (모자 자리): 눈이 있는 열들에 색이 넉 칸 넘게 찍힌 첫 줄 (토끼 귀처럼 가는 것은 건너뛴다)
+const headCache = new Map<string, number>();
+function petHeadTop(id: string): number {
+  const hit = headCache.get(id);
+  if (hit !== undefined) return hit;
+  const art = PET_ART[id], g = petShades(id);
+  let top = 0;
+  if (art && g) {
+    const x0 = Math.max(0, g.x0 - 1), x1 = Math.min(11, g.x1 + 1), need = Math.min(4, x1 - x0);
+    for (let r = 0; r < art.rows.length; r++) {
+      let n = 0;
+      for (let x = x0; x <= x1; x++) if (art.rows[r][x] && art.rows[r][x] !== '.') n++;
+      if (n >= need) { top = r; break; }
+    }
+  }
+  headCache.set(id, top);
+  return top;
+}
+// 펫 모자: (cx, top) = 머리 꼭대기 가운데 (캔버스 좌표), u = 펫 그림 한 칸의 크기
+function drawPetHat(ctx: CanvasRenderingContext2D, hat: string, cx: number, top: number, u: number): void {
+  const R = (x: number, y: number, w: number, h: number, c: string) => { ctx.fillStyle = c; ctx.fillRect(Math.round(cx + x * u), Math.round(top + y * u), Math.max(1, Math.round(w * u)), Math.max(1, Math.round(h * u))); };
+  if (hat === 'ph_ribbon') { R(-3, -2, 2, 2, '#ff7eb6'); R(1, -2, 2, 2, '#ff7eb6'); R(-1, -1.5, 2, 1, '#d94f8c'); }
+  else if (hat === 'ph_straw') { R(-4, -1, 8, 1, '#e3c16f'); R(-2, -3, 4, 2, '#edd28a'); R(-2, -2, 4, 1, '#c0392b'); }
+  else if (hat === 'ph_party') { R(-2, -1, 4, 1, '#5cc8ff'); R(-1.5, -2, 3, 1, '#ff5ce1'); R(-1, -3, 2, 1, '#5cc8ff'); R(-0.5, -4, 1, 1, '#ffd84d'); }
+  else if (hat === 'ph_crown') { R(-3, -2, 6, 2, '#ffd84d'); R(-3, -3, 1, 1, '#ffd84d'); R(-0.5, -3, 1, 1, '#ffd84d'); R(2, -3, 1, 1, '#ffd84d'); R(-0.5, -1.5, 1, 1, '#e74c3c'); R(-3, -0.5, 6, 0.5, '#c9952a'); }
+}
+export function drawPet(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, tile: number, now: number, moving: boolean, moveT: number, hopAt: number, dir: Dir, scale = 1, ride = false, shades = false, look?: PetLook | null): void {
+  const cv = id === 'petslime' ? slimeCanvas(now) : petCanvas(id);
   if (!cv) return;
+  const hide = !!look?.hide && !ride, still = !!look?.sleep || hide;
   const hop = now - hopAt;
   let dy = 0;
   if (hop >= 0 && hop < 350) dy -= Math.round(Math.sin((hop / 350) * Math.PI) * 7);
-  else if (moving) dy -= Math.round(Math.abs(Math.sin(moveT * Math.PI * 2)) * 2);
-  else dy -= Math.floor(now / 600) % 2;
-  const w = Math.round(cv.width * scale), h = Math.round(cv.height * scale);
+  else if (moving) dy -= Math.round(Math.abs(Math.sin(moveT * Math.PI * 2)) * (id === 'petrabbit' ? 6 : 2)); // 토끼는 높이 깡충깡충
+  else if (!still) dy -= Math.floor(now / 600) % 2;
+  const w = Math.round(cv.width * scale * (look?.puff && !ride ? 1.3 : 1)), h = Math.round(cv.height * scale * (hide ? 0.55 : 1)); // 햄스터 볼 빵빵 · 거북이 등껍질 속으로
   const px = Math.round(x * tile + (tile - w) / 2);
   const py = Math.round(y * tile + tile - h - (ride ? 1 : 3) + dy);
   // 옆을 볼 때는 좌우로 뒤집는다 (오른쪽 = 기본)
   if (dir === 1) { ctx.save(); ctx.translate(px + w, py); ctx.scale(-1, 1); ctx.drawImage(cv, 0, 0, w, h); ctx.restore(); }
   else ctx.drawImage(cv, px, py, w, h);
-  if (shades) {
-    // 선글라스: 두 눈을 덮는 검은 알 둘과 가운데 다리, 왼쪽 알에 흰 반짝임
-    const g = petShades(id);
-    if (g) {
-      const k = w / cv.width, gy = py + Math.round((g.row - 0.3) * k), gh = Math.max(2, Math.round(1.7 * k)), lw = Math.max(3, Math.round(2.6 * k));
-      const lx = px + Math.round((g.x0 - 0.8) * k), rx = px + Math.round((g.x1 + 1.8) * k) - lw;
-      ctx.fillStyle = '#0b0b10'; ctx.fillRect(lx, gy, lw, gh); ctx.fillRect(rx, gy, lw, gh); ctx.fillRect(lx, gy, rx + lw - lx, Math.max(1, Math.round(0.5 * k)));
-      ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillRect(lx + 1, gy + 1, 1, 1);
+  const g = petShades(id);
+  const glass = shades ? 'pg_sun' : ride ? null : look?.glass;
+  const hat = ride ? null : look?.hat;
+  if (g && !hide && (glass || hat)) {
+    const k = w / cv.width, ky = h / cv.height;
+    const e0 = dir === 1 ? cv.width - 1 - g.x1 : g.x0, e1 = dir === 1 ? cv.width - 1 - g.x0 : g.x1; // 뒤집어 그렸으면 눈 자리도 뒤집는다
+    if (glass) {
+      const gy = py + Math.round((g.row - 0.3) * ky), gh = Math.max(2, Math.round(1.7 * ky)), lw = Math.max(3, Math.round(2.6 * k));
+      const lx = px + Math.round((e0 - 0.8) * k), rx = px + Math.round((e1 + 1.8) * k) - lw;
+      if (glass === 'pg_round') {
+        // 동그란 안경: 갈색 테 둘과 가운데 다리, 알은 비친다
+        const t = Math.max(1, Math.round(0.4 * k));
+        for (const bx of [lx, rx]) {
+          ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(bx, gy - t, lw, gh + t * 2);
+          ctx.fillStyle = '#4a2f18'; ctx.fillRect(bx, gy - t, lw, t); ctx.fillRect(bx, gy + gh, lw, t); ctx.fillRect(bx, gy - t, t, gh + t * 2); ctx.fillRect(bx + lw - t, gy - t, t, gh + t * 2);
+        }
+        ctx.fillStyle = '#4a2f18'; ctx.fillRect(lx + lw, gy, Math.max(0, rx - lx - lw), t);
+      } else {
+        // 선글라스: 두 눈을 덮는 검은 알 둘과 가운데 다리, 왼쪽 알에 흰 반짝임
+        ctx.fillStyle = '#0b0b10'; ctx.fillRect(lx, gy, lw, gh); ctx.fillRect(rx, gy, lw, gh); ctx.fillRect(lx, gy, rx + lw - lx, Math.max(1, Math.round(0.5 * k)));
+        ctx.fillStyle = 'rgba(255,255,255,0.75)'; ctx.fillRect(lx + 1, gy + 1, 1, 1);
+      }
     }
+    if (hat) { const cArt = (g.x0 + g.x1) / 2 + 0.5; drawPetHat(ctx, hat, px + (dir === 1 ? cv.width - cArt : cArt) * k, py + petHeadTop(id) * ky, Math.max(1, k)); }
+  }
+  if (!ride && look?.sleep) {
+    // 졸기: 작은 z 둘이 머리 옆에서 올라간다
+    const zx = px + w - 1, zy = py - 2 - (Math.floor(now / 500) % 3);
+    ctx.fillStyle = '#ffffff';
+    for (const [ox, oy] of [[0, 0], [4, -5]] as const) { ctx.fillRect(zx + ox, zy + oy, 3, 1); ctx.fillRect(zx + ox + 1, zy + oy + 1, 1, 1); ctx.fillRect(zx + ox, zy + oy + 2, 3, 1); }
+  }
+  if (!ride && look?.say) {
+    ctx.save();
+    ctx.font = 'bold 7px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    const tx = px + w / 2, ty = py - 2 - (hat ? Math.round(4 * scale) : 0);
+    ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.strokeText(look.say, tx, ty);
+    ctx.fillStyle = '#fff7d6'; ctx.fillText(look.say, tx, ty);
+    ctx.restore();
   }
   // 그림자
   if (!ride) { ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(x * tile + tile / 2, y * tile + tile - 2, 5 * scale, 2 * scale, 0, 0, Math.PI * 2); ctx.fill(); }
@@ -841,4 +930,15 @@ export function drawFx(ctx: CanvasRenderingContext2D, now: number): void {
     }
   }
   ctx.globalAlpha = 1;
+}
+
+// 펫에게 모자·안경을 입혀 본 그림 (상점 카드)
+export function petLookCanvas(id: string, look: PetLook, zoom = 3): HTMLCanvasElement {
+  const base = document.createElement('canvas'); base.width = 32; base.height = 32;
+  const c = base.getContext('2d')!; c.imageSmoothingEnabled = false;
+  drawPet(c, id, 0, 0, 32, 0, false, 0, -1e9, 2, 1.7, false, false, look);
+  const out = document.createElement('canvas'); out.width = 32 * zoom; out.height = 26 * zoom;
+  const o = out.getContext('2d')!; o.imageSmoothingEnabled = false;
+  o.drawImage(base, 0, 6, 32, 26, 0, 0, out.width, out.height);
+  return out;
 }

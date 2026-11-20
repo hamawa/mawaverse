@@ -184,7 +184,8 @@ body.mobile #chat-hide { display: inline-block; }
 .roulette-result { text-align: center; font-size: 16px; font-weight: bold; color: var(--accent); margin-top: 8px; min-height: 20px; }
 
 /* 컨텍스트 메뉴 */
-.ctx-menu { position: fixed; z-index: 50; background: var(--panel-solid); border: 1px solid var(--border); border-radius: 10px; padding: 4px; min-width: 150px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); }
+/* 화면보다 긴 메뉴는 메뉴 안에서 스크롤한다 (2026-11-20 건의: 작은 화면에서 내 메뉴 아래쪽이 잘렸다) */
+.ctx-menu { position: fixed; z-index: 50; background: var(--panel-solid); border: 1px solid var(--border); border-radius: 10px; padding: 4px; min-width: 150px; box-shadow: 0 8px 30px rgba(0,0,0,0.5); max-height: calc(100vh - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; touch-action: pan-y; }
 .ctx-menu .title { padding: 6px 10px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .ctx-menu button { display: block; width: 100%; text-align: left; background: transparent; border: none; color: var(--text); padding: 8px 10px; border-radius: 6px; font-size: 13px; }
 .ctx-menu button:hover { background: #2a3b31; }
@@ -272,6 +273,8 @@ body.mobile #chat-hide { display: inline-block; }
 .board-item .meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
 .post-body { white-space: pre-wrap; word-break: break-word; background: #0d1510; border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 8px 0; max-height: 40vh; overflow: auto; }
 .comment { padding: 6px 0; border-top: 1px solid var(--border); font-size: 13px; }
+/* 게시판 글·댓글은 선택해서 복사할 수 있다 (2026-11-20 건의. body 는 선택을 막아 둔다) */
+.post-body, .comment, .board-view h3, .board-view .title { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; cursor: text; }
 .comment .meta { color: var(--muted); font-size: 11px; }
 
 /* 낚시 도감 */
@@ -440,6 +443,16 @@ body.mobile #chat-toggle { display: inline-block; }
 #mafia-bar .prog { height: 5px; background: rgba(255, 255, 255, 0.15); border-radius: 3px; margin-top: 4px; overflow: hidden; }
 #mafia-bar .prog .fill { height: 100%; background: #8ce99a; }
 #mafia-bar .prog.hold .fill { background: #ffd84d; }
+/* 사보타지 (2026-11-20): 걸려 있는 사보타지 한 줄과 마피아의 버튼. 바는 눌리지 않게 해 뒀으니 버튼만 눌리게 푼다 */
+#mafia-bar .sabline { margin-top: 4px; color: #dfe9f5; }
+#mafia-bar .sabline.fire { color: #ffb38a; font-weight: bold; }
+#mafia-bar .sab { display: flex; gap: 6px; margin-top: 5px; pointer-events: auto; }
+#mafia-bar .sab .btn:disabled { opacity: 0.55; }
+/* 마피아 초대 카드: 화면 위 가운데, 하던 일을 막지 않는다 */
+#mafia-invite { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); z-index: 24; display: flex; gap: 8px; align-items: center; max-width: 92vw; background: rgba(16, 12, 26, 0.9); border: 1px solid rgba(255, 216, 77, 0.6); border-radius: 10px; padding: 8px 12px; font-size: 13px; color: #fff; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
+.mafia-invite-list .inv-row { display: flex; align-items: center; gap: 6px; padding: 7px 4px; border-bottom: 1px solid var(--border); font-size: 14px; cursor: pointer; }
+.mafia-invite-list .inv-row.all { color: var(--muted); font-size: 12px; }
+.mafia-invite-list input { width: 18px; height: 18px; }
 #mafia-bar .tasks { margin-top: 4px; color: #e6e6e6; word-break: keep-all; }
 #mafia-bar .end { margin-top: 4px; font-weight: bold; color: #ffd84d; }
 /* 어몽어스식 회의 판 (2026-11-10): 전체 화면 덮개, 얼굴 카드 격자. 채팅창(z 30대)은 위에 남겨 토론할 수 있게 */
@@ -465,6 +478,8 @@ body.mobile #chat-toggle { display: inline-block; }
 #mafia-meet .foot { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
 #mafia-meet .btn.on { border-color: var(--accent); background: #3a2f12; color: #ffe9a8; }
 body.mobile #mafia-meet { padding: 70px 10px 200px; }
+/* 회의 중에는 조이스틱·행동 버튼을 숨긴다: 회의 판을 #app 안으로 옮긴 뒤로(채팅을 칠 수 있게) 이 버튼들이 투표 카드 위에 겹쳤다 (회의 중에는 어차피 못 움직인다) */
+body.mafia-meeting #mobile { display: none; }
 body.mobile #mafia-meet .cards { grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .mafia-lobby .mafia-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .mafia-lobby .chip { background: #0d1510; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
