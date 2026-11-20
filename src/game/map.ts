@@ -142,6 +142,22 @@ export interface MapData {
   updatedAt?: number;
 }
 
+// 탁자 옆 의자는 탁자를 본다 (2026-11-20 사용자 요청: 마주 보고 앉게). 왼쪽·오른쪽에 탁자가 있으면 그쪽을, 위에 있으면 뒤를 본다(등이 보인다). 아래에 있으면 원래대로 앞.
+// 방향을 따로 정한 칸은 그대로 둔다. 맵 데이터의 오브젝트 id 는 건드리지 않고 MapData.dirs 만 채운다 (그리기·앉는 방향이 이 값을 본다).
+// 집 안에서는 부르지 않는다: 집의 가구 방향은 주인이 꾸미기 모드에서 직접 정한다 (world.setMap)
+export function faceChairs(m: MapData): void {
+  const table = (x: number, y: number): boolean => { if (!inBounds(m, x, y)) return false; const o = m.objects[y * m.w + x]; return o === O.TABLE || o === O.TABLE_ROUND; };
+  const dirs: Record<number, number> = { ...(m.dirs || {}) };
+  let n = 0;
+  for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) {
+    const i = y * m.w + x;
+    if (m.objects[i] !== O.CHAIR || dirs[i] !== undefined) continue;
+    const d = table(x + 1, y) ? 2 : table(x - 1, y) ? 1 : table(x, y - 1) ? 3 : 0;
+    if (d) { dirs[i] = d; n++; }
+  }
+  if (n) m.dirs = dirs;
+}
+
 export function inBounds(m: MapData, x: number, y: number): boolean {
   return x >= 0 && y >= 0 && x < m.w && y < m.h;
 }
@@ -404,8 +420,9 @@ export function buildPortalGarden(): MapData {
   fillG(14, 4, 7, 5, G.WATER);
   fillG(13, 3, 9, 1, G.SAND); fillG(13, 9, 9, 1, G.SAND);
   fillG(13, 4, 1, 5, G.SAND); fillG(21, 4, 1, 5, G.SAND);
-  setO(14, 3, O.ROCK); setO(20, 3, O.ROCK); setO(14, 9, O.ROCK); setO(20, 9, O.ROCK);
-  setO(17, 3, O.BENCH);
+  setO(14, 9, O.ROCK); setO(20, 9, O.ROCK);
+  // 연못 위쪽 한 줄은 전부 벤치 (2026-11-20 사용자 요청: 앉아서 낚시한다. 전에는 가운데 하나와 양 끝 바위였다). 북쪽 잔디에서 벤치를 보고 F 로 앉으면 물을 보게 된다
+  for (let x = 14; x <= 20; x++) setO(x, 3, O.BENCH);
 
   // 정원 화단 및 쉼터 (서쪽)
   setO(3, 3, O.FLOWERBED); setO(7, 3, O.FLOWERBED);
@@ -517,6 +534,11 @@ export const HOME_EXIT_ZONE = 'home-exit';
 // 클럽 (2026-11-18, 사용자 제안): 가운데 춤추는 바닥, 위쪽 디제이 자리와 스피커, 양옆에 소파와 카운터. 실내라 낮밤·비가 없다.
 // 춤추는 펫(CLUB_DANCERS)은 그림만 있고 길을 막지 않는다. 자리 수는 펫 종류 수 이상이어야 한다: 펫마다 한 마리씩 선다 (펫을 더하면 자리도 더할 것. 2026-11-19 앵무새 자리 추가). 이 맵에서는 이모트 1~9 가 전부 춤이 된다 (world.entities, render)
 export const CLUB_FLOOR = { x: 6, y: 5, w: 10, h: 6 } as const; // 춤추는 바닥
+// 클럽 좌석: 탁자가 놓이는 칸(4인석은 그 칸과 아래 칸)과 몇 인석인지. 왼쪽 4·2·4·2, 오른쪽 2·4·2·4
+export const CLUB_SEATS: readonly { x: number; y: number; n: 2 | 4 }[] = [
+  { x: 3, y: 4, n: 4 }, { x: 3, y: 7, n: 2 }, { x: 3, y: 9, n: 4 }, { x: 3, y: 12, n: 2 },
+  { x: 18, y: 5, n: 2 }, { x: 18, y: 7, n: 4 }, { x: 18, y: 10, n: 2 }, { x: 18, y: 12, n: 4 },
+];
 export const CLUB_DANCERS: readonly { x: number; y: number }[] = [{ x: 7, y: 6 }, { x: 10, y: 5 }, { x: 14, y: 6 }, { x: 8, y: 9 }, { x: 12, y: 8 }, { x: 14, y: 9 }, { x: 11, y: 10 }, { x: 9, y: 7 }];
 // DJ 자리 (2026-11-19): 디제이 탁자 뒤의 두 칸. 여기 서서 F 를 누르면 유튜브 링크로 노래를 튼다 (game/dj.ts). 규칙의 club/dj 에 이 좌표가 글자로 들어 있다
 export const CLUB_DJ_SPOTS: readonly { x: number; y: number }[] = [{ x: 10, y: 1 }, { x: 11, y: 1 }];
@@ -535,12 +557,12 @@ export function buildClubMap(): MapData {
   for (const p of CLUB_DJ_SPOTS) setG(p.x, p.y, G.CARPET); // DJ 자리 표시
   for (const x of [7, 8, 13, 14]) setO(x, 2, O_SPEAKER);
   setO(2, 2, O_SPEAKER); setO(19, 2, O_SPEAKER);
-  // 왼쪽 쉼터: 소파와 원탁
-  for (const y of [5, 7, 9]) setO(2, y, O.SOFA);
-  setO(3, 6, O.TABLE_ROUND); setO(3, 8, O.TABLE_ROUND);
-  // 오른쪽 바: 카운터와 의자, 자판기
-  for (const y of [5, 6, 7, 8, 9]) setO(19, y, O.COUNTER);
-  for (const y of [5, 7, 9]) setO(18, y, O.CHAIR);
+  // 좌석 (2026-11-20 사용자 요청: 식당처럼 마주 보고 앉는 자리. 전에는 왼쪽에 소파·원탁, 오른쪽에 바 카운터였다).
+  // 4인석 = 탁자 두 칸(세로)에 양옆 의자 둘씩, 2인석 = 원탁 하나에 양옆 의자 하나씩. 의자는 맵을 실을 때 탁자 쪽으로 돌아간다 (faceChairs).
+  // 벽 쪽 한 줄(x=1·20)과 춤추는 바닥 쪽 한 줄(x=5·16)은 지나다니는 길이다: 그 길에서 의자를 보고 F 로 앉는다
+  const four = (x: number, y: number) => { for (const dy of [0, 1]) { setO(x, y + dy, O.TABLE); setO(x - 1, y + dy, O.CHAIR); setO(x + 1, y + dy, O.CHAIR); } };
+  const two = (x: number, y: number) => { setO(x, y, O.TABLE_ROUND); setO(x - 1, y, O.CHAIR); setO(x + 1, y, O.CHAIR); };
+  for (const s of CLUB_SEATS) (s.n === 4 ? four : two)(s.x, s.y);
   setO(20, 4, O.VENDING);
   // 구석 화초
   setO(1, 1, O.PLANT); setO(W - 2, 1, O.PLANT); setO(1, H - 2, O.PLANT); setO(W - 2, H - 2, O.PLANT);

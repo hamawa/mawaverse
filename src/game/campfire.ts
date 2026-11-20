@@ -1,5 +1,5 @@
 // 모닥불 (2026-11-20). 설계는 shared/campfire.ts 머리말.
-import { ref, onValue, update, increment, serverTimestamp } from 'firebase/database';
+import { ref, onValue, update, remove, increment, serverTimestamp } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { isHomeMapId } from '../shared/maps';
@@ -45,7 +45,17 @@ export class CampfireMgr {
   // 그 칸에 불이 타고 있나 (걸음을 막는다)
   burningAt(x: number, y: number): boolean { return fireBurning(this.fires.get(fireKey(x, y)), serverNow()); }
   owns(): boolean { return !!this.h.profile.own?.[CAMPFIRE_ID]; }
-  private mine(now: number): boolean { for (const f of this.fires.values()) if (f.u === this.h.uid && fireBurning(f, now)) return true; return false; }
+  private mine(now: number): boolean { return !!this.mineKey(now); }
+  private mineKey(now: number): string | null { for (const [k, f] of this.fires) if (f.u === this.h.uid && fireBurning(f, now)) return k; return null; }
+  // 이 맵에 내 모닥불이 타고 있나 (내 메뉴의 "끄기")
+  burningMine(): boolean { return this.mine(serverNow()); }
+  // 내 모닥불 끄기 (2026-11-20 사용자 요청: 불이 길을 막게 되면서 잘못 놓은 불을 치울 수 있어야 했다). 나무는 돌려주지 않는다. 규칙: 피운 사람은 언제든 지울 수 있다
+  async putOut(): Promise<boolean> {
+    const k = this.mineKey(serverNow());
+    if (!k || this.busy) return false;
+    this.busy = true;
+    try { await remove(ref(db, `fires/${this.mapId}/${k}`)); return true; } catch (e) { console.warn('campfire off failed', e); return false; } finally { this.busy = false; }
+  }
 
   // 내 앞 칸에 피운다. wood: 지금 가진 나무, outdoors: 바깥 맵인가
   async light(wood: number, outdoors: boolean): Promise<LightResult> {

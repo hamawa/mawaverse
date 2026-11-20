@@ -387,3 +387,55 @@ test('DJ 창: 끝난 영상은 다시 틀지 않고 끈다 (광고가 끝난 것
   assert.equal(Y.sameSong({ v: 'a', at: 1000 }, { v: 'b', at: 1000 }), false);
   assert.equal(Y.sameSong(null, { v: 'a', at: 1 }), false);
 });
+
+// ---------- 2026-11-20 저녁 (v45): 탁자 옆 의자, 클럽 좌석, 포탈 정원 벤치 ----------
+test('탁자 옆 의자는 탁자를 본다: 왼쪽 의자는 오른쪽을, 오른쪽 의자는 왼쪽을, 탁자 아래 의자는 뒤를', async () => {
+  const { emptyMap, faceChairs, O, buildPortalGarden } = await import('../src/game/map.ts');
+  const m = emptyMap('t', 't', 7, 5);
+  const set = (x, y, o) => { m.objects[y * m.w + x] = o; };
+  set(3, 2, O.TABLE); set(2, 2, O.CHAIR); set(4, 2, O.CHAIR); set(3, 1, O.CHAIR); set(3, 3, O.CHAIR); set(6, 4, O.CHAIR); set(0, 0, O.BENCH);
+  faceChairs(m);
+  const d = (x, y) => m.dirs?.[y * m.w + x];
+  assert.equal(d(2, 2), 2, '왼쪽 의자는 오른쪽(탁자)을 본다');
+  assert.equal(d(4, 2), 1, '오른쪽 의자는 왼쪽을 본다');
+  assert.equal(d(3, 3), 3, '탁자 아래 의자는 뒤(탁자)를 본다');
+  assert.equal(d(3, 1), undefined, '탁자 위 의자는 원래대로 앞을 본다');
+  assert.equal(d(6, 4), undefined, '탁자가 없으면 그대로');
+  assert.equal(d(0, 0), undefined, '벤치는 돌리지 않는다');
+  m.dirs[2 * m.w + 2] = 3; faceChairs(m);
+  assert.equal(d(2, 2), 3, '따로 정한 방향은 건드리지 않는다');
+  const g = buildPortalGarden(); faceChairs(g);
+  assert.equal(g.dirs?.[5 * g.w + 4], 2); assert.equal(g.dirs?.[5 * g.w + 6], 1);
+});
+
+test('클럽 좌석: 4인석·2인석이 고루 있고, 모든 의자가 탁자를 보며, 옆 길에서 앉을 수 있다', async () => {
+  const { buildClubMap, CLUB_SEATS, CLUB_FLOOR, faceChairs, O, objectAt, isWalkable } = await import('../src/game/map.ts');
+  const m = buildClubMap(); faceChairs(m);
+  assert.ok(CLUB_SEATS.filter((s) => s.n === 4).length >= 2 && CLUB_SEATS.filter((s) => s.n === 2).length >= 2);
+  let chairs = 0;
+  for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) {
+    if (objectAt(m, x, y) !== O.CHAIR) continue;
+    chairs++;
+    const dir = m.dirs?.[y * m.w + x];
+    assert.ok(dir === 1 || dir === 2, `(${x},${y}) 의자가 옆의 탁자를 본다`);
+    const tx = x + (dir === 2 ? 1 : -1), o = objectAt(m, tx, y);
+    assert.ok(o === O.TABLE || o === O.TABLE_ROUND, `(${x},${y}) 앞이 탁자`);
+    assert.equal(isWalkable(m, x + (dir === 2 ? -1 : 1), y), true, `(${x},${y}) 의자 뒤가 지나다니는 길`);
+    assert.ok(x < CLUB_FLOOR.x || x >= CLUB_FLOOR.x + CLUB_FLOOR.w, '춤추는 바닥 밖');
+  }
+  assert.equal(chairs, CLUB_SEATS.reduce((t, s) => t + s.n, 0));
+  // 좌석을 놓아도 시작 자리에서 양쪽 길 끝까지 걸어갈 수 있다
+  const seen = new Set([`${m.spawn.x},${m.spawn.y}`]), q = [[m.spawn.x, m.spawn.y]];
+  while (q.length) { const [x, y] = q.shift(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = `${x + dx},${y + dy}`; if (!seen.has(k) && isWalkable(m, x + dx, y + dy)) { seen.add(k); q.push([x + dx, y + dy]); } } }
+  for (const [x, y] of [[1, 4], [1, 12], [5, 4], [20, 6], [20, 13], [16, 12]]) assert.ok(seen.has(`${x},${y}`), `(${x},${y}) 까지 갈 수 있다`);
+});
+
+test('포탈 정원: 연못 위쪽 한 줄이 전부 벤치이고, 그 북쪽에서 앉으면 바로 앞이 물이다', async () => {
+  const { buildPortalGarden, O, objectAt, isWalkable, isWater } = await import('../src/game/map.ts');
+  const g = buildPortalGarden();
+  for (let x = 14; x <= 20; x++) {
+    assert.equal(objectAt(g, x, 3), O.BENCH, `(${x},3) 벤치`);
+    assert.equal(isWater(g, x, 4), true, '벤치 앞(아래)이 물');
+    assert.equal(isWalkable(g, x, 2), true, '벤치 뒤(북쪽)에 설 수 있다');
+  }
+});

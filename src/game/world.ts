@@ -11,7 +11,7 @@ import { Engine } from './engine';
 import { Input } from './input';
 import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
-import { O, objectAt, buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, CLUB_FLOOR, CLUB_DANCERS, buildHomeMap, HOME_EXIT_ZONE, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
+import { O, objectAt, faceChairs, buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, CLUB_FLOOR, CLUB_DANCERS, buildHomeMap, HOME_EXIT_ZONE, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
 import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, playerMapId, isHomeMapId, homeMapId, homeOwnerOf } from '../shared/maps';
 import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { openPortalPicker } from './portalui';
@@ -848,6 +848,7 @@ export class World implements WorldCtx {
   private setMap(map: MapData): void {
     this.dj.setActive(this.mapId === CLUB_MAP_ID); // 클럽에 있는 동안에만 DJ 상태를 구독한다
     this.map = map;
+    if (!isHomeMapId(this.mapId)) faceChairs(map); // 탁자 옆 의자는 탁자를 본다 (집 안은 주인이 정한 방향 그대로)
     if (isHomeMapId(this.mapId)) this.homePets.setMap(map); else this.homePets.clear();
     this.boardZone = map.zones.find((z) => z.kind === 'board');
     this.fishZone = map.zones.find((z) => z.kind === 'fish');
@@ -1213,7 +1214,14 @@ export class World implements WorldCtx {
     const me = this.me;
     if (me.roomId) return null;
     if (this.switching) return { x: me.x, y: me.y - 1, text: '🌀 이동 중…', kind: 'portal' };
-    if (this.sitAt) return { x: this.sitAt.x, y: this.sitAt.y - 1, text: 'F 일어나기', kind: 'sitting' };
+    if (this.sitAt) {
+      // 물가 벤치에 앉아 있으면 앉은 채로 낚시한다 (2026-11-20 사용자 요청). 낚는 중이면 그 안내, 물을 보고 있으면 던지기. 이때 일어나려면 움직이면 된다 (걸어 나가면 풀린다)
+      const sv = this.fishing.view();
+      if (sv) return sv.auto ? null : { x: sv.x, y: sv.y, text: sv.bite ? 'F 당겨!' : '찌를 기다리는 중… (이동하면 취소)', kind: 'fishing' };
+      const st = this.fishing.targetTile();
+      if (st) return { x: st.x, y: st.y, text: 'F 낚시 (일어나려면 이동)', kind: 'cast' };
+      return { x: this.sitAt.x, y: this.sitAt.y - 1, text: 'F 일어나기', kind: 'sitting' };
+    }
     if (this.mapId === CLUB_MAP_ID && this.dj.atBooth()) return { x: me.x, y: me.y + 1, text: this.dj.state ? 'F 노래 바꾸기·끄기' : 'F 노래 틀기 (유튜브 링크)', kind: 'dj' };
     // 마피아 게임 중 참가자: 처치·미션·신고·소집이 F 를 우선 차지한다
     const ma = this.mafia.action();
@@ -1506,7 +1514,8 @@ export class World implements WorldCtx {
       { label: this.dayOff ? '🌙 낮밤 효과 켜기' : '🌙 낮밤 효과 끄기', onClick: () => { this.dayOff = !this.dayOff; try { localStorage.setItem('mv-daylight-off', this.dayOff ? '1' : '0'); } catch { /* ignore */ } this.toast(this.dayOff ? '🌙 낮밤 효과를 껐습니다. 언제나 낮처럼 보여요.' : '🌙 낮밤 효과를 켰습니다. 실제 시각에 따라 하늘빛이 바뀌어요.'); } },
       ...(wakeLockSupported() ? [{ label: wakeLockOn() ? '📱 화면 꺼짐 방지 끄기' : '📱 화면 꺼짐 방지 켜기', onClick: async () => { const on = !wakeLockOn(); const ok = await setWakeLock(on); this.toast(!on ? '📱 화면 꺼짐 방지를 껐습니다.' : ok ? '📱 화면 꺼짐 방지를 켰습니다. 게임을 띄워 둔 동안 화면이 꺼지지 않아요. (배터리를 더 씁니다)' : '화면 꺼짐 방지를 켜지 못했어요. 기기가 배터리 절약 중일 수 있어요.', on && !ok); } }] : []),
       { label: this.mafia.game ? (this.mafia.game.st === 'lobby' ? '🕵 마피아 (모집 중!)' : '🕵 마피아 (진행 중)') : '🕵 마피아 모집', onClick: () => openMafiaLobby(this) },
-      ...(this.campfire.owns() ? [{ label: `🔥 모닥불 피우기 (나무 ${CAMPFIRE_WOOD}개)`, onClick: () => { void this.lightCampfire(); } }] : []),
+      ...(this.campfire.burningMine() ? [{ label: '🔥 내 모닥불 끄기', onClick: async () => { const ok = await this.campfire.putOut(); this.toast(ok ? '모닥불을 껐어요.' : '끄지 못했습니다.', !ok); } }]
+        : this.campfire.owns() ? [{ label: `🔥 모닥불 피우기 (나무 ${CAMPFIRE_WOOD}개)`, onClick: () => { void this.lightCampfire(); } }] : []),
     ];
     items.push({ label: this.duel.optedOut() ? '🎲 내기 신청 받기 (지금: 안 받음)' : '🚫 내기 신청 받지 않기', onClick: () => { const on = !this.duel.optedOut(); this.duel.setOptOut(on); this.toast(on ? '🚫 내기 신청을 받지 않습니다.' : '🎲 내기 신청을 다시 받습니다.'); } });
     items.push({ label: '🔑 비밀번호 변경', onClick: () => this.changePasswordFlow() });
