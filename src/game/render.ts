@@ -2,7 +2,7 @@ import { TILE, BUBBLE_MS, EMOTE_MS } from '../shared/config';
 import type { Dir, RoomState } from '../shared/types';
 import { wrapText } from '../shared/util';
 import type { Engine } from './engine';
-import { G, O, G_DANCE, TALL_OBJECTS, waterDepth, type MapData, type Zone } from './map';
+import { G, O, G_DANCE, O_XMAS_TREE, TALL_OBJECTS, waterDepth, type MapData, type Zone } from './map';
 import type { DayTint } from '../shared/daylight';
 import { groundTile, objectSprite, seasonTree } from './tiles';
 import { PARROT_ID, parrotEcho } from '../shared/shop';
@@ -14,7 +14,7 @@ import type { TossView } from './toss';
 import type { SnowView } from './winterplay';
 import { snowActive, SNOW_PENALTY_TITLE } from '../shared/snowpenalty';
 import { LABEL_FADE, standsBelow, inRowBelow } from '../shared/overlap';
-import { bubbleFont, hasBubbleSkin, paintBubble } from './bubbles';
+import { hasBubbleSkin, paintBubble } from './bubbles';
 import { drawHat, hatAbove, nameStyle, titleStyle, isLabelFlow, labelFlow, spawnFx, drawFx, drawPet, drawMount, mountInfo, drawAfterimages, AFTERIMAGE_FX } from './cosmetics';
 
 export type BubbleKind = 'near' | 'all' | 'w';
@@ -80,6 +80,7 @@ export interface RenderState {
   roamers?: PetView[]; // 집 안을 돌아다니는 펫 (homepets.ts)
   night?: DayTint | null; // 낮밤 덧칠 (바깥 맵만. shared/daylight.ts)
   treeLook?: 'autumn' | 'blossom' | null; // 계절 나무: 단풍·벚꽃 (shared/season.ts. 소나무는 그대로)
+  xmas?: boolean;     // 크리스마스 철 (12/1~12/25): 소나무에 전구와 꼭대기 별 (shared/season.ts xmasSeason)
   rain?: { level: number; snow: boolean } | null; // 비 (0~1. 겨울 맵에서는 눈으로 그린다. shared/weather.ts)
   club?: { x: number; y: number; w: number; h: number; bpm: number; dancers: PetView[] } | null; // 클럽: 춤추는 바닥의 자리, 박자, 춤추는 펫 (어둡게 깔고 색 조명을 돌린다)
 }
@@ -151,6 +152,7 @@ export function render(eng: Engine, st: RenderState): void {
 
   // ---- 오브젝트 + 캐릭터 (y 정렬) ----
   const items: Drawable[] = [];
+  const xmasLights: XmasLight[] = []; // 이번 프레임에 켜져 있는 소나무 전구·별 (밤에 둘레를 밝힌다)
   for (let y = Math.max(0, vis.y0 - 1); y <= Math.min(map.h - 1, vis.y1 + 1); y++) for (let x = vis.x0; x <= vis.x1; x++) {
     const raw = map.objects[y * map.w + x];
     if (!raw) continue;
@@ -159,6 +161,14 @@ export function render(eng: Engine, st: RenderState): void {
       : objectSprite(id, map.dirs?.[y * map.w + x] ?? 0); // 집 안의 돌려 놓은 가구는 그 방향 그림으로
     if (!spr) continue;
     const tall = TALL_OBJECTS.has(id);
+    if (st.xmas && id === O.PINE) { // 벤 소나무(그루터기·덤불)에는 달지 않는다: id 는 지금 보이는 모습이다
+      items.push({ sortY: y + 0.9, order: 0, draw: () => { ctx.drawImage(spr.cv, x * TILE, (y - 1) * TILE); drawXmasBulbs(ctx, x * TILE, (y - 1) * TILE, XMAS_BULBS, 0, (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0, st.now, xmasLights); } });
+      continue;
+    }
+    if (id === O_XMAS_TREE) { // 집 가구 꼬마 트리 (크리스마스 한정): 언제나 전구가 깜빡인다
+      items.push({ sortY: y + 0.9, order: 0, draw: () => { ctx.drawImage(spr.cv, x * TILE, (y - 1) * TILE); drawXmasBulbs(ctx, x * TILE, (y - 1) * TILE, XMAS_MINI_BULBS, XMAS_MINI_STAR_DY, (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0, st.now, null); } });
+      continue;
+    }
     items.push({ sortY: y + 0.9, order: 0, draw: () => ctx.drawImage(spr.cv, x * TILE, y * TILE - (tall ? TILE : 0)) });
   }
   // 집 벽의 물고기 박제: 나무 판에 물고기 그림, 아래에 이름과 크기
@@ -368,7 +378,7 @@ export function render(eng: Engine, st: RenderState): void {
   }
 
   // ---- 낮과 밤: 이름표·말풍선·안내보다 먼저 덧칠한다 (글자는 어두워지지 않는다) ----
-  if (st.night && st.night.a > 0.005) drawNight(eng, map, vis, st.night, st.fires);
+  if (st.night && st.night.a > 0.005) drawNight(eng, map, vis, st.night, st.fires, xmasLights);
   if (st.club) drawClubLights(eng, st.club, st.now);
 
   // ---- 화면 좌표 오버레이 ----
@@ -680,7 +690,7 @@ function drawRain(eng: Engine, now: number, level: number, snow: boolean): void 
 // 낮과 밤 (2026-11-18): 화면 전체에 그 시각의 빛깔을 덧칠하고, 가로등·창문 둘레는 덜 어둡게 남긴 뒤 따뜻한 불빛을 살짝 더한다.
 // 불빛이 화면에 없으면 한 번 칠하는 것으로 끝난다. 있으면 따로 둔 캔버스에 어둠을 칠하고 불빛 자리를 도려내 얹는다
 let nightCv: HTMLCanvasElement | null = null;
-function drawNight(eng: Engine, map: MapData, vis: { x0: number; y0: number; x1: number; y1: number }, n: DayTint, fires?: { x: number; y: number }[]): void {
+function drawNight(eng: Engine, map: MapData, vis: { x0: number; y0: number; x1: number; y1: number }, n: DayTint, fires?: { x: number; y: number }[], bulbs: XmasLight[] = []): void {
   const { ctx, canvas } = eng;
   const k = eng.scale * eng.dpr;
   const lights: { x: number; y: number; r: number; s: number }[] = [];
@@ -690,9 +700,10 @@ function drawNight(eng: Engine, map: MapData, vis: { x0: number; y0: number; x1:
     else if (o === O.WALL_WINDOW) lights.push({ x: ((x + 0.5) * TILE - eng.cam.x) * k, y: ((y + 0.5) * TILE - eng.cam.y) * k, r: 1.4 * TILE * k, s: 0.6 });
   }
   if (n.lamp > 0.02) for (const f of fires ?? []) lights.push({ x: ((f.x + 0.5) * TILE - eng.cam.x) * k, y: ((f.y + 0.5) * TILE - eng.cam.y) * k, r: 3.4 * TILE * k, s: 1 }); // 모닥불 둘레도 밝다
+  const glow = n.lamp > 0.02 ? bulbs : []; // 소나무 전구·별 (크리스마스 철): 작은 불빛이라 어둠을 조금만 도려내고 제 빛깔을 얹는다
   const fill = `rgba(${n.r},${n.g},${n.b},${n.a})`;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (!lights.length) { ctx.fillStyle = fill; ctx.fillRect(0, 0, canvas.width, canvas.height); return; }
+  if (!lights.length && !glow.length) { ctx.fillStyle = fill; ctx.fillRect(0, 0, canvas.width, canvas.height); return; }
   if (!nightCv) nightCv = document.createElement('canvas');
   if (nightCv.width !== canvas.width || nightCv.height !== canvas.height) { nightCv.width = canvas.width; nightCv.height = canvas.height; }
   const nc = nightCv.getContext('2d')!;
@@ -705,6 +716,11 @@ function drawNight(eng: Engine, map: MapData, vis: { x0: number; y0: number; x1:
     g.addColorStop(0, `rgba(0,0,0,${0.8 * n.lamp * l.s})`); g.addColorStop(1, 'rgba(0,0,0,0)');
     nc.fillStyle = g; nc.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
   }
+  if (glow.length) {
+    nc.globalAlpha = 0.85 * n.lamp;
+    for (const b of glow) { const r = XMAS_HOLE_R * k; nc.drawImage(xmasGlow(-2), (b.x - eng.cam.x) * k - r, (b.y - eng.cam.y) * k - r, r * 2, r * 2); }
+    nc.globalAlpha = 1;
+  }
   ctx.drawImage(nightCv, 0, 0);
   ctx.globalCompositeOperation = 'lighter';
   for (const l of lights) {
@@ -712,7 +728,49 @@ function drawNight(eng: Engine, map: MapData, vis: { x0: number; y0: number; x1:
     g.addColorStop(0, `rgba(255,190,110,${0.2 * n.lamp * l.s})`); g.addColorStop(1, 'rgba(255,190,110,0)');
     ctx.fillStyle = g; ctx.fillRect(l.x - r, l.y - r, r * 2, r * 2);
   }
+  if (glow.length) {
+    const was = ctx.imageSmoothingEnabled; ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = 0.5 * n.lamp;
+    for (const b of glow) { const r = xmasGlowR(b.c) * k; ctx.drawImage(xmasGlow(b.c), (b.x - eng.cam.x) * k - r, (b.y - eng.cam.y) * k - r, r * 2, r * 2); }
+    ctx.globalAlpha = 1; ctx.imageSmoothingEnabled = was;
+  }
   ctx.globalCompositeOperation = 'source-over';
+}
+// ---- 크리스마스 소나무 (2026-11-21, 건의 반영. 12/1~12/25): 전구 여덟 개와 꼭대기 별. 전구는 저마다 천천히 깜빡인다 ----
+// 자리는 소나무 그림(32×64) 안의 좌표다 (tiles.ts 의 소나무 그림을 고치면 같이 볼 것). 사용자가 시안에서 고른 모습(소나무에만 + 별)이라 둥근 나무에는 달지 않는다
+const XMAS_COLORS = ['#ff5a5a', '#ffd84d', '#6ab8ff', '#ff8ad0', '#ffffff'];
+const XMAS_STAR_COLOR = '#ffe066';
+const XMAS_DIM = XMAS_COLORS.map((hex) => { const v = parseInt(hex.slice(1), 16); return `rgb(${Math.round(((v >> 16) & 255) * 0.42 + 20)},${Math.round(((v >> 8) & 255) * 0.42 + 24)},${Math.round((v & 255) * 0.42 + 30)})`; }); // 꺼진 전구
+const XMAS_BULBS: readonly (readonly [number, number])[] = [[14, 14], [18, 15], [12, 24], [17, 26], [21, 24], [10, 35], [15, 37], [22, 36]];
+const XMAS_STAR: readonly (readonly [number, number])[] = [[16, 1], [14, 2], [15, 2], [16, 2], [17, 2], [18, 2], [15, 3], [16, 3], [17, 3], [15, 4], [17, 4]];
+// 집 가구 꼬마 트리(tiles.ts O_XMAS_TREE)의 전구 자리와, 별을 소나무보다 얼마나 내려 그리는가
+const XMAS_MINI_BULBS: readonly (readonly [number, number])[] = [[15, 27], [12, 36], [18, 34], [10, 46], [16, 44], [21, 46]];
+const XMAS_MINI_STAR_DY = 16;
+interface XmasLight { x: number; y: number; c: number } // 켜진 불빛의 자리(월드 좌표, px)와 빛깔 번호 (-1 = 별)
+// (px, py): 나무 그림의 왼쪽 위. starDy: 별을 내려 그리는 만큼. lights: 켜진 불빛을 모을 곳 (밤에 둘레를 밝힌다. 실내 가구는 null)
+function drawXmasBulbs(ctx: CanvasRenderingContext2D, px: number, py: number, bulbs: readonly (readonly [number, number])[], starDy: number, h: number, now: number, lights: XmasLight[] | null): void {
+  bulbs.forEach(([bx, by], i) => {
+    const c = (i + h) % XMAS_COLORS.length, on = Math.sin(now / 900 + i * 2.4 + (h % 7)) > -0.5; // 셋 중 둘쯤 켜져 있다
+    ctx.fillStyle = on ? XMAS_COLORS[c] : XMAS_DIM[c]; ctx.fillRect(px + bx, py + by, 2, 2);
+    if (on) lights?.push({ x: px + bx + 1, y: py + by + 1, c });
+  });
+  for (const [sx, sy] of XMAS_STAR) { ctx.fillStyle = sx === 16 && sy === 2 ? '#fffbe0' : XMAS_STAR_COLOR; ctx.fillRect(px + sx, py + sy + starDy, 1, 1); }
+  lights?.push({ x: px + 16.5, y: py + 3 + starDy, c: -1 });
+}
+const xmasGlowR = (c: number): number => (c < 0 ? 7 : 5); // 빛이 번지는 반지름 (그림 좌표)
+const XMAS_HOLE_R = 3; // 어둠을 도려내는 반지름: 전구 자신만큼만 (넓게 도려내면 별 둘레로 낮의 풀밭 빛깔이 동그랗게 비친다)
+const xmasGlowCache = new Map<number, HTMLCanvasElement>();
+// 둥글게 번지는 빛 한 점 (빛깔마다 한 번 만들어 둔다). c: 빛깔 번호, -1 별, -2 어둠을 도려내는 데 쓰는 검은 점
+function xmasGlow(c: number): HTMLCanvasElement {
+  let cv = xmasGlowCache.get(c);
+  if (cv) return cv;
+  cv = document.createElement('canvas'); cv.width = cv.height = 32;
+  const g2 = cv.getContext('2d')!, v = parseInt((c === -2 ? '#000000' : c < 0 ? XMAS_STAR_COLOR : XMAS_COLORS[c]).slice(1), 16);
+  const g = g2.createRadialGradient(16, 16, 0, 16, 16, 16);
+  g.addColorStop(0, `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},1)`); g.addColorStop(1, `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},0)`);
+  g2.fillStyle = g; g2.fillRect(0, 0, 32, 32);
+  xmasGlowCache.set(c, cv);
+  return cv;
 }
 // 찌 위치. 던진 직후 0.3초 동안 손에서 물까지 포물선, 그 뒤 둥실거림. 입질 중이면 푹 잠기며 흔들린다
 function bobberPos(e: Entity, fv: FishingView, now: number): [number, number, number] {
@@ -856,12 +914,12 @@ const BUBBLE_STYLE: Record<BubbleKind, { fill: string; stroke: string; text: str
   w: { fill: '#f3e9ff', stroke: '#6b3fa0', text: '#3b1f5e' },
 };
 
-// skin: 말풍선 꾸미기 (2026-11-20. 일반 채팅에만 입힌다: 귓속말은 점선 보라 그대로여야 구분된다). 글자 크기·줄 높이·여백은 꾸미기와 상관없이 같다
+// skin: 말풍선 꾸미기 (2026-11-20. 일반 채팅에만 입힌다: 귓속말은 점선 보라 그대로여야 구분된다). 글자 크기·줄 높이·여백·글꼴은 꾸미기와 상관없이 같다 (글꼴은 2026-11-21 건의로 기본 글꼴 하나로 맞췄다)
 export function drawBubble(ctx: CanvasRenderingContext2D, b: Bubble, cx: number, bottom: number, s: number, skin?: string | null, now = 0): { x: number; y: number; w: number } {
   const st = BUBBLE_STYLE[b.kind];
   const size = 12 + (s >= 2 ? 1 : 0);
   const sk = b.kind === 'near' && hasBubbleSkin(skin) ? skin : null;
-  const font = sk ? bubbleFont(sk, size, b.text) : `${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
+  const font = `${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
   ctx.font = font;
   const maxW = 170;
   const lines = wrapText(ctx, b.text, maxW);

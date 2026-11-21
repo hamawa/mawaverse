@@ -1,56 +1,8 @@
-// 말풍선 꾸미기 (2026-11-20, 사용자 요청. 상점 kind 'bubble', 착용 칸 bb): 일반 채팅 말풍선의 모양·빛깔과 글꼴을 바꾼다. 귓속말(점선 보라)은 그대로다.
-// 글자 크기·줄 높이·여백은 기본 말풍선과 같다 (사용자 결정: 글자를 키우지 않는다. 글꼴 모양만 살짝 다르다). 크기 계산은 render.ts drawBubble 이 그대로 한다.
-// 글꼴은 게임에 넣지 않고 바깥에서 받는다 (구글 글꼴. 레트로만 jsDelivr 의 Neo둥근모 한 파일 38KB): 그 말풍선이 화면에 처음 뜰 때, 그 글에 필요한 조각만.
-// 받기 전이거나 그 주소가 막힌 환경에서는 기본 글꼴로 그린다 (모양·빛깔은 그대로). 서버로 가는 것은 없고, Node(테스트)에서는 아무것도 하지 않는다.
-// 꾸미기를 더하려면: shared/shop.ts BUBBLES · 여기의 BUBBLE_FONTS 와 PAINT · 라이브 config/prices/{id}
+// 말풍선 꾸미기 (2026-11-20, 사용자 요청. 상점 kind 'bubble', 착용 칸 bb): 일반 채팅 말풍선의 모양·빛깔을 바꾼다. 귓속말(점선 보라)은 그대로다.
+// 글자 크기·줄 높이·여백·글꼴은 기본 말풍선과 같다 (크기 계산은 render.ts drawBubble 이 그대로 한다).
+// 글꼴은 바꾸지 않는다 (2026-11-21 건의 반영: "이름표처럼 테두리만 바뀌고 글꼴은 그대로". 처음에는 꾸미기마다 바깥에서 글꼴을 받아 썼다. 지금은 바깥으로 나가는 요청이 없다).
+// 꾸미기를 더하려면: shared/shop.ts BUBBLES · 여기의 PAINT · 라이브 config/prices/{id}
 const BASE = '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
-
-export interface BubbleFont { family: string; weight?: number; css?: string; file?: string } // css: 글꼴 목록 주소(구글 글꼴) · file: 글꼴 파일 하나
-const gf = (q: string): string => `https://fonts.googleapis.com/css2?family=${q}&display=swap`;
-export const BUBBLE_FONTS: Readonly<Record<string, BubbleFont>> = {
-  'bb-ink': { family: 'Gowun Batang', weight: 700, css: gf('Gowun+Batang:wght@700') },          // 명조
-  'bb-candy': { family: 'Jua', css: gf('Jua') },                                                  // 둥근 글씨
-  'bb-cloud': { family: 'Gowun Dodum', css: gf('Gowun+Dodum') },                                  // 부드러운 고딕
-  'bb-retro': { family: 'NeoDunggeunmo', file: 'https://cdn.jsdelivr.net/gh/neodgm/neodgm-webfont@1.601/neodgm/neodgm.woff2' }, // 도트 글씨 (판을 고정해 둔다)
-  'bb-gold': { family: 'Nanum Myeongjo', weight: 800, css: gf('Nanum+Myeongjo:wght@800') },       // 굵은 명조
-  'bb-ice': { family: 'IBM Plex Sans KR', weight: 500, css: gf('IBM+Plex+Sans+KR:wght@500') },    // 또렷한 고딕
-  'bb-rainbow': { family: 'Poor Story', css: gf('Poor+Story') },                                  // 가벼운 손글씨
-  'bb-neon': { family: 'Do Hyeon', css: gf('Do+Hyeon') },                                         // 간판 글씨
-  'bb-flame': { family: 'Nanum Gothic', weight: 700, css: gf('Nanum+Gothic:wght@700') },          // 굵은 고딕
-};
-
-// ---- 글꼴 받기 ----
-const fontSpec = (f: BubbleFont, size: number): string => `${f.weight ? `${f.weight} ` : ''}${size}px "${f.family}"`;
-const started = new Map<string, { ready: boolean; wait: (() => void)[] }>(); // 글꼴 이름 → 글꼴 목록을 받았나, 그때까지 밀린 일
-const asked = new Set<string>(); // 이미 받아 달라고 한 (글꼴, 크기, 글): 프레임마다 다시 묻지 않는다
-// 이 글을 그 글꼴로 그릴 수 있게 받아 둔다. 다 받으면 다음 프레임부터 그 글꼴로 그려진다 (캔버스는 받은 글꼴만 쓴다).
-// 돌려주는 약속은 받은 뒤에 풀린다 (상점 미리보기를 다시 그리는 데 쓴다. 주소가 막힌 환경에서는 풀리지 않는다)
-export function loadBubbleFont(skin: string | null | undefined, size: number, text: string): Promise<void> {
-  const f = skin ? BUBBLE_FONTS[skin] : undefined;
-  if (!f || typeof document === 'undefined' || !document.fonts) return Promise.resolve();
-  const load = (): Promise<void> => document.fonts.load(fontSpec(f, size), text).then(() => undefined, () => undefined);
-  let st = started.get(f.family);
-  if (!st) {
-    const s0: { ready: boolean; wait: (() => void)[] } = { ready: false, wait: [] };
-    st = s0; started.set(f.family, s0);
-    const done = (): void => { s0.ready = true; s0.wait.splice(0).forEach((fn) => fn()); };
-    try {
-      if (f.file) { document.fonts.add(new FontFace(f.family, `url(${f.file})`)); done(); }
-      else if (f.css) { const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = f.css; link.onload = done; document.head.append(link); }
-    } catch { /* 글꼴을 못 쓰는 환경: 기본 글꼴 그대로 */ }
-  }
-  if (st.ready) return load();
-  const s1 = st;
-  return new Promise((resolve) => { s1.wait.push(() => { void load().then(resolve); }); });
-}
-// 그 꾸미기의 글꼴 (CSS font 값). 못 받았으면 뒤에 적은 기본 글꼴로 그려진다
-export function bubbleFont(skin: string | null | undefined, size: number, text: string): string {
-  const f = skin ? BUBBLE_FONTS[skin] : undefined;
-  if (!f) return `${size}px ${BASE}`;
-  const key = `${f.family}|${size}|${text}`;
-  if (!asked.has(key)) { if (asked.size > 400) asked.clear(); asked.add(key); void loadBubbleFont(skin, size, text); }
-  return `${fontSpec(f, size)}, ${BASE}`;
-}
 
 // ---- 그리기 ----
 type Ctx = CanvasRenderingContext2D;
@@ -143,6 +95,15 @@ const PAINT: Readonly<Record<string, Paint>> = {
     ctx.fillStyle = '#2a0e02'; ctx.strokeStyle = '#ff7a1a'; ctx.lineWidth = 2; rr(ctx, x, y, w, h, 6); ctx.fill(); ctx.stroke();
     tail(ctx, cx, y + h, '#2a0e02', '#ff7a1a', 2);
     return { color: '#ffe2b0' };
+  },
+  // 크리스마스 한정 (2026-11-21, 건의 반영. shop.ts XMAS_IDS): 흰 바탕에 빨강·초록이 번갈아 도는 테두리, 왼쪽 위에 작은 호랑가시 잎
+  'bb-xmas': (ctx, x, y, w, h, cx) => {
+    ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#d6342c'; ctx.lineWidth = 2.5; rr(ctx, x, y, w, h, 7); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#2f9e4f'; ctx.setLineDash([6, 6]); rr(ctx, x, y, w, h, 7); ctx.stroke(); ctx.setLineDash([]);
+    tail(ctx, cx, y + h, '#ffffff', '#d6342c', 2);
+    ctx.fillStyle = '#2f9e4f'; ctx.beginPath(); ctx.ellipse(x + 1, y + 2, 4, 2, -0.6, 0, 7); ctx.fill(); ctx.beginPath(); ctx.ellipse(x + 6, y - 1, 4, 2, 0.5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#d6342c'; ctx.beginPath(); ctx.arc(x + 3.5, y - 0.5, 1.8, 0, 7); ctx.fill();
+    return { color: '#1f3d2a' };
   },
 };
 // 아는 꾸미기인가 (옛 화면이 모르는 id 는 기본 말풍선으로 그린다)

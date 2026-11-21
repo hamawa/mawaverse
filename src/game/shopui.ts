@@ -2,13 +2,14 @@ import { el } from '../shared/util';
 import { modal, withCloseX, confirmModal } from './ui';
 import { getSprite, FRAME_W, FRAME_H } from './sprites';
 import { spriteTop, drawLabel, drawBubble } from './render';
-import { loadBubbleFont } from './bubbles';
 import { drawHat, nameStyle, titleStyle, petCanvas, mountCanvas, petLookCanvas } from './cosmetics';
 import {
   HATS, NAME_COLORS, FX, TITLES, BUBBLES, GOLD_COST, PET_GOODS, PET_HATS, PET_GLASSES, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
-  BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance,
+  BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance, isXmasItem,
 } from '../shared/shop';
+import { xmasSeason } from '../shared/season';
+import { serverNow } from '../firebase/db';
 import { fmtGold, PICK_MAX, PICK_TOTAL_COST, pickAttempts, pickBonus } from '../shared/mine';
 import { woodBonus } from '../shared/home';
 import type { WalletMgr } from './wallet';
@@ -101,14 +102,11 @@ function titlePreview(id: string): HTMLCanvasElement {
   if (st) drawLabel(cv.getContext('2d')!, st.text, 70, 22, st.color, st.bg, 10, st.border);
   return cv;
 }
-// 말풍선 꾸미기 미리보기: 게임 안에서 뜨는 모습 그대로. 글꼴은 바깥에서 받으므로 다 받으면 한 번 더 그린다
+// 말풍선 꾸미기 미리보기: 게임 안에서 뜨는 모습 그대로
 function bubblePreview(id: string): HTMLCanvasElement {
   const cv = document.createElement('canvas');
   cv.width = 140; cv.height = 58;
-  const text = '안녕하세요!';
-  const paint = () => { const c = cv.getContext('2d')!; c.clearRect(0, 0, cv.width, cv.height); drawBubble(c, { text, kind: 'near', at: 0 }, 70, 54, 2, id, performance.now()); };
-  paint();
-  void loadBubbleFont(id, 13, text).then(paint);
+  drawBubble(cv.getContext('2d')!, { text: '안녕하세요!', kind: 'near', at: 0 }, 70, 54, 2, id, performance.now());
   return cv;
 }
 function namePreview(nick: string, nc: string | null): HTMLCanvasElement {
@@ -128,7 +126,14 @@ export function openShop(h: ShopHost): void {
   const head = el('div', { class: 'shop-head' });
   const tabs = el('div', { class: 'tabs' });
   const pane = el('div', { class: 'shop-pane' });
-  body.append(head, tabs, pane);
+  const xnote = el('div', { class: 'muted', style: 'font-size:12px;margin:0 0 6px', text: '🎄 크리스마스 한정 품목은 12월 25일까지 팔아요: 모자 · 이펙트 · 칭호 · 말풍선 · 펫 꾸미기 (꼬마 트리는 집 창의 꾸미기에서)' });
+  body.append(head, xnote, tabs, pane);
+  // 크리스마스 한정 (2026-11-21): 그 철(12/1~12/25)에만 판다. 철에는 맨 앞에 놓고, 철이 지나면 가진 사람에게만 보인다 (착용·해제는 계속 할 수 있어야 한다)
+  const xmasNow = (): boolean => xmasSeason(serverNow());
+  const onShelf = (items: ShopItem[]): ShopItem[] => {
+    const x = items.filter((i) => isXmasItem(i.id)), rest = items.filter((i) => !isXmasItem(i.id));
+    return xmasNow() ? [...x, ...rest] : [...rest, ...x.filter((i) => h.wallet.owns(i.id))];
+  };
   let tab: Tab = 'hat';
   const tabBtns = new Map<Tab, HTMLButtonElement>();
   for (const t of TABS) {
@@ -235,7 +240,7 @@ export function openShop(h: ShopHost): void {
       } catch { h.toast('처리하지 못했습니다.', true); }
       render();
     };
-    card.append(el('div', { class: 'row', style: 'gap:4px;justify-content:center' }, gold ? [btn] : [btn, giftBtn(item, price)])); // 금덩이 품목은 선물할 수 없다 (규칙)
+    card.append(el('div', { class: 'row', style: 'gap:4px;justify-content:center' }, gold || (isXmasItem(item.id) && !xmasNow()) ? [btn] : [btn, giftBtn(item, price)])); // 금덩이 품목은 선물할 수 없다 (규칙). 철이 지난 크리스마스 한정도 선물 단추가 없다
     // 만렙 펫을 데리고 있으면: 타고 다닐지 내려서 데리고 다닐지 고른다 (2026-11-12 건의 반영)
     if (pet && owned && eq && petCanRide(xp)) {
       const rb = el('button', { class: 'btn small', text: h.wallet.rideOn() ? '🐾 내려서 데리고 다니기' : '🏇 타고 다니기', style: 'margin-top:4px' });
@@ -522,6 +527,7 @@ export function openShop(h: ShopHost): void {
     const oldGrid = pane.querySelector<HTMLElement>('.shop-grid');
     const scrollers = [oldGrid, pane, body, m.root].filter((x): x is HTMLElement => !!x && x.scrollTop > 0).map((x) => [x === oldGrid ? 'grid' : x, x.scrollTop] as const);
     head.innerHTML = '';
+    xnote.style.display = xmasNow() ? '' : 'none';
     head.append(el('span', { text: `잔액 ${fmtCoins(h.wallet.balance)}${h.wallet.gold > 0 ? ` · ${fmtGold(h.wallet.gold)}` : ''}` }), el('span', { class: 'muted', text: `누적 ${fmtCoins(h.wallet.wallet.e || 0)} · 낚시·게임 점수 1점 = 1코인` }));
     tabBtns.forEach((b, id) => b.classList.toggle('active', id === tab));
     pane.innerHTML = '';
@@ -530,13 +536,13 @@ export function openShop(h: ShopHost): void {
     else {
       const grid = el('div', { class: 'shop-grid' + (tab === 'pet' ? ' pets' : '') });
       const list = tab === 'hat' ? HATS : tab === 'name' ? NAME_COLORS : tab === 'pet' ? PET_GOODS : tab === 'title' ? TITLES : tab === 'bubble' ? BUBBLES : FX;
-      for (const item of list) grid.append(cosmeticCard(item, tab));
+      for (const item of onShelf(list)) grid.append(cosmeticCard(item, tab));
       pane.append(grid);
       if (tab === 'pet') {
         // 펫 꾸미기 (2026-11-20 건의): 모자·안경. 데리고 다니는 펫이 쓴다
         pane.append(el('div', { style: 'font-weight:700;margin:14px 0 6px', text: '🎀 펫 꾸미기 · 데리고 다니는 펫이 써요 (탈 때는 안 보여요)' }));
         const g2 = el('div', { class: 'shop-grid' });
-        for (const it of PET_HATS) g2.append(cosmeticCard(it, 'pethat'));
+        for (const it of onShelf(PET_HATS)) g2.append(cosmeticCard(it, 'pethat'));
         for (const it of PET_GLASSES) g2.append(cosmeticCard(it, 'petglass'));
         pane.append(g2);
       }

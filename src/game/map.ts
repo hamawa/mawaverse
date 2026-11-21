@@ -41,6 +41,8 @@ export const WALLPAPER_BASE = 42, WALLPAPER_COUNT = 3;
 export const O_SPEAKER = 51, O_DJ = 52;
 // 바깥 게임으로 가는 오락기 (2026-11-20, 사용자 요청: 동물원 탈출 대소동). zone kind 'link' 와 함께 놓는다. 편집기 팔레트에는 없다 (라이브 맵에는 admin SDK 로 넣는다)
 export const O_ARCADE_ZOO = 53;
+// 꼬마 트리 (2026-11-21, 크리스마스 한정 가구. 집 안에만 놓인다: shared/home.ts FURNITURE 의 번호와 같아야 한다). 두 칸 높이. 전구와 별은 render.ts 가 얹는다
+export const O_XMAS_TREE = 54;
 export function wallpaperObjects(n: number | null | undefined): { wall: number; side: number; window: number } | null {
   if (!n || n < 1 || n > WALLPAPER_COUNT || n % 1 !== 0) return null;
   const b = WALLPAPER_BASE + (n - 1) * 3;
@@ -51,7 +53,7 @@ export const WALKABLE_OBJECTS = new Set<number>([O.NONE, O.MAT]);
 // 들어갈 수 없는 바닥. 물은 수영으로 들어갈 수 있으므로 현재 비어 있음
 export const SOLID_GROUND = new Set<number>([G_GOLD, G_ICE_HOLE]);
 // 2타일 높이로 그려지는 오브젝트 (아랫칸 기준, 윗칸을 덮음)
-export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE, O_GOLD_STATUE, O_SPEAKER, O_ARCADE_ZOO]);
+export const TALL_OBJECTS = new Set<number>([O.TREE, O.PINE, O.LAMP, O.SIGN, O.BOARD_L, O.BOARD_R, O.BOOKSHELF, O.VENDING, O.UMBRELLA, O.ARCADE, O_GOLD_STATUE, O_SPEAKER, O_ARCADE_ZOO, O_XMAS_TREE]);
 
 export interface Zone {
   id: string;

@@ -162,7 +162,7 @@ test('꾸미기: 가구 값이 규칙과 같고, 단계마다 놓을 수 있는 
     assert.ok(Object.values(O).includes(f.o), `${f.name} 은 맵 오브젝트여야 한다`);
   }
   // 고급 가구 (2026-11-18): 나무가 들지 않고, 품목 id 는 fn{번호}(코인) 또는 gg{번호}(코인 + 금덩이)이며 규칙이 그 품목을 가졌는지 본다
-  assert.equal(boughtFurniture.length, 6);
+  assert.equal(boughtFurniture.length, 7); // 2026-11-21: 꼬마 트리 (크리스마스 한정)
   for (const f of boughtFurniture) {
     assert.equal(f.wood, 0, f.name);
     assert.ok(f.item === `fn${f.o}` || f.item === `gg${f.o}`, `${f.name} 의 품목 id`);

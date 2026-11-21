@@ -99,6 +99,7 @@ export const FURNITURE: readonly Furniture[] = [
   { o: 21, name: '책장', wood: 60 }, { o: 22, name: '소파', wood: 60 }, { o: 23, name: '자판기', wood: 100 }, { o: 33, name: '오락기', wood: 100 },
   { o: 39, name: '텔레비전', wood: 0, item: 'fn39' }, { o: 36, name: '벽난로', wood: 0, item: 'fn36' }, { o: 37, name: '어항', wood: 0, item: 'fn37' }, { o: 38, name: '피아노', wood: 0, item: 'fn38' },
   { o: 40, name: '황금 화분', wood: 0, item: 'gg40' }, { o: 41, name: '황금 동상', wood: 0, item: 'gg41' },
+  { o: 54, name: '꼬마 트리', wood: 0, item: 'fn54' }, // 크리스마스 한정 (2026-11-21. 12/1~12/25 에만 판다: shop.ts XMAS_IDS)
 ];
 // 벽지 (2026-11-18): 보관함 품목 wall{n} 을 사면 집 벽을 그 빛깔로 바꿀 수 있다 (homes 의 wl = n. 0 또는 없음 = 기본 벽). 규칙이 그 품목을 가졌는지 본다
 export const WALLS: readonly { n: number; name: string; item: string }[] = [{ n: 1, name: '분홍 벽지', item: 'wall1' }, { n: 2, name: '민트 벽지', item: 'wall2' }, { n: 3, name: '밤하늘 벽지', item: 'wall3' }];

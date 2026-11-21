@@ -673,9 +673,10 @@ test('DJ 창: 다른 화면 요소보다 앞에 그리고, 위쪽 버튼 줄 아
 });
 
 // ---- 2026-11-20: 말풍선 꾸미기 ----
-test('말풍선 꾸미기: 품목·착용 칸·글꼴·그리기가 서로 맞는다', async () => {
+test('말풍선 꾸미기: 품목·착용 칸·그리기가 서로 맞고, 글꼴은 바꾸지 않는다', async () => {
   const { BUBBLES, EQUIP_KEY, isOwnItem, itemById, ALL_ITEMS } = await import('../src/shared/shop.ts');
-  const { BUBBLE_FONTS, BUBBLE_SKIN_IDS, hasBubbleSkin, bubbleFont } = await import('../src/game/bubbles.ts');
+  const bubbles = await import('../src/game/bubbles.ts');
+  const { BUBBLE_SKIN_IDS, hasBubbleSkin } = bubbles;
   assert.equal(EQUIP_KEY.bubble, 'bb');
   assert.ok(BUBBLES.length >= 9);
   for (const it of BUBBLES) {
@@ -683,17 +684,15 @@ test('말풍선 꾸미기: 품목·착용 칸·글꼴·그리기가 서로 맞�
     assert.equal(itemById(it.id), it); assert.ok(isOwnItem(it.id), '보관함 품목이어야 기존 구매·선물 규칙을 쓴다');
     assert.equal(ALL_ITEMS.filter((o) => o.id === it.id).length, 1, `${it.id} 는 하나뿐`);
     assert.ok(BUBBLE_SKIN_IDS.includes(it.id) && hasBubbleSkin(it.id), `${it.id} 그리기`);
-    const f = BUBBLE_FONTS[it.id];
-    assert.ok(f && f.family, `${it.id} 글꼴`);
-    // 글꼴 주소: 구글 글꼴 목록이거나, 판을 고정한 파일 하나
-    assert.ok(f.css ? f.css.startsWith('https://fonts.googleapis.com/css2?family=') : /^https:\/\/cdn\.jsdelivr\.net\/gh\/[^@]+@\d+\.\d+\//.test(f.file), `${it.id} 글꼴 주소`);
+    assert.ok(!/글씨체|명조|도트 글씨|둥근 글씨/.test(it.desc), `${it.id} 설명에 글꼴 얘기가 없다`);
   }
   assert.equal(BUBBLE_SKIN_IDS.length, BUBBLES.length, '그리기만 있고 품목이 없는 것은 없다');
-  // 글자 크기는 받은 그대로 쓴다 (사용자 결정: 꾸미기가 글자를 키우지 않는다)
-  assert.ok(bubbleFont('bb-ink', 13, '가').startsWith('700 13px "Gowun Batang", '));
-  assert.ok(bubbleFont('bb-retro', 12, '가').startsWith('12px "NeoDunggeunmo", '));
-  assert.ok(bubbleFont(null, 13, '가').startsWith('13px "Malgun Gothic"'), '꾸미기가 없으면 기본 글꼴');
   assert.ok(!hasBubbleSkin('nope') && !hasBubbleSkin(null) && !hasBubbleSkin(undefined), '모르는 꾸미기는 기본 말풍선으로');
+  // 2026-11-21 건의 반영: 꾸미기는 상자만 바꾸고 글꼴은 기본 글꼴 하나다. 바깥에서 글꼴을 받지 않는다
+  assert.ok(!('bubbleFont' in bubbles) && !('loadBubbleFont' in bubbles) && !('BUBBLE_FONTS' in bubbles));
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  for (const f of ['../src/game/bubbles.ts', '../src/game/render.ts', '../src/game/shopui.ts']) assert.ok(!/fonts\.googleapis|jsdelivr|document\.fonts|FontFace/.test(read(f)), `${f}: 바깥 글꼴을 받지 않는다`);
+  assert.equal((read('../src/game/render.ts').match(/const font = `\$\{size\}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;/g) || []).length, 1, '말풍선 글꼴은 하나');
 });
 
 test('말풍선 꾸미기: 일반 채팅에만 입히고, 규칙과 접속 표시에 칸이 있다', () => {
@@ -707,4 +706,130 @@ test('말풍선 꾸미기: 일반 채팅에만 입히고, 규칙과 접속 표�
   assert.ok(read('../tools/gen-rules.cjs').includes('"bb": { ".validate": ${q(ownsStr(pre))} },'), '프로필 착용 칸은 생성기가 만든다');
   assert.ok(read('../src/game/net.ts').includes('bb: has(p.eq?.bb)'), '접속 표시에 싣는다 (가진 것만)');
   assert.ok(read('../src/game/world.ts').includes('bubbleSkin: rp.st.bb || null'));
+});
+
+// ---- 2026-11-21: 건의 묶음 (주간 1위 표시 · 크리스마스 철: 소나무 조명·한정 품목·캐롤) ----
+test('주간 1위 표시: 랭킹 표와 같은 순서로 1위를 뽑고, 종류마다 다른 표시를 단다', async () => {
+  const { topCatch, topToss, weekMarks, weekKindsOf, WEEK_MARKS, WEEK_KINDS } = await import('../src/shared/weektop.ts');
+  assert.deepEqual(WEEK_KINDS, ['fish', 'bug', 'toss']);
+  assert.notEqual(WEEK_MARKS.fish, '🐟', '낚시 표시는 든든함 표시(🐟n)와 달라야 한다');
+  assert.equal(new Set(Object.values(WEEK_MARKS)).size, 3);
+  // 점수 → 마릿수 → 먼저 세운 사람
+  const rows = { a: { n: 'A', p: 50, c: 9, at: 30 }, b: { n: 'B', p: 80, c: 3, at: 20 }, c: { n: 'C', p: 80, c: 5, at: 40 }, d: { n: 'D', p: 80, c: 5, at: 10 } };
+  assert.equal(topCatch(rows), 'd');
+  assert.equal(topCatch({ a: { n: 'A', p: 0, c: 4, at: 1 } }), null, '점수가 없으면 1위도 없다');
+  assert.equal(topCatch(null), null); assert.equal(topCatch({}), null);
+  // 명중 → 덜 던진 사람
+  assert.equal(topToss({ a: { n: 'A', h: 5, t: 9, at: 1 }, b: { n: 'B', h: 7, t: 30, at: 2 }, c: { n: 'C', h: 7, t: 12, at: 3 } }), 'c');
+  assert.equal(topToss({ a: { n: 'A', h: 0, t: 9, at: 1 } }), null, '한 번도 못 맞혔으면 1위도 없다');
+  const tops = { fish: 'u1', bug: 'u2', toss: 'u1' };
+  assert.equal(weekMarks(tops, 'u1'), WEEK_MARKS.fish + WEEK_MARKS.toss);
+  assert.equal(weekMarks(tops, 'u2'), WEEK_MARKS.bug);
+  assert.equal(weekMarks(tops, 'u3'), '');
+  assert.equal(weekMarks({ fish: null }, ''), '', '1위가 없는 종류는 누구에게도 붙지 않는다');
+  assert.deepEqual(weekKindsOf(tops, 'u1'), ['fish', 'toss']);
+  // 화면: 랭킹 표의 순서 식과 같고(fishui), 이름표에 붙이며(world), 서버에 쓰지 않는다
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const ui = read('../src/game/fishui.ts'), shared = read('../src/shared/weektop.ts'), mgr = read('../src/game/weektop.ts'), world = read('../src/game/world.ts');
+  for (const expr of ['(b[1].p - a[1].p) || (b[1].c - a[1].c) || (a[1].at - b[1].at)']) { assert.ok(ui.includes(expr)); assert.ok(shared.includes(expr), '낚시·곤충 순서가 랭킹 표와 같다'); }
+  assert.ok(ui.includes('(y[1].h - x[1].h) || (x[1].t - y[1].t)') && shared.includes('(b[1].h - a[1].h) || (a[1].t - b[1].t)'), '말랑이 순서가 랭킹 표와 같다');
+  assert.equal((world.match(/this\.nickMarks\(/g) || []).length, 2, '내 이름표와 남의 이름표 두 곳');
+  assert.ok(!/\b(set|update|push|remove|runTransaction)\(/.test(mgr), '읽기만 한다');
+  assert.ok(mgr.includes('weekKey(serverNow() - WEEK_MS)'), '지난 주의 열쇠는 서버 시각으로');
+});
+
+test('크리스마스 철: 한국 날짜 12월 1일~25일', async () => {
+  const { xmasSeason } = await import('../src/shared/season.ts');
+  const kst = (y, m, d, h = 0, mi = 0) => Date.UTC(y, m - 1, d, h - 9, mi);
+  assert.equal(xmasSeason(kst(2026, 11, 30, 23, 59)), false);
+  assert.equal(xmasSeason(kst(2026, 12, 1, 0, 0)), true);
+  assert.equal(xmasSeason(kst(2026, 12, 25, 23, 59)), true);
+  assert.equal(xmasSeason(kst(2026, 12, 26, 0, 0)), false);
+  assert.equal(xmasSeason(kst(2027, 1, 10)), false);
+  assert.equal(xmasSeason(kst(2026, 11, 21)), false);
+});
+
+test('크리스마스 한정 품목: 일곱 가지, 전부 보관함 품목이고 그리기가 있으며 그 철에만 판다', async () => {
+  const shop = await import('../src/shared/shop.ts');
+  const { XMAS_IDS, isXmasItem, onSale, itemById, isOwnItem, ALL_ITEMS, HATS, FX, TITLES, BUBBLES, PET_HATS, HOME_GOODS, GOLD_COST } = shop;
+  assert.deepEqual([...XMAS_IDS].sort(), ['bb-xmas', 'fn54', 'ph_santa', 'rudolph', 'santa', 'snowfx', 'tt-xmas']);
+  for (const id of XMAS_IDS) {
+    const it = itemById(id);
+    assert.ok(it, id); assert.ok(isOwnItem(id), `${id}: 보관함 품목이어야 기존 구매·선물 규칙을 쓴다`);
+    assert.equal(ALL_ITEMS.filter((o) => o.id === id).length, 1, `${id} 는 하나뿐`);
+    assert.ok(it.price >= 10000 && it.price <= 30000, `${id}: 적당히 비싸게 (1만~3만)`);
+    assert.ok(it.desc.includes('크리스마스 한정'), `${id} 설명`);
+    assert.ok(!id.startsWith('gg') && !(id in GOLD_COST), `${id}: 금덩이 품목이 아니다`);
+    assert.ok(isXmasItem(id) && onSale(id, true) && !onSale(id, false));
+  }
+  assert.ok(onSale('crown', false) && onSale('crown', true), '보통 품목은 언제나 판다');
+  const kindOf = (id) => itemById(id).kind;
+  assert.deepEqual([kindOf('santa'), kindOf('rudolph'), kindOf('ph_santa'), kindOf('snowfx'), kindOf('bb-xmas'), kindOf('tt-xmas'), kindOf('fn54')], ['hat', 'hat', 'pethat', 'fx', 'bubble', 'title', 'home']);
+  for (const [list, id] of [[HATS, 'santa'], [HATS, 'rudolph'], [FX, 'snowfx'], [TITLES, 'tt-xmas'], [BUBBLES, 'bb-xmas'], [PET_HATS, 'ph_santa'], [HOME_GOODS, 'fn54']]) assert.ok(list.some((i) => i.id === id), id);
+  // 그리기
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const cos = read('../src/game/cosmetics.ts');
+  for (const s of ["  santa: { overlap:", "  rudolph: { overlap:", "hat === 'ph_santa'", "case 'snowfx':", "it.id === 'tt-xmas'"]) assert.ok(cos.includes(s), s);
+  for (const hat of ['santa', 'rudolph']) { const m = new RegExp(`  ${hat}: \\{[^\\[]*rows: \\[([^\\]]*)\\]`).exec(cos); assert.ok(m, hat); for (const row of m[1].match(/'[^']*'/g)) assert.equal(row.length, 18, `${hat} 그림은 한 줄 16칸: ${row}`); }
+  const { hasBubbleSkin } = await import('../src/game/bubbles.ts');
+  assert.ok(hasBubbleSkin('bb-xmas'));
+  // 꼬마 트리: 가구 목록·맵 오브젝트·규칙의 번호가 같다
+  const { FURNITURE } = await import('../src/shared/home.ts');
+  const map = await import('../src/game/map.ts');
+  assert.equal(map.O_XMAS_TREE, 54); assert.ok(map.TALL_OBJECTS.has(54));
+  assert.deepEqual(FURNITURE.find((f) => f.o === 54), { o: 54, name: '꼬마 트리', wood: 0, item: 'fn54' });
+  assert.ok(read('../src/game/tiles.ts').includes('case O_XMAS_TREE:'));
+  assert.ok(read('../database.rules.json').includes("($id.matches(/^(36|37|38|39|54)$/) && root.child('users/' + $uid + '/own/fn' + $id).val() == true)"));
+  // 파는 화면: 철이 아니면 안 가진 사람에게 보이지 않는다
+  const shopui = read('../src/game/shopui.ts'), homeui = read('../src/game/homeui.ts');
+  assert.ok(shopui.includes('return xmasNow() ? [...x, ...rest] : [...rest, ...x.filter((i) => h.wallet.owns(i.id))];'));
+  assert.equal((shopui.match(/onShelf\(/g) || []).length, 2, '꾸미기 목록과 펫 모자 목록');
+  assert.equal((homeui.match(/onOffer\(w, f\)/g) || []).length, 2, '집 창의 고급 가구와 가구 고르기 창');
+  // 소나무 조명: 그 철의 바깥 맵에서만, 서 있는 소나무에만
+  const render = read('../src/game/render.ts'), world = read('../src/game/world.ts');
+  assert.ok(render.includes('if (st.xmas && id === O.PINE) {'));
+  assert.ok(world.includes('this.xmasOn = this.outdoors() && xmasSeason(serverNow());'));
+});
+
+test('캐롤: 가락의 마디 길이·화음이 맞고, 크리스마스 철에는 캐롤만 나온다', async () => {
+  const { CAROL_TUNES, CAROL_LIST, TUNES, parseSong, parseChord } = audio;
+  assert.deepEqual([...CAROL_LIST], ['jingle', 'wewish', 'deck', 'tannen', 'silent', 'joy', 'noel', 'faithful', 'angels', 'hark', 'manger'], '사용자가 미리 듣고 고른 열한 곡');
+  assert.deepEqual(parseChord('C'), [0, 4, 7, 12]);
+  assert.deepEqual(parseChord('Am'), [-3, 0, 4, 9]);
+  assert.deepEqual(parseChord('G7'), [-5, -1, 2, 5]);
+  assert.deepEqual(parseChord('D7'), [2, 6, 9, 12]);
+  assert.throws(() => parseChord('H'));
+  for (const key of CAROL_LIST) {
+    const tu = CAROL_TUNES[key];
+    assert.equal(TUNES[key], tu, `${key} 가 곡 목록에 있다`);
+    assert.ok(tu.song, key);
+    const bars = parseSong(tu.song); // 마디 길이가 안 맞거나 모르는 화음이면 여기서 던진다
+    assert.ok(bars.length >= 12, `${key} 마디 수`);
+    assert.equal(tu.bars % bars.length, 0, `${key}: 곡 길이는 가락의 배수`);
+    const secs = (tu.bars * tu.beats * 60) / tu.bpm;
+    assert.ok(secs >= 30 && secs <= 80, `${key} 길이 ${secs.toFixed(0)}초`);
+    let lo = 999, hi = -999, count = 0;
+    for (const b of bars) {
+      assert.ok(b.chords.length >= 1 && b.chords.length <= 4, `${key} 한 마디의 화음 수`);
+      let end = 0;
+      for (const nt of b.notes) { assert.ok(nt.at >= end - 1e-6, `${key}: 가락의 음은 서로 겹치지 않는다`); end = nt.at + nt.dur; lo = Math.min(lo, nt.n); hi = Math.max(hi, nt.n); count++; }
+    }
+    const top = tu.root + hi + 12 * tu.lead.oct, bottom = tu.root + lo + 12 * tu.lead.oct;
+    assert.ok(bottom >= 64 && top <= 94, `${key} 가락의 높이 ${bottom}~${top} (너무 낮거나 높지 않게)`);
+    assert.ok(count >= 40, `${key} 음 수`);
+    assert.equal(tu.lead.dens, 0, '지어내는 가락은 쓰지 않는다');
+  }
+  // 널리 아는 첫머리가 맞는지 (으뜸음 C 에서 잰 반음)
+  const head = (key, n) => parseSong(CAROL_TUNES[key].song).flatMap((b) => b.notes.map((x) => x.n)).slice(0, n);
+  if (CAROL_TUNES.jingle) assert.deepEqual(parseSong(CAROL_TUNES.jingle.song)[16].notes.map((x) => x.n), [4, 4, 4], '징글벨 후렴: 미 미 미');
+  if (CAROL_TUNES.silent) assert.deepEqual(head('silent', 4), [7, 9, 7, 4], '고요한 밤: 솔 라 솔 미');
+  if (CAROL_TUNES.joy) assert.deepEqual(head('joy', 8), [12, 11, 9, 7, 5, 4, 2, 0], '기쁘다 구주 오셨네: 도 시 라 솔 파 미 레 도');
+  if (CAROL_TUNES.wewish) assert.deepEqual(head('wewish', 6), [-5, 0, 0, 2, 0, -1], '위 위시 유: 솔 도 도 레 도 시');
+  // 화면: 철에는 캐롤만 (마피아·클럽은 그대로)
+  const src = readFileSync(new URL('../src/game/audio.ts', import.meta.url), 'utf8');
+  assert.ok(src.includes("new Set<Scene>(['main', 'home', 'mine', 'winter', 'race', 'slots', 'poker'])"));
+  assert.ok(src.includes('list = carols ? CAROL_LIST : want.night && set.night ? set.night : set.day'));
+  assert.ok(readFileSync(new URL('../src/game/world.ts', import.meta.url), 'utf8').includes('setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow())), xmasSeason(serverNow()))'));
+  assert.doesNotThrow(() => audio.setScene('main', false, true));
+  audio.stopSound();
 });

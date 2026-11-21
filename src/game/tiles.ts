@@ -1,6 +1,6 @@
 // 바닥/오브젝트 타일을 코드로 그려 캐시한다.
 import { PixelBuf, shade, mix } from './pixel';
-import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O, O_BED, O_CHEST, O_FIREPLACE, O_AQUARIUM, O_PIANO, O_TV, O_GOLD_VASE, O_GOLD_STATUE, O_SPEAKER, O_DJ, O_ARCADE_ZOO, WALLPAPER_BASE, WALLPAPER_COUNT } from './map';
+import { G, G_GOLD, G_ICE, G_ICE_HOLE, G_SNOW, O, O_BED, O_CHEST, O_FIREPLACE, O_AQUARIUM, O_PIANO, O_TV, O_GOLD_VASE, O_GOLD_STATUE, O_SPEAKER, O_DJ, O_ARCADE_ZOO, O_XMAS_TREE, WALLPAPER_BASE, WALLPAPER_COUNT } from './map';
 import { TILE } from '../shared/config';
 import { seededRandom } from '../shared/hash';
 
@@ -353,6 +353,15 @@ function drawObject(id: number): PixelBuf | null {
   switch (id) {
     case O.TREE: tree(tall, P.leaf, P.leafLight, P.leafDark, true); return tall.outline(P.outline);
     case O.PINE: tree(tall, P.pine, P.pineLight, P.pineDark, false); return tall.outline(P.outline);
+    case O_XMAS_TREE: // 꼬마 트리 (크리스마스 한정 가구): 화분에 심은 작은 소나무. 전구와 별은 render.ts 가 얹는다 (자리: XMAS_MINI_BULBS)
+      tall.rect(15, 49, 3, 4, P.trunk);
+      tall.rect(10, 52, 12, 2, P.pot); tall.rect(11, 54, 10, 6, P.pot); tall.rect(11, 58, 10, 2, P.potDark); tall.vline(20, 54, 4, P.potDark);
+      for (let i = 0; i < 3; i++) {
+        const top = 21 + i * 9, w = 10 + i * 5;
+        for (let j = 0; j < 12; j++) { const ww = Math.max(2, Math.floor((w * (j + 2)) / 12)); tall.hline(16 - ww / 2, top + j, ww, j < 9 ? P.pine : P.pineDark); }
+        tall.hline(16 - w / 4, top + 3, w / 4, P.pineLight);
+      }
+      return tall.outline(P.outline);
     case O.WALL:
       one.rect(0, 0, TILE, TILE, P.wall);
       for (let y = 8; y < TILE; y += 8) { one.hline(0, y, TILE, P.wallDark); const off = (y / 8) % 2 ? 8 : 0; for (let x = off; x < TILE; x += 16) one.vline(x, y, 8, P.wallDark); }

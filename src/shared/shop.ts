@@ -19,6 +19,9 @@ export const HATS: ShopItem[] = [
   { id: 'tophat', kind: 'hat', name: '실크햇', price: 80000, icon: '🎩', desc: '붉은 띠를 두른 신사 모자.' },
   { id: 'halo', kind: 'hat', name: '천사 링', price: 150000, icon: '😇', desc: '머리 위에 떠 있는 금빛 고리.' },
   { id: 'emperor', kind: 'hat', name: '황제관', price: 300000, icon: '👑', desc: '보석이 박힌 높은 관.' },
+  // 크리스마스 한정 (2026-11-21. 아래 XMAS_IDS)
+  { id: 'santa', kind: 'hat', name: '산타 모자', price: 20000, icon: '🎅', desc: '하얀 방울이 달린 빨간 모자. 크리스마스 한정.' },
+  { id: 'rudolph', kind: 'hat', name: '루돌프 뿔 머리띠', price: 20000, icon: '🦌', desc: '사슴 뿔이 달린 머리띠. 크리스마스 한정.' },
 ];
 
 export const NAME_COLORS: ShopItem[] = [
@@ -48,6 +51,7 @@ export const FX: ShopItem[] = [
   { id: 'rainbowtrail', kind: 'fx', name: '무지개 꼬리', price: 2000, icon: '🌈', desc: '무지개가 꼬리처럼 따라온다.' }, // 2026-11-18: 이름표 색 '무지개'와 같은 id(rainbow)를 쓰고 있어 하나를 사면 둘 다 가진 것이 됐다. 이펙트 쪽 id 를 바꾸고, 그때까지 rainbow 를 가진 사람에게는 둘 다 줬다 (사용자 결정)
   { id: 'petal', kind: 'fx', name: '꽃잎', price: 100000, icon: '🌸', desc: '걸을 때마다 분홍 꽃잎이 흩날린다.' },
   { id: 'stardust', kind: 'fx', name: '별가루', price: 200000, icon: '🌟', desc: '금빛 별이 반짝이며 따라온다.' },
+  { id: 'snowfx', kind: 'fx', name: '눈송이', price: 30000, icon: '❄', desc: '걸을 때 눈송이가 흩날린다. 크리스마스 한정.' }, // 2026-11-21 (XMAS_IDS)
   { id: 'shasha', kind: 'fx', name: '샤샤샥', price: 10000, icon: '👥', desc: '움직일 때 내 모습의 잔상이 줄줄이 남는다.' }, // 파티클이 아니라 캐릭터 잔상 (cosmetics.ts drawAfterimages, 2026-11-11)
 ];
 
@@ -71,6 +75,7 @@ export const PET_HATS: ShopItem[] = [
   { id: 'ph_straw', kind: 'pethat', name: '펫 밀짚모자', price: 1000, icon: '👒', desc: '펫에게 밀짚모자.' },
   { id: 'ph_party', kind: 'pethat', name: '펫 고깔모자', price: 1500, icon: '🎉', desc: '펫에게 알록달록 고깔.' },
   { id: 'ph_crown', kind: 'pethat', name: '펫 왕관', price: 5000, icon: '👑', desc: '펫에게 작은 왕관.' },
+  { id: 'ph_santa', kind: 'pethat', name: '펫 산타 모자', price: 10000, icon: '🎅', desc: '펫에게 작은 산타 모자. 크리스마스 한정.' }, // 2026-11-21 (XMAS_IDS)
 ];
 export const PET_GLASSES: ShopItem[] = [
   { id: 'pg_round', kind: 'petglass', name: '펫 동그란 안경', price: 1000, icon: '👓', desc: '똑똑해 보이는 안경.' },
@@ -300,19 +305,21 @@ export const TITLES: ShopItem[] = [
   { id: 'tt-boss', kind: 'title', name: '카지노 큰손', price: 300000, icon: '🎰', desc: '판이 클수록 웃는 사람.' },
   { id: 'tt-mayor', kind: 'title', name: '명예 이장', price: 500000, icon: '🏅', desc: '마을이 인정한 사람.' },
   { id: 'tt-legend', kind: 'title', name: '살아있는 전설', price: 1000000, icon: '👑', desc: '더 설명이 필요 없는 사람.' },
+  { id: 'tt-xmas', kind: 'title', name: '메리 크리스마스', price: 30000, icon: '🎄', desc: '빨간 바탕에 초록 테두리. 크리스마스 한정.' }, // 2026-11-21 (XMAS_IDS. 빛깔은 cosmetics.ts titleStyle 이 따로 정한다)
 ];
-// 말풍선 꾸미기 (2026-11-20, 사용자 요청): 내 일반 채팅 말풍선의 모양·빛깔·글꼴을 바꾼다 (착용 칸 bb. 그리기와 글꼴은 game/bubbles.ts). 귓속말 말풍선은 그대로다. 자랑용이라 효과는 없다.
+// 말풍선 꾸미기 (2026-11-20, 사용자 요청): 내 일반 채팅 말풍선의 모양·빛깔을 바꾼다 (착용 칸 bb. 그리기는 game/bubbles.ts). 글꼴은 바꾸지 않는다 (2026-11-21 건의 반영). 귓속말 말풍선은 그대로다. 자랑용이라 효과는 없다.
 // 값은 사용자 결정으로 높게 잡았다 (의견을 들어 보고 바꾸기로). 그때 라이브: 지갑 중앙 2만·상위 25% 10만, 1만짜리 샤샤샥을 21명 중 7명이 샀고 5만 이상 꾸미기는 산 사람이 사실상 없었다
 export const BUBBLES: ShopItem[] = [
-  { id: 'bb-ink', kind: 'bubble', name: '먹물', price: 10000, icon: '🖤', desc: '검은 바탕에 흰 명조 글씨.' },
-  { id: 'bb-candy', kind: 'bubble', name: '솜사탕', price: 10000, icon: '🍭', desc: '분홍 말풍선에 둥근 글씨.' },
+  { id: 'bb-ink', kind: 'bubble', name: '먹물', price: 10000, icon: '🖤', desc: '검은 바탕에 흰 글씨.' },
+  { id: 'bb-candy', kind: 'bubble', name: '솜사탕', price: 10000, icon: '🍭', desc: '분홍 말풍선에 작은 하트.' },
   { id: 'bb-cloud', kind: 'bubble', name: '구름', price: 15000, icon: '☁', desc: '몽글몽글한 구름 말풍선.' },
-  { id: 'bb-retro', kind: 'bubble', name: '레트로', price: 15000, icon: '🕹', desc: '옛 게임 대화창에 도트 글씨.' },
-  { id: 'bb-gold', kind: 'bubble', name: '금테', price: 20000, icon: '🏅', desc: '검은 바탕에 금 테두리, 금빛 명조 글씨.' },
+  { id: 'bb-retro', kind: 'bubble', name: '레트로', price: 15000, icon: '🕹', desc: '옛 게임 대화창 모양.' },
+  { id: 'bb-gold', kind: 'bubble', name: '금테', price: 20000, icon: '🏅', desc: '검은 바탕에 금 테두리, 금빛 글씨.' },
   { id: 'bb-ice', kind: 'bubble', name: '얼음', price: 20000, icon: '❄', desc: '반짝이는 얼음 말풍선.' },
   { id: 'bb-rainbow', kind: 'bubble', name: '무지개', price: 30000, icon: '🌈', desc: '테두리에 무지개가 천천히 흐른다.' },
   { id: 'bb-neon', kind: 'bubble', name: '네온', price: 40000, icon: '💡', desc: '빛나는 테두리와 글씨. 빛깔이 천천히 바뀐다.' },
   { id: 'bb-flame', kind: 'bubble', name: '불꽃', price: 50000, icon: '🔥', desc: '말풍선 위로 불길이 일렁인다.' },
+  { id: 'bb-xmas', kind: 'bubble', name: '크리스마스', price: 20000, icon: '🎄', desc: '빨강·초록 줄무늬 테두리. 크리스마스 한정.' }, // 2026-11-21 (XMAS_IDS)
 ];
 // 금덩이로 만드는 것 (2026-11-18, 금광 살리기: 킹 낚싯대를 만든 뒤에는 금덩이 쓸 곳이 없어 채광이 하루 2,400번에서 200번 아래로 줄었다). id 는 gg 로 시작한다: 지갑 규칙이 그 접두사로 가른다.
 // 코인 값(가격표)과 함께 금덩이가 정확히 이만큼 줄어야 한다 (gen-rules.cjs 의 GOLD_GOODS 와 같아야 한다). 선물할 수 없다
@@ -327,6 +334,7 @@ export const HOME_GOODS: ShopItem[] = [
   { id: 'fn36', kind: 'home', name: '벽난로', price: 80000, icon: '🔥', desc: '집에 놓는 가구.' },
   { id: 'fn37', kind: 'home', name: '어항', price: 120000, icon: '🐠', desc: '집에 놓는 가구.' },
   { id: 'fn38', kind: 'home', name: '피아노', price: 200000, icon: '🎹', desc: '집에 놓는 가구.' },
+  { id: 'fn54', kind: 'home', name: '꼬마 트리', price: 30000, icon: '🎄', desc: '집에 놓는 가구. 전구가 깜빡인다. 크리스마스 한정.' }, // 2026-11-21 (XMAS_IDS)
   // 금덩이 가구: 코인 값과 함께 금덩이가 든다 (GOLD_COST)
   { id: 'gg40', kind: 'home', name: '황금 화분', price: 10000, icon: '🏺', desc: '집에 놓는 가구. 금덩이 200개가 함께 든다.' },
   { id: 'gg41', kind: 'home', name: '황금 동상', price: 30000, icon: '🗿', desc: '집에 놓는 가구. 금덩이 500개가 함께 든다.' },
@@ -345,6 +353,13 @@ export const NICK_FEE: ShopItem = { id: 'nickfee', kind: 'use', name: '닉네임
 // 받은 사람은 변경할 때 요금 대신 교환권을 쓰고, 쓴 뒤에 보관함에서 지운다. 종류마다 한 장만 가질 수 있다 (이미 가진 사람에게는 선물이 안 된다). 값은 변경 요금과 같다
 export const AVATAR_TICKET: ShopItem = { id: 'avatarticket', kind: 'ticket', name: '외모 교환권', price: 1000, icon: '🎟', desc: '받은 사람이 외모를 한 번 무료로 바꿀 수 있다. 선물 전용.' };
 export const NICK_TICKET: ShopItem = { id: 'nickticket', kind: 'ticket', name: '닉네임 교환권', price: 5000, icon: '🎟', desc: '받은 사람이 닉네임을 한 번 무료로 바꿀 수 있다. 선물 전용.' };
+// 크리스마스 한정 (2026-11-21, 건의 반영): 12월 1일~25일에만 상점·집 창에 나온다 (shared/season.ts xmasSeason). 산 것은 계속 가지고 언제든 착용한다.
+// 기간은 화면이 지킨다: 규칙은 날짜를 보지 않는다 (가격표에 값이 있으면 언제든 사진다. 코인이 걸린 문제가 아니라 그대로 뒀다).
+// 값은 건의대로 "적당히 비싸게": 그때 라이브 지갑 중앙 4.9만, 하루 만에 1만~4만짜리 말풍선을 21명 중 5명이 샀다. 품목을 더하면 여기와 라이브 config/prices/{id}
+export const XMAS_IDS: ReadonlySet<string> = new Set(['santa', 'rudolph', 'ph_santa', 'snowfx', 'bb-xmas', 'tt-xmas', 'fn54']);
+export const isXmasItem = (id: string): boolean => XMAS_IDS.has(id);
+// 지금 내놓는 품목인가 (xmas: 크리스마스 철인가). 철이 아니어도 이미 가진 사람에게는 보여야 착용·해제를 할 수 있다: 그건 부르는 쪽이 본다
+export const onSale = (id: string, xmas: boolean): boolean => xmas || !XMAS_IDS.has(id);
 export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...TITLES, ...BUBBLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }

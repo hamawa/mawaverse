@@ -5,7 +5,9 @@ import { modal, withCloseX, confirmModal, promptModal } from './ui';
 import { BUNDLES, SLOT_FISH, SHIELD_FISH, SHIELD_MAX, SLEEP_MS, CHOP_SWINGS, HOME_MAX_TIER, homeTier, nextTier, extraSlotsOf, slotItem, fmtWood, FURNITURE, FLOORS, FLOOR_WOOD, WALLS, GUEST_MAX, TROPHY_MIN_RARITY, PHOTO_FRAMES, PHOTO_EDGE, PHOTO_MAX_CHARS, furnitureOf, TURN_NAMES, TURN_ORDER, woodBonus } from '../shared/home';
 import { fishById, fmtSize, RARITY_NAME, type FishBookEntry } from '../shared/fish';
 import { winterFishById } from '../shared/winter';
-import { itemById, priceOf, fmtCoins, GOLD_COST } from '../shared/shop';
+import { itemById, priceOf, fmtCoins, GOLD_COST, isXmasItem } from '../shared/shop';
+import { xmasSeason } from '../shared/season';
+import { serverNow } from '../firebase/db';
 import { fmtGold } from '../shared/mine';
 import type { World } from './world';
 
@@ -111,7 +113,7 @@ export function openHome(w: World): void {
     // 고급 가구 (2026-11-18): 코인으로, 황금 가구는 코인과 금덩이로
     body.append(line('고급 가구는 코인으로 사요. 황금 가구는 금광에서 캔 금덩이가 함께 들어요.', true));
     const pbox = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap;margin:6px 0' });
-    for (const f of FURNITURE) if (f.item) pbox.append(craftButton(w, f.o, btn));
+    for (const f of FURNITURE) if (f.item && onOffer(w, f)) pbox.append(craftButton(w, f.o, btn));
     body.append(pbox);
 
     body.append(title('바닥'));
@@ -155,6 +157,10 @@ export function openHome(w: World): void {
 }
 
 type Btn = (label: string, onClick: () => unknown, enabled?: boolean, primary?: boolean) => HTMLButtonElement;
+// 지금 내놓는 가구인가: 크리스마스 한정(꼬마 트리)은 그 철(12/1~12/25)에만 판다. 이미 만들었거나 값을 낸 사람에게는 언제나 보인다 (2026-11-21)
+function onOffer(w: World, f: { o: number; item?: string }): boolean {
+  return !f.item || !isXmasItem(f.item) || w.home.made(f.o) || w.wallet.owns(f.item) || xmasSeason(serverNow());
+}
 // 가구 하나: 만들었으면 표시만, 아니면 나무로 만드는 단추
 function craftButton(w: World, o: number, btn: Btn): HTMLElement {
   const f = FURNITURE.find((x) => x.o === o)!;
@@ -234,7 +240,7 @@ export function openFurniturePicker(w: World): void {
       else w.toast(r === 'limit' ? '더 놓을 수 없어요.' : r === 'spot' ? '여기에는 놓을 수 없어요.' : '놓지 못했습니다.', true);
     }, true, true));
     body.append(made.length ? box : el('div', { style: 'opacity:.75;font-size:12px;margin:6px 0', text: '아직 만든 가구가 없어요. 아래에서 나무로 만들 수 있어요.' }));
-    const rest = FURNITURE.filter((f) => !h.made(f.o));
+    const rest = FURNITURE.filter((f) => !h.made(f.o) && onOffer(w, f));
     if (rest.length) {
       body.append(el('div', { style: 'font-weight:700;margin:10px 0 4px', text: '가구 만들기' }));
       const cbox = el('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' });

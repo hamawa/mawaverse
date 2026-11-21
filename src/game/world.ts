@@ -34,6 +34,7 @@ import { openBoard } from './boardui';
 import { openFishBook, fishSummaryOf } from './fishui';
 import { WalletMgr } from './wallet';
 import { ContestMgr } from './contest';
+import { WeekTopMgr } from './weektop';
 import { BugHunt } from './bugs';
 import { TossMgr } from './toss';
 import { openMole } from './moleui';
@@ -69,7 +70,7 @@ import { snowActive, SNOW_BREAK_NOTICE } from '../shared/snowpenalty';
 import { Fishing } from './fishing';
 import { sfx, setScene, setRain, stopSound, soundOn, setSoundOn, soundPrefs, setVolume, type Scene } from './audio';
 import { rainLevel } from '../shared/weather';
-import { snowSeason, treeLook, type TreeLook } from '../shared/season';
+import { snowSeason, treeLook, xmasSeason, type TreeLook } from '../shared/season';
 import { dayTint, isNight, kstMinuteOfDay, type DayTint } from '../shared/daylight';
 import { HomePets, ownedPets, type RoamPet } from './homepets';
 import { wakeLockSupported, wakeLockOn, setWakeLock, startWakeLock } from './wakelock';
@@ -145,6 +146,7 @@ export class World implements WorldCtx {
   fishing = new Fishing(this, this.net);
   wallet = new WalletMgr(this);
   contest = new ContestMgr(this);
+  weekTop = new WeekTopMgr(this); // 지난 주 랭킹 1위 표시 (2026-11-21)
   bugs = new BugHunt(this, this.net, { swing: () => this.doEmote(11), petHop: () => this.pets.hop(this.uid, performance.now()), calm: () => this.petRide.calm(), petXp: () => this.petRide.xp() });
   pets = new Pets();
   petRide = new PetRide(this, this.net);
@@ -295,6 +297,7 @@ export class World implements WorldCtx {
     const offW = this.wallet.listen(() => { if (!this.wallet.loaded) return; offW(); if (!this.wallet.rouletteDoneToday()) window.setTimeout(() => { if (!this.stopped) this.openRoulette(); }, 2000); });
     this.rouletteUnsub = watchRouletteFeed(this);
     this.contest.start();
+    this.weekTop.start();
     this.snowPenalty.start();
     this.bugs.start();
     this.dig.start();
@@ -475,8 +478,8 @@ export class World implements WorldCtx {
     this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
     this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView(), treeLook: this.treeTint, club: this.clubView(), fog: this.fogView(), fires: this.fireViews(), alerts: this.fireAlerts() });
-    if (now - this.sceneAt > 1000) { this.sceneAt = now; setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow()))); this.weatherTick(); } // 배경음악: 지금 상황에 맞는 곡 (1초에 한 번 본다)
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView(), treeLook: this.treeTint, xmas: this.xmasOn, club: this.clubView(), fog: this.fogView(), fires: this.fireViews(), alerts: this.fireAlerts() });
+    if (now - this.sceneAt > 1000) { this.sceneAt = now; setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow())), xmasSeason(serverNow())); this.weatherTick(); } // 배경음악: 지금 상황에 맞는 곡 (1초에 한 번 본다)
   }
 
   // 마피아 미션 자리 표시 (2026-11-10): 시민·유령은 내 미완료 미션(금색 테두리 + 화면 밖 화살표), 마피아는 모든 자리(흐린 테두리)
@@ -527,7 +530,7 @@ export class World implements WorldCtx {
     const mySeat = this.sitAt;
     const myDance = this.danceOf(me.emoteId, me.poseAt, now);
     const list: Entity[] = [{
-      uid: this.uid, nick: (iGhost ? '👻 ' : '') + (this.contest.isChampion(this.uid) ? '🏆 ' : '') + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: mySeat ? this.seatFace(mySeat) : me.dir, moving: me.moving, sit: !!mySeat && !me.moving,
+      uid: this.uid, nick: (iGhost ? '👻 ' : '') + this.nickMarks(this.uid) + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: mySeat ? this.seatFace(mySeat) : me.dir, moving: me.moving, sit: !!mySeat && !me.moving,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: myDance ? 'dance' : me.pose, poseAt: myDance ? now : me.poseAt, emoteId: myDance ? 0 : me.emoteId, dance: myDance || undefined, bubble: me.bubble,
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.myFx(now), title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null, bubbleSkin: this.profile.eq?.bb && this.profile.own?.[this.profile.eq.bb] ? this.profile.eq.bb : null,
@@ -545,7 +548,7 @@ export class World implements WorldCtx {
       const seat = !rp.st.si ? null : onSeat ? { x: rp.toX, y: rp.toY } : this.seatOf(rp.toX, rp.toY, rp.st.d ?? 0); // 앉아 있는 사람: 바라보는 쪽 옆 칸의 가구 위에 그린다
       const dance = this.danceOf(rp.emoteId, rp.poseAt, now);
       list.push({
-        uid: rp.uid, nick: (ghost ? '👻 ' : '') + (this.contest.isChampion(rp.uid) ? '🏆 ' : '') + rp.st.n + (this.mafia.isMate(rp.uid) ? ' 🔪' : '') + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat && !onSeat ? seat.x : rp.x, y: seat && !onSeat ? seat.y : rp.y, dir: seat ? this.seatFace(seat) : rp.st.d ?? 0, sit: !!seat && !(onSeat && rp.moveStart > 0), moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
+        uid: rp.uid, nick: (ghost ? '👻 ' : '') + this.nickMarks(rp.uid) + rp.st.n + (this.mafia.isMate(rp.uid) ? ' 🔪' : '') + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat && !onSeat ? seat.x : rp.x, y: seat && !onSeat ? seat.y : rp.y, dir: seat ? this.seatFace(seat) : rp.st.d ?? 0, sit: !!seat && !(onSeat && rp.moveStart > 0), moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
         pose: dance ? 'dance' : rp.pose, poseAt: dance ? now : rp.poseAt, emoteId: dance ? 0 : rp.emoteId, dance: dance || undefined, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
@@ -647,6 +650,8 @@ export class World implements WorldCtx {
   guardUntil = 0;
   snowPenaltyActive(): boolean { return snowActive(this.snowBrokenAt, serverNow()); }
   guardBroken(): boolean { return serverNow() < this.guardUntil || this.snowPenaltyActive(); }
+  // 이름표 앞의 표시: 낚시 대회 우승 🏆 · 지난 주 랭킹 1위 🎣🐛🧸 (2026-11-21. 여럿이면 붙여 쓰고 한 칸 띈다)
+  private nickMarks(uid: string): string { const m = (this.contest.isChampion(uid) ? '🏆' : '') + this.weekTop.marks(uid); return m ? `${m} ` : ''; }
   breakGuard(byNick: string, dark = false): void {
     if (this.home.useShield(byNick, dark)) return; // 겨울잠으로 쌓은 든든함: 빠따 한 번을 막는다 (방어가 안 깨지니 갑옷·펫이 그대로 막는다. 상대 빠따는 소모됐다)
     this.guardUntil = serverNow() + GUARD_BREAK_MS;
@@ -973,12 +978,14 @@ export class World implements WorldCtx {
   private snowy(): boolean { return this.mapId === WINTER_MAP_ID || snowSeason(serverNow()); }
   private rainView(): { level: number; snow: boolean } | null { const level = this.dayOff ? 0 : this.rainHere(); return level > 0 ? { level, snow: this.snowy() } : null; }
   private treeTint: TreeLook = null; // 지금 나무의 빛깔 (단풍·벚꽃. 1초에 한 번 본다)
+  private xmasOn = false;            // 크리스마스 철의 바깥 맵인가 (소나무 전구와 별. 겨울 낚시터 포함. 1초에 한 번 본다)
   private wasRaining: boolean | null = null;
   // 1초에 한 번: 빗소리를 맞추고, 비가 시작하고 그칠 때 한 줄 알린다 (처음 들어왔을 때는 알리지 않는다)
   private weatherTick(): void {
     const level = this.rainHere(), winterMap = this.mapId === WINTER_MAP_ID, snow = this.snowy();
     setRain(snow ? 0 : level); // 눈은 소리 없이 내린다
     this.treeTint = this.outdoors() && !winterMap ? treeLook(serverNow()) : null;
+    this.xmasOn = this.outdoors() && xmasSeason(serverNow());
     const now = rainLevel(serverNow()) > 0;
     if (this.wasRaining !== null && now !== this.wasRaining && this.outdoors() && !winterMap) {
       if (snow) this.toast(now ? '❄ 눈이 내리기 시작합니다. 눈 오는 동안에만 낚이는 물고기가 있어요.' : '🌤 눈이 그쳤습니다.');
@@ -1760,7 +1767,7 @@ export class World implements WorldCtx {
     this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
-    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.campfire?.stop(); this.snowmen?.stop(); this.wallet.stop(); this.stock.stop(); this.dj.stop(); this.djPanel?.close(); this.contest.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
+    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.campfire?.stop(); this.snowmen?.stop(); this.wallet.stop(); this.stock.stop(); this.dj.stop(); this.djPanel?.close(); this.contest.stop(); this.weekTop.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});
     await this.net.leave(replaced);
     document.body.classList.remove('mobile');

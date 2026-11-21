@@ -1024,6 +1024,12 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await root.ref('users/OK/own/fn36').set(true);
   await expect('고급 가구: 품목을 가졌으면 나무 없이', 'allow', () => ok.ref(H).update({ 'fu/36': true }));
   await expect('고급 가구: 가진 품목과 다른 가구', 'deny', () => ok.ref(H).update({ 'fu/37': true }));
+  // 2026-11-21: 꼬마 트리 (크리스마스 한정 가구, 품목 fn54)
+  await expect('꼬마 트리: 품목 없이', 'deny', () => ok.ref(H).update({ 'fu/54': true }));
+  await root.ref('users/OK/own/fn54').set(true);
+  await expect('꼬마 트리: 품목을 가졌으면', 'allow', () => ok.ref(H).update({ 'fu/54': true }));
+  await expect('꼬마 트리 놓기', 'allow', () => ok.ref(H + '/d/4_4').set(54));
+  await expect('목록에 없는 가구 번호', 'deny', () => ok.ref(H).update({ 'fu/55': true }));
   await expect('황금 가구: 품목 없이', 'deny', () => ok.ref(H).update({ 'fu/41': true }));
   await root.ref('users/OK/own/gg41').set(true);
   await expect('황금 가구: 품목을 가졌으면', 'allow', () => ok.ref(H).update({ 'fu/41': true }));

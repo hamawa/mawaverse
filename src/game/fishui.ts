@@ -10,6 +10,7 @@ import { bugColl, fmtBugSize } from '../shared/bugs';
 import { prevContestWindow, type ContestEntry, type ContestResult } from '../shared/contest';
 import type { ContestMgr } from './contest';
 import type { TossWeekEntry } from './toss';
+import { WEEK_MARKS } from '../shared/weektop';
 import { CATCH_LOG_MAX, type CatchLog } from './catchlog';
 
 export interface FishUser { uid: string; nick: string; contest?: ContestMgr; catchLog?: CatchLog }
@@ -144,6 +145,7 @@ export function openFishBook(user: FishUser): void {
     pane.innerHTML = '';
     const monday = `${wk.slice(0, 4)}-${wk.slice(4, 6)}-${wk.slice(6, 8)}`;
     pane.append(el('div', { class: 'muted', style: 'margin-bottom:8px', text: `${monday} 주 · 월요일에 새로 시작 · 점수: 일반 1 · 희귀 5 · 영웅 20 · 전설 100` }));
+    pane.append(el('div', { class: 'muted', style: 'margin-bottom:8px', text: `주간 1위는 다음 주 내내 이름표에 ${WEEK_MARKS.fish} · ${WEEK_MARKS.bug} · ${WEEK_MARKS.toss} 를 답니다.` })); // 2026-11-21 건의 반영 (shared/weektop.ts)
     for (const [title, rows] of [['🐟 낚시', fish], ['🐛 곤충 채집', bug]] as [string, [string, WeekEntry][]][]) {
       pane.append(el('h4', { style: 'margin:6px 0 4px', text: title }));
       if (!rows.length) pane.append(el('p', { class: 'muted', text: '이번 주에는 아직 기록이 없어요. 첫 기록을 세워보세요!' }));

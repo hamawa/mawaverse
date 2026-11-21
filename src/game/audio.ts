@@ -20,8 +20,8 @@ const MUSIC_GAIN = 1.5, SFX_GAIN = 1, CLUB_GAIN = 0.5; // 음량 설정에 곱�
 const midi = (n: number): number => 440 * 2 ** ((n - 69) / 12);
 
 // ---------- 소리 만들기 (실시간·오프라인 공용: 음량 점검은 OfflineAudioContext 로 한다) ----------
-type Wave = 'pluck' | 'bell' | 'marimba' | 'rhodes' | 'square' | 'brass' | 'saw';
-type Drums = 'gallop' | 'bounce' | 'swing' | 'heart' | 'sleigh' | 'four'; // four: 박마다 킥 (클럽)
+type Wave = 'pluck' | 'bell' | 'marimba' | 'rhodes' | 'square' | 'brass' | 'saw' | 'box'; // box: 오르골 (캐롤의 가락. 종보다 빨리 사그라들어 빠른 음이 뭉개지지 않는다)
+type Drums = 'gallop' | 'bounce' | 'swing' | 'heart' | 'sleigh' | 'four' | 'bells'; // four: 박마다 킥 (클럽) · bells: 썰매 방울 (캐롤)
 export interface Tune {
   name: string; bpm: number; beats: number; root: number; scale: readonly number[]; prog: readonly number[]; bars: number;
   pad?: number;                                              // 깔리는 화음의 크기
@@ -30,6 +30,7 @@ export interface Tune {
   bass?: { vol: number; walk?: boolean; off?: boolean }; // off: 박 사이(엇박)에 짧게 친다 (클럽)
   drums?: Drums; swing?: number; drone?: boolean; rev?: number;           // rev: 울림(잔향)으로 보내는 양
   edm?: EdmSong;                                             // 클럽 곡: 구간이 있는 편곡 (edm.ts 가 그린다. 위의 악기 칸은 쓰지 않는다)
+  song?: Song;                                               // 가락이 정해진 곡 (캐롤): 가락과 화음을 적어 둔 대로 친다 (prog·scale·lead.dens 는 쓰지 않는다)
 }
 const MAJOR = [0, 2, 4, 5, 7, 9, 11], MINOR = [0, 2, 3, 5, 7, 8, 10], DORIAN = [0, 2, 3, 5, 7, 9, 10], LYDIAN = [0, 2, 4, 6, 7, 9, 11], PHRYG = [0, 1, 3, 5, 7, 8, 10];
 
@@ -67,6 +68,115 @@ export const TUNES: Record<string, Tune> = {
 };
 // 클럽 곡 하나: 마디 수는 편곡의 길이, 나머지 악기 칸은 쓰지 않는다 (Synth.bar 가 edm 이 있으면 edm.ts 로 넘긴다)
 function edmTune(name: string, edm: EdmSong): Tune { return { name, bpm: edm.bpm, beats: 4, root: edm.root, scale: edm.scale, prog: edm.prog, bars: EDM_BARS, edm }; }
+// ---------- 캐롤 (2026-11-21, 건의 반영): 가락이 정해진 곡 ----------
+// 크리스마스 철(12/1~12/25, shared/season.ts)에는 광장·집·금광·겨울 낚시터·카지노 방의 곡 대신 캐롤만 나온다 (사용자 결정. 마피아·클럽은 그대로).
+// **저작권이 끝난 옛 곡만 적는다** (작곡자가 죽은 지 오래된 전래 캐롤·찬송). 울면 안 돼·루돌프 사슴코·화이트 크리스마스처럼 권리가 살아 있는 곡은 옮겨 적지 말 것.
+// 가락은 ABC 표기를 줄인 것이다: 으뜸음을 C 로 적고(root 가 그 C 의 높이를 정한다) 마디는 '|' 로 가른다.
+//   C D E F G A B = 가온 도부터, c d e … = 한 옥타브 위, 뒤의 , ' = 한 옥타브 아래·위, 앞의 ^ _ = 반음 올림·내림, z = 쉼
+//   뒤의 숫자 = 길이 (2 = 두 칸, 3/2 = 한 칸 반, /2 = 반 칸). 한 마디의 길이를 다 더하면 unit 칸이어야 한다 (tests/ambience.test.mjs 가 본다)
+// 화음도 C 를 으뜸으로 적는다 (C F G7 Am Dm D7 E …). 한 마디에 여럿이면 빈칸으로 갈라 같은 길이로 나눈다.
+// **이 환경에서는 소리를 들어 볼 수 없다**: 음은 악보대로 적었지만 듣기에 어떤지는 사용자가 들어야 안다 (2026-11-21 에 미리 듣기 파일을 만들어 보냈다)
+export interface Song { unit: number; mel: string; chords: string }
+interface SongBar { notes: { at: number; dur: number; n: number }[]; chords: number[][] }
+const NOTE_SEMI: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+const songCache = new WeakMap<Song, SongBar[]>();
+// 화음 이름 → 으뜸음(C)에서 잰 반음 넷 (밑음·3음·5음·맨 위). 으뜸음 둘레에 모이게 F 보다 높은 밑음은 한 옥타브 내린다
+export function parseChord(sym: string): number[] {
+  const m = /^([A-G])([#b]?)(m?)(7?)$/.exec(sym);
+  if (!m) throw new Error(`모르는 화음: ${sym}`);
+  let r = NOTE_SEMI[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
+  if (r > 5) r -= 12;
+  return [r, r + (m[3] ? 3 : 4), r + 7, r + (m[4] ? 10 : 12)];
+}
+export function parseSong(so: Song): SongBar[] {
+  const hit = songCache.get(so);
+  if (hit) return hit;
+  const mel = so.mel.split('|').map((s) => s.trim()).filter(Boolean), chords = so.chords.split('|').map((s) => s.trim()).filter(Boolean);
+  if (mel.length !== chords.length) throw new Error(`가락 ${mel.length}마디, 화음 ${chords.length}마디`);
+  const bars = mel.map((src, i): SongBar => {
+    const notes: SongBar['notes'] = [];
+    let at = 0;
+    for (const m of src.matchAll(/([_^]?)([A-Ga-gz])([,']*)(\d*)(\/(\d*))?/g)) {
+      const dur = (m[4] ? +m[4] : 1) / (m[5] ? (m[6] ? +m[6] : 2) : 1);
+      if (m[2] !== 'z') {
+        const up = m[2] !== m[2].toUpperCase();
+        let n = NOTE_SEMI[m[2].toUpperCase()] + (up ? 12 : 0) + (m[1] === '^' ? 1 : m[1] === '_' ? -1 : 0);
+        for (const ch of m[3]) n += ch === ',' ? -12 : 12;
+        notes.push({ at, dur, n });
+      }
+      at += dur;
+    }
+    if (Math.abs(at - so.unit) > 1e-6) throw new Error(`${i + 1}번째 마디의 길이가 ${at} (${so.unit} 이어야 한다): ${src}`);
+    return { notes, chords: chords[i].split(/\s+/).map(parseChord) };
+  });
+  songCache.set(so, bars);
+  return bars;
+}
+interface CarolOpt { bpm: number; beats: number; root: number; unit: number; mel: string; chords: string; rep?: number; lead?: Wave; arp: readonly number[]; drums?: Drums; pad?: number; rev?: number; vol?: number }
+function carol(name: string, o: CarolOpt): Tune {
+  const song: Song = { unit: o.unit, mel: o.mel, chords: o.chords };
+  return {
+    name, bpm: o.bpm, beats: o.beats, root: o.root, scale: MAJOR, prog: [0], bars: o.mel.split('|').filter((s) => s.trim()).length * (o.rep ?? 1),
+    pad: o.pad ?? 0.4, arp: { vol: 0.3, oct: 0, pat: o.arp, wave: 'pluck' }, lead: { vol: o.vol ?? 0.62, oct: 1, dens: 0, wave: o.lead ?? 'box' }, bass: { vol: 0.34 }, drums: o.drums, rev: o.rev ?? 0.4, song,
+  };
+}
+const ARP4 = [0, 2, 1, 2, 0, 2, 1, 2], ARP3 = [0, 1, 2, 1, 2, 1], ARP6 = [0, 1, 2, 3, 2, 1];
+// 같은 마디를 여러 번 적지 않게: 마디들을 ' | ' 로 잇는다
+const J = (...parts: string[]): string => parts.join(' | ');
+const JB_V = J('G,2 E2 D2 C2', 'G,6 G, G,', 'G,2 E2 D2 C2', 'A,8', 'A,2 F2 E2 D2', 'B,8', 'G2 G2 F2 D2', 'E8', 'G,2 E2 D2 C2', 'G,8', 'G,2 E2 D2 C2', 'A,6 A,2', 'A,2 F2 E2 D2', 'G2 G2 G2 G2', 'A2 G2 F2 D2', 'C4 G4');
+const JB_C1 = J('E2 E2 E4', 'E2 E2 E4', 'E2 G2 C3 D', 'E8', 'F2 F2 F3 F', 'F2 E2 E2 E E');
+const WW_A = J('C2 C D C B,', 'A,2 A,2 A,2', 'D2 D E D C', 'B,2 G,2 G,2', 'E2 E F E D', 'C2 A,2 G, G,', 'A,2 D2 B,2');
+const WW_B = J('C2 C2 C2', 'B,4 B,2', 'C2 B,2 A,2', 'G,4 D2', 'E2 D2 C2', 'G2 G,2 G, G,', 'A,2 D2 B,2', 'C4 G,2');
+const WW_AC = 'C | F | D7 | G | E7 | Am | F G7 G7 | C', WW_BC = 'C | G | Am | G | C | G | F G7 G7 | C';
+const DH_A = J('G3 F E2 D2', 'C2 D2 E2 C2', 'D E F D E3 D', 'C2 B,2 C4'), DH_AC = 'C | C | G7 C | C G7 C C';
+const OT_A = J('C3/2 C/2 C2 D2', 'E3/2 E/2 E3 E', 'D E F2 B,2'), OT_AC = 'C | C | G7';
+const SN_1 = 'G3/2 A/2 G E3', SN_5 = 'A2 A c3/2 B/2 A';
+const FN_V = J('C3 D E F', 'G4 A B', 'c2 B2 A2', 'G4 A B', 'c2 B2 A2', 'G2 A2 B2', 'c2 G2 F2'), FN_VC = 'C | C C G | Am G F | C C G | Am G F | C F G | C C G7';
+const AN_V = J('E2 E2 E2 G2', 'G3 F E4', 'E2 D2 E2 G2', 'E3 D C4'), AN_VC = 'C | G7 C | C | C G7 C C';
+const AN_G = J('G4 A G F E', 'F4 G F E D', 'E4 F E D C', 'D3 G, G,4', 'C2 D2 E2 F2'), AN_GC = 'C Am | Dm G7 | C F | G | C G C F';
+const HK_1 = J('G,2 C2 C3 B,', 'C2 E2 E2 D2'), HK_9 = J('G2 G2 G2 C2', 'F2 E2 E2 D2'), HK_13 = J('A3 A A2 G2', 'F2 E2 F4', 'D2 E F G3 C');
+const AM_1 = J('G3 F E2', 'E2 D2 C2', 'C2 B,2 A,2', 'G,4 G,2');
+export const CAROL_TUNES: Record<string, Tune> = {
+  jingle: carol('징글벨', { bpm: 112, beats: 4, root: 65, unit: 8, arp: ARP4, drums: 'bells', rev: 0.3,
+    mel: J(JB_V, JB_C1, 'E2 D2 D2 E2', 'D4 G4', JB_C1, 'G2 G2 F2 D2', 'C8'),
+    chords: 'C | C | C | F | Dm | G7 | G7 | C | C | C | C | F | Dm | G7 | G7 | C G7 | C | C | C | C | F | C | D7 | G7 | C | C | C | C | F | C | G7 | C' }),
+  wewish: carol('위 위시 유 어 메리 크리스마스', { bpm: 138, beats: 3, root: 67, unit: 6, arp: ARP3, drums: 'bells', rev: 0.3,
+    mel: J('z4 G,2', WW_A, 'C4 G,2', WW_B, WW_A, 'C4 G,2', WW_B, WW_A, 'C6'),
+    chords: J('C', WW_AC, WW_BC, WW_AC, WW_BC, WW_AC) }),
+  deck: carol('덱 더 홀스', { bpm: 120, beats: 4, root: 62, unit: 8, arp: ARP4, drums: 'bells', rev: 0.3, rep: 2,
+    mel: J(DH_A, DH_A, 'D3 E F2 D2', 'E3 F G2 D2', 'E F G2 A B c2', 'B2 A2 G4', 'G3 F E2 D2', 'C2 D2 E2 C2', 'A A A A G3 F', 'E2 D2 C4'),
+    chords: J(DH_AC, DH_AC, 'G7 | C | C D7 | G | C | C | F C | C G7 C C') }),
+  tannen: carol('소나무야', { bpm: 92, beats: 3, root: 65, unit: 6, arp: ARP3, rep: 2, rev: 0.5,
+    mel: J('z4 G,2', OT_A, 'D2 C2 G,2', OT_A, 'D2 C2 z G', 'G E A3 G', 'G F F3 F', 'F D G3 F', 'F E E2 G,2', OT_A, 'D2 C4'),
+    chords: J('C', OT_AC, 'G7 C C', OT_AC, 'G7 C C', 'C F F | G7 | G7 | C', OT_AC, 'G7 C C') }),
+  silent: carol('고요한 밤 거룩한 밤', { bpm: 126, beats: 6, root: 58, unit: 6, arp: ARP6, lead: 'bell', pad: 0.6, rev: 0.7, rep: 2,
+    mel: J(SN_1, SN_1, 'd2 d B3', 'c2 c G3', SN_5, SN_1, SN_5, SN_1, 'd2 d f3/2 d/2 B', 'c3 e3', 'c G E G3/2 F/2 D', 'C6'),
+    chords: 'C | C | G7 | C | F | C | F | C | G7 | C | C G7 | C' }),
+  joy: carol('기쁘다 구주 오셨네', { bpm: 80, beats: 2, root: 62, unit: 8, arp: ARP4, rep: 2, rev: 0.35,
+    mel: J('c4 B3 A', 'G6 F2', 'E4 D4', 'C6 G2', 'A6 A2', 'B6 B2', 'c6 c2', 'c2 B2 A2 G2', 'G3 F E2 c2', 'c2 B2 A2 G2', 'G3 F E2 E2', 'E2 E2 E2 E F', 'G6 F E', 'D2 D2 D2 D E', 'F6 E D', 'C2 c4 A2', 'G3 F E2 F2', 'E4 D4', 'C8'),
+    chords: 'C | C G7 | C G7 | C | F | G7 | C | C | C | C | C | C | C | G7 | G7 | C F | C G7 | C G7 | C' }),
+  noel: carol('저 들 밖에 한밤중에', { bpm: 96, beats: 3, root: 62, unit: 6, arp: ARP3, rev: 0.5,
+    mel: J('z4 E D', FN_V, 'E4 E D', FN_V, 'E4 E D', 'C3 D E F', 'G4 c B', 'A4 A2', 'G6', 'c2 B2 A2', 'G2 A2 B2', 'c2 G2 F2', 'E6'),
+    chords: J('C', FN_VC, 'C', FN_VC, 'C', 'C | C C G | F | C | Am G F | C F G | C C G7 | C') }),
+  faithful: carol('참 반가운 성도여', { bpm: 100, beats: 4, root: 67, unit: 8, arp: ARP4, rev: 0.5,
+    mel: J('z6 C2', 'C4 G,2 C2', 'D4 G,4', 'E2 D2 E2 F2', 'E4 D2 C2', 'C4 B,2 A,2', 'B,2 C2 D2 E2', 'B,4 A,3 G,', 'G,6 z2', 'G4 F2 E2', 'F4 E4', 'D2 E2 C2 D2', 'B,3 A, G,2 C2', 'C2 B,2 C2 D2', 'C4 G,2 E2', 'E2 D2 E2 F2', 'E4 D2 E2', 'F2 E2 D2 C2', 'B,4 C2 F2', 'E4 D3 C', 'C8'),
+    chords: 'C | C | G | C G C F | C C G C | Am | G C G C | G G D7 D7 | G | C | G7 C | G C Am D7 | G G G C | C G C G | C | C G C F | C C G C | F C G Am | G G Am F | C C G7 G7 | C' }),
+  angels: carol('천사들의 노래가', { bpm: 112, beats: 4, root: 65, unit: 8, arp: ARP4, rev: 0.45,
+    mel: J(AN_V, AN_V, AN_G, 'E4 D4', AN_G, 'E4 D4', 'C8'),
+    chords: J(AN_VC, AN_VC, AN_GC, 'C G', AN_GC, 'C G7', 'C') }),
+  hark: carol('천사 찬송하기를', { bpm: 108, beats: 4, root: 65, unit: 8, arp: ARP4, rev: 0.45,
+    mel: J(HK_1, 'G2 G2 G3 F', 'E2 D2 E4', HK_1, 'G2 D2 D3 B,', 'B,2 A,2 G,4', HK_9, HK_9, HK_13, 'C2 D2 E4', HK_13, 'C2 D2 C4'),
+    chords: 'C | C C C G | C | C G C C | C | C C C G | G | G D7 G G | C | F C C G | C | F C C G | F | Dm | G7 C | C G C C | F | Dm | G7 C | C G7 C C' }),
+  manger: carol('그 어린 주 예수', { bpm: 92, beats: 3, root: 65, unit: 6, arp: ARP3, lead: 'bell', pad: 0.55, rev: 0.6, rep: 2,
+    mel: J('z4 G2', AM_1, 'G,3 A, G,2', 'G,2 D2 B,2', 'A,2 G,2 C2', 'E4 G2', AM_1, 'F3 E D2', 'E2 D2 C2', 'D2 A,2 B,2', 'C6'),
+    chords: 'C | C | C | F | C | G7 | G7 | G7 G7 C | C | C | C | F | C | Dm | C | G7 | C' }),
+};
+// 크리스마스 철에 나오는 곡과, 캐롤로 바뀌는 상황 (마피아의 긴장감과 클럽의 춤곡은 그대로 둔다).
+// 열한 곡은 사용자가 미리 듣기 13곡에서 골랐다 (2026-11-21. 뺀 것: Carol of the Bells · God Rest Ye Merry, Gentlemen)
+export const CAROL_LIST: readonly string[] = Object.keys(CAROL_TUNES);
+const CAROL_SCENES: ReadonlySet<Scene> = new Set<Scene>(['main', 'home', 'mine', 'winter', 'race', 'slots', 'poker']);
+const CAROL_GAP: [number, number] = [8, 20];
+Object.assign(TUNES, CAROL_TUNES);
 const SCENE_TUNES: Record<Scene, { day: string[]; night?: string[]; gap: [number, number] }> = {
   main: { day: ['morning', 'noon', 'meadow', 'dusk'], night: ['stars', 'lake'], gap: [15, 40] },
   home: { day: ['home', 'home2'], gap: [8, 20] },
@@ -159,6 +269,7 @@ export class Synth {
       case 'square': this.tone(out, 'square', f, f, t, Math.min(0.3, dur), vol * 0.07, 0.004); break;
       case 'brass': this.tone(out, 'sawtooth', f, f, t, Math.min(0.5, dur * 0.95), vol * 0.07, 0.03); this.tone(out, 'triangle', f, f, t, Math.min(0.5, dur * 0.95), vol * 0.1, 0.03); break;
       case 'saw': this.filt(out, f, t, Math.min(0.28, dur), vol * 0.11, 2600, 500); break; // 짧게 끊는 톱니음 (클럽)
+      case 'box': this.tone(out, 'sine', f, f, t, Math.max(0.55, dur * 1.25), vol * 0.2, 0.004); this.tone(out, 'triangle', f * 2, f * 2, t, 0.3, vol * 0.045, 0.003); this.tone(out, 'sine', f * 4, f * 4, t, 0.12, vol * 0.02, 0.002); break;
     }
   }
   // 걸러낸 톱니음: 열렸다 닫히는 저역 통과 필터를 지난다 (클럽의 아르페지오와 베이스)
@@ -189,6 +300,7 @@ export class Synth {
   // 곡의 한 마디를 그린다. t0: 마디가 시작하는 시각, bar: 몇 번째 마디, melody: 미리 지어 둔 가락 (마디 → 박 → 음 또는 null)
   bar(tu: Tune, dry: AudioNode, wet: AudioNode, t0: number, bar: number, melody: (number | null)[][]): void {
     if (tu.edm) { drawEdmBar(this.ac, tu.edm, dry, wet, t0, bar); return; }
+    if (tu.song) { this.songBar(tu, tu.song, dry, wet, t0, bar); return; }
     const beat = 60 / tu.bpm, len = beat * tu.beats;
     const deg = tu.prog[bar % tu.prog.length];
     const at = (d: number): number => tu.root + tu.scale[((d % 7) + 7) % 7] + 12 * Math.floor(d / 7); // 음계의 d 번째 음
@@ -217,6 +329,31 @@ export class Synth {
     }
     if (tu.drums) this.drums(tu.drums, dry, t0, beat, tu.beats, fade);
   }
+  // 가락이 정해진 곡의 한 마디 (캐롤). 화음은 마디마다 적어 둔 것을 쓰고, 한 마디에 여럿이면 같은 길이로 나눈다. 두 번째로 도는 동안에는 가락에 한 옥타브 위의 종소리를 옅게 겹친다
+  private songBar(tu: Tune, so: Song, dry: AudioNode, wet: AudioNode, t0: number, bar: number): void {
+    const bars = parseSong(so), b = bars[bar % bars.length], pass = Math.floor(bar / bars.length);
+    const len = (60 / tu.bpm) * tu.beats, u = len / so.unit, nc = b.chords.length;
+    const both = (fn: (out: AudioNode, k: number) => void) => { fn(dry, 1); if (tu.rev) fn(wet, tu.rev); };
+    const fade = bar === tu.bars - 1 ? 0.85 : 1;
+    const chordAt = (f: number): number[] => b.chords[Math.min(nc - 1, Math.floor(f * nc + 1e-6))].map((x) => tu.root + x);
+    if (tu.pad) { const slots = Math.min(nc, 2); for (let i = 0; i < slots; i++) both((o, k) => this.pad(o, t0 + (i * len) / slots, chordAt(i / slots).slice(0, 3).map((n) => n - 12), len / slots, tu.pad! * k * fade)); }
+    if (tu.bass) for (let i = 0; i < nc; i++) { let n = chordAt(i / nc)[0]; while (n > 52) n -= 12; this.tone(dry, 'sine', midi(n), midi(n), t0 + (i * len) / nc, (len / nc) * 0.9, tu.bass.vol * 0.34 * fade, 0.02); }
+    if (tu.arp) {
+      const a = tu.arp, step = len / a.pat.length;
+      a.pat.forEach((p, i) => { if (p >= 0) both((o, k) => this.note(o, a.wave, t0 + i * step, chordAt(i / a.pat.length)[p] + 12 * a.oct, step * 2, a.vol * k * fade)); });
+    }
+    if (tu.lead) {
+      const l = tu.lead;
+      for (const nt of b.notes) both((o, k) => {
+        this.note(o, l.wave, t0 + nt.at * u, tu.root + nt.n + 12 * l.oct, nt.dur * u, l.vol * k * fade);
+        if (pass % 2 === 1) this.note(o, 'bell', t0 + nt.at * u, tu.root + nt.n + 12 * (l.oct + 1), nt.dur * u, l.vol * 0.3 * k * fade);
+      });
+    }
+    if (tu.drums) this.drums(tu.drums, dry, t0, 60 / tu.bpm, tu.beats, fade);
+  }
+  // 썰매 방울 한 번 (캐롤): 높은 쇳소리 셋을 짧게 겹친다. 잡음(hat)을 쓰지 않는다: 잡음은 시작하는 순간 한 표본이 크게 튈 때가 있다
+  // (2026-11-21 에 오프라인으로 그려 재다가 알았다. 소리가 시작하는 표본에서는 env 가 아직 걸리지 않아 볼륨이 1 이다. 사인·삼각파는 0 에서 시작해 괜찮다)
+  private jingle(out: AudioNode, t: number, vol: number): void { for (const [f, k] of [[4186, 1], [5274, 0.7], [6645, 0.5]] as const) this.tone(out, 'sine', f, f, t, 0.09, vol * 0.022 * k, 0.002); }
   private drums(kind: Drums, out: AudioNode, t0: number, beat: number, beats: number, v: number): void {
     for (let b = 0; b < beats; b++) {
       const t = t0 + b * beat;
@@ -224,6 +361,7 @@ export class Synth {
       else if (kind === 'bounce') { if (b % 2 === 0) this.drum(out, 'kick', t, 0.8 * v); else this.drum(out, 'snare', t, 0.6 * v); this.drum(out, 'hat', t + beat * 0.5, 0.8 * v); }
       else if (kind === 'swing') { this.drum(out, 'brush', t, 0.9 * v); this.drum(out, 'brush', t + beat * (2 / 3), 0.6 * v); if (b === 0) this.drum(out, 'kick', t, 0.35 * v); }
       else if (kind === 'heart') { if (b % 2 === 0) { this.drum(out, 'kick', t, 0.7 * v); this.drum(out, 'kick', t + beat * 0.3, 0.5 * v); } }
+      else if (kind === 'bells') { this.jingle(out, t, 0.5 * v); this.jingle(out, t + beat * 0.5, 0.28 * v); }
       else if (kind === 'four') { this.drum(out, 'kick', t, 1.15 * v); if (b % 2 === 1) this.drum(out, 'snare', t, 0.8 * v); this.drum(out, 'hat', t + beat * 0.5, 1 * v); this.drum(out, 'hat', t + beat * 0.25, 0.35 * v); this.drum(out, 'hat', t + beat * 0.75, 0.35 * v); }
       else { this.drum(out, 'hat', t, 0.5 * v); this.drum(out, 'hat', t + beat * 0.5, 0.3 * v); }
     }
@@ -401,7 +539,7 @@ export function setRain(level: number): void {
 
 // ---------- 배경음악 ----------
 interface Playing { key: string; tune: Tune; dry: GainNode; wet: GainNode; next: number; bar: number; melody: (number | null)[][] }
-let want: { scene: Scene; night: boolean } | null = null;
+let want: { scene: Scene; night: boolean; carol: boolean } | null = null;
 let playing: Playing | null = null;
 let playingGroup = '';
 let lastKey = '';
@@ -424,8 +562,10 @@ function pump(): void {
   if (!want || !load().on || load().music <= 0 || !audible() || hold) { if (playing) dropTune(0.4); return; }
   const l = ensure();
   if (!l || l.ac.state !== 'running') return;
-  const set = SCENE_TUNES[want.scene], list = want.night && set.night ? set.night : set.day;
-  const group = `${want.scene}|${list === set.night ? 'n' : 'd'}`;
+  // 크리스마스 철에는 캐롤만 나온다 (어느 곳에 있든 같은 묶음이라, 광장에서 집으로 들어가도 하던 곡이 이어진다)
+  const carols = want.carol && CAROL_SCENES.has(want.scene) && CAROL_LIST.length > 0;
+  const set = SCENE_TUNES[want.scene], list = carols ? CAROL_LIST : want.night && set.night ? set.night : set.day, gap = carols ? CAROL_GAP : set.gap;
+  const group = carols ? 'carol' : `${want.scene}|${list === set.night ? 'n' : 'd'}`;
   const now = l.ac.currentTime;
   if (playing && playingGroup !== group) { dropTune(1.2); restUntil = now + 1.5; }
   if (!playing) {
@@ -446,12 +586,12 @@ function pump(): void {
     // 곡이 끝났다: 울림이 사라질 때까지 두었다가 치우고, 잠깐 쉰 뒤 다음 곡
     playing = null; playingGroup = '';
     window.setTimeout(() => { p.dry.disconnect(); p.wet.disconnect(); }, 6000);
-    restUntil = now + set.gap[0] + Math.random() * (set.gap[1] - set.gap[0]);
+    restUntil = now + gap[0] + Math.random() * (gap[1] - gap[0]);
   }
 }
-// 지금 상황에 맞는 배경음악을 튼다 (자주 불러도 된다: 상황이 같으면 하던 곡을 잇는다)
-export function setScene(scene: Scene, night = false): void {
-  want = { scene, night };
+// 지금 상황에 맞는 배경음악을 튼다 (자주 불러도 된다: 상황이 같으면 하던 곡을 잇는다). carol: 크리스마스 철인가 (그 철에는 캐롤만 나온다)
+export function setScene(scene: Scene, night = false, carol = false): void {
+  want = { scene, night, carol };
   if (!pumpTimer && typeof window !== 'undefined') pumpTimer = window.setInterval(pump, 250);
 }
 // 게임에서 나갈 때

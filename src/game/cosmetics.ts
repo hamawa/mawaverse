@@ -107,6 +107,29 @@ Object.assign(HAT_ART, {
     '..ddddddddddddd.',
   ] },
 } satisfies Record<string, HatArt>);
+// 크리스마스 한정 (2026-11-21, 건의 반영. shop.ts XMAS_IDS)
+Object.assign(HAT_ART, {
+  santa: { overlap: 3, pal: { r: '#d6342c', d: '#a82420', w: '#ffffff', s: '#d9dfe8' }, rows: [
+    '.........rr.....',
+    '.......rrrrr....',
+    '......rrrrrrd...',
+    '.....rrrrrrrdww.',
+    '....rrrrrrrrdww.',
+    '...rrrrrrrrrd...',
+    '..wwwwwwwwwwww..',
+    '..wssssssssssw..',
+  ] },
+  rudolph: { overlap: 2, pal: { b: '#8a5a2b', l: '#b98a4c', r: '#d6342c', d: '#a82420' }, rows: [
+    '.l...l....l...l.',
+    '.b..lb....bl..b.',
+    '.bb.b......b.bb.',
+    '..bbb......bbb..',
+    '...bb......bb...',
+    '...bb......bb...',
+    '..rrrrrrrrrrrr..',
+    '..dd........dd..',
+  ] },
+} satisfies Record<string, HatArt>);
 export const HAT_IDS = Object.keys(HAT_ART);
 
 const hatCache = new Map<string, HTMLCanvasElement>();
@@ -332,6 +355,7 @@ function drawPetHat(ctx: CanvasRenderingContext2D, hat: string, cx: number, top:
   if (hat === 'ph_ribbon') { R(-3, -2, 2, 2, '#ff7eb6'); R(1, -2, 2, 2, '#ff7eb6'); R(-1, -1.5, 2, 1, '#d94f8c'); }
   else if (hat === 'ph_straw') { R(-4, -1, 8, 1, '#e3c16f'); R(-2, -3, 4, 2, '#edd28a'); R(-2, -2, 4, 1, '#c0392b'); }
   else if (hat === 'ph_party') { R(-2, -1, 4, 1, '#5cc8ff'); R(-1.5, -2, 3, 1, '#ff5ce1'); R(-1, -3, 2, 1, '#5cc8ff'); R(-0.5, -4, 1, 1, '#ffd84d'); }
+  else if (hat === 'ph_santa') { R(-3, -1, 6, 1, '#ffffff'); R(-2, -2, 4, 1, '#d6342c'); R(-1.5, -3, 3, 1, '#d6342c'); R(-0.5, -4, 2, 1, '#d6342c'); R(1.5, -4, 1, 1, '#ffffff'); } // 크리스마스 한정 (2026-11-21)
   else if (hat === 'ph_crown') { R(-3, -2, 6, 2, '#ffd84d'); R(-3, -3, 1, 1, '#ffd84d'); R(-0.5, -3, 1, 1, '#ffd84d'); R(2, -3, 1, 1, '#ffd84d'); R(-0.5, -1.5, 1, 1, '#e74c3c'); R(-3, -0.5, 6, 0.5, '#c9952a'); }
 }
 export function drawPet(ctx: CanvasRenderingContext2D, id: string, x: number, y: number, tile: number, now: number, moving: boolean, moveT: number, hopAt: number, dir: Dir, scale = 1, ride = false, shades = false, look?: PetLook | null): void {
@@ -837,6 +861,7 @@ export function labelFlow(ctx: CanvasRenderingContext2D, color: string, x0: numb
 export function titleStyle(id: string | null | undefined): { text: string; color: string; bg: string; border?: string } | null {
   const it = id ? TITLES.find((t) => t.id === id) : undefined;
   if (!it) return null;
+  if (it.id === 'tt-xmas') return { text: it.name, color: '#fff6e0', bg: 'rgba(150, 24, 32, 0.88)', border: '#4cbf6a' }; // 크리스마스 한정 (2026-11-21): 값과 상관없이 빨강·초록
   if (it.price >= 1000000) return { text: it.name, color: 'rainbow', bg: 'rgba(20, 6, 30, 0.85)', border: '#ffd84d' };
   if (it.price >= 300000) return { text: it.name, color: '#ffd84d', bg: 'rgba(60, 20, 90, 0.85)', border: '#d9a8ff' };
   if (it.price >= 150000) return { text: it.name, color: '#ffe9a8', bg: 'rgba(90, 60, 0, 0.8)', border: '#ffd84d' };
@@ -904,7 +929,7 @@ export function spawnFx(uid: string, kind: string, fx: number, fy: number, now: 
     parts.push({
       x: fx + (Math.random() - 0.5) * 10, y: fy - Math.random() * 3,
       vx: Math.cos(a) * sp, vy: kind === 'dust' ? -0.008 : -0.03 - Math.random() * 0.02,
-      born: now, life: kind === 'rainbowtrail' || kind === 'petal' ? 700 : kind === 'heart' || kind === 'stardust' ? 650 : 450,
+      born: now, life: kind === 'rainbowtrail' || kind === 'petal' || kind === 'snowfx' ? 700 : kind === 'heart' || kind === 'stardust' ? 650 : 450,
       kind, hue: (now / 4 + i * 40) % 360, size: 1.5 + Math.random() * 1.5,
     });
   }
@@ -926,6 +951,14 @@ export function drawFx(ctx: CanvasRenderingContext2D, now: number): void {
       // 비싼 이펙트 (2026-11-18): 꽃잎은 살랑살랑 내려앉고, 별가루는 금빛 별이 반짝인다
       case 'petal': { ctx.fillStyle = p.hue % 2 < 1 ? '#ffb7d5' : '#ff8fc0'; const sway = Math.sin((now - p.born) / 120 + p.hue) * 2; ctx.beginPath(); ctx.ellipse(x + sway, y + t * 6, p.size * 1.2, p.size * 0.7, p.hue, 0, Math.PI * 2); ctx.fill(); break; }
       case 'stardust': { ctx.fillStyle = t < 0.5 ? '#fff6c2' : '#ffd84d'; const r = p.size * (1.6 - t); ctx.beginPath(); for (let k = 0; k < 10; k++) { const a = (Math.PI / 5) * k - Math.PI / 2, rr = k % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); break; }
+      // 눈송이 (2026-11-21 크리스마스 한정): 작은 십자 눈송이가 살랑살랑 내려앉는다. 눈 바닥에서도 보이게 옅은 그림자를 깐다
+      case 'snowfx': {
+        const sway = Math.sin((now - p.born) / 140 + p.hue) * 2.5, px = Math.round(x + sway), py = Math.round(y + t * 7), big = p.size > 2.2;
+        ctx.fillStyle = 'rgba(70, 100, 140, 0.4)'; ctx.fillRect(px - (big ? 2 : 1), py, big ? 5 : 3, 1); ctx.fillRect(px, py - (big ? 2 : 1) + 1, 1, big ? 5 : 3);
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(px - (big ? 2 : 1), py - 1, big ? 5 : 3, 1); ctx.fillRect(px, py - (big ? 3 : 2), 1, big ? 5 : 3);
+        if (big) { ctx.fillStyle = '#dff1ff'; ctx.fillRect(px - 1, py - 2, 1, 1); ctx.fillRect(px + 1, py - 2, 1, 1); ctx.fillRect(px - 1, py, 1, 1); ctx.fillRect(px + 1, py, 1, 1); }
+        break;
+      }
       default: ctx.fillStyle = `hsl(${p.hue}, 95%, 65%)`; ctx.beginPath(); ctx.arc(x, y, p.size, 0, Math.PI * 2); ctx.fill(); break;
     }
   }
