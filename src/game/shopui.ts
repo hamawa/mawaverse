@@ -523,7 +523,7 @@ export function openShop(h: ShopHost): void {
     box.append(el('h4', { style: 'margin:10px 0 0', text: '👊 밀치기' }));
     for (const it of PUSH_GOODS) box.append(gearRow(it, '밀치기 쿨타임이 줄었습니다.', it.id === 'push2' && !h.wallet.owns('push1') ? '날쌘 손을 먼저 사야 합니다' : undefined));
     box.append(el('h4', { style: 'margin:10px 0 0', text: '🏅 고급 장비' }));
-    const after: Record<string, string> = { wave: '이제 밀치기(0)가 앞 4×4칸의 모두를 두 칸 밀어냅니다.', tossbag: '앞 4×4칸 모두에게 던집니다.', pusharmor: '바로 입었습니다. 밀치기가 안 먹힙니다.', tossarmor: '바로 입었습니다. 말랑이가 안 먹힙니다.', hook: '이제 끌기(R)로 앞 4×4칸 안의 한 명을 끌어옵니다.' };
+    const after: Record<string, string> = { wave: '이제 밀치기(0)가 앞 4×4칸의 모두를 두 칸 밀어냅니다.', tossbag: '앞 4×4칸 모두에게 던집니다.', pusharmor: '바로 입었습니다. 밀치기가 안 먹힙니다.', tossarmor: '바로 입었습니다. 말랑이가 안 먹힙니다.', hook: '이제 끌기(R)로 앞 4×4칸 안의 한 명을 끌어옵니다.', mawaphone: 'Y 키(폰은 📺 버튼)로 어디서나 클럽 방송을 켜고 끕니다.' };
     for (const it of GEAR_GOODS) box.append(gearRow(it, after[it.id] || ''));
     return box;
   };

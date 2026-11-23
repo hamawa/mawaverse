@@ -1,7 +1,7 @@
 import { ref, get, onValue, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { DEFAULT_CONTEST, CONTEST_MULT, CONTEST_PRIZES, CONTEST_JOIN_MIN, CONTEST_JOIN_PRIZE, CONTEST_PRIZE_FROM, contestActive, contestWindow, prevContestWindow, contestPrize, contestRows, contestMedal, fmtContestWhen, fmtLeft, type ContestCfg, type ContestWindow, type ContestEntry, type ContestResult, type Champion } from '../shared/contest';
+import { DEFAULT_CONTEST, CONTEST_MULT, CONTEST_PRIZES, CONTEST_JOIN_MIN, CONTEST_JOIN_PRIZE, CONTEST_PRIZE_FROM, CONTEST_RANK_POLL_MS, contestActive, contestWindow, prevContestWindow, contestPrize, contestRows, contestOrder, contestMedal, fmtContestWhen, fmtLeft, type ContestRow, type ContestCfg, type ContestWindow, type ContestEntry, type ContestResult, type Champion } from '../shared/contest';
 import type { WorldCtx } from './state';
 
 // 낚시 대회 진행: 시작/종료 알림, 종료 시 결과 확정(먼저 본 클라이언트가 한 번만 씀), 챔피언(🏆) 구독
@@ -17,6 +17,14 @@ export class ContestMgr {
   private medalKey = '';            // medalUids 를 읽어 온 대회
   private medalUids: string[] = []; // 그 대회의 1~3등
   private claiming = new Set<string>(); // 이번 접속에서 상금을 받으려 해 본 대회
+  // 대회 중 순위 (점수판 game/contestui.ts, 2026-11-24): 판이 떠 있는 동안에만(watch) CONTEST_RANK_POLL_MS 마다 읽는다
+  rank: ContestRow[] = [];
+  rankLoaded = false;
+  private rankKey = '';
+  private rankAt = -1e9;
+  private rankBusy = false;
+  private watching = false;
+  private listeners = new Set<() => void>();
 
   constructor(private w: WorldCtx) {}
 
@@ -24,6 +32,32 @@ export class ContestMgr {
   active(): ContestWindow | null { return contestActive(this.cfg(), serverNow()); }
   next(): ContestWindow | null { return contestWindow(this.cfg(), serverNow()); }
   multiplier(): number { return this.active() ? CONTEST_MULT : 1; }
+  listen(f: () => void): () => void { this.listeners.add(f); return () => { this.listeners.delete(f); }; }
+  // 점수판이 떴다/사라졌다. 뜰 때는 읽은 지 5초가 넘었으면 바로 다시 읽는다
+  watch(on: boolean): void { this.watching = on; if (on) this.pollRank(5000); }
+  private pollRank(gap = CONTEST_RANK_POLL_MS): void {
+    const a = this.active();
+    if (!a || this.rankBusy) return;
+    if (a.key !== this.rankKey) { this.rankKey = a.key; this.rank = []; this.rankLoaded = false; this.rankAt = -1e9; }
+    const now = performance.now();
+    if (now - this.rankAt < gap) return;
+    this.rankBusy = true; this.rankAt = now;
+    get(ref(db, `fish/contest/${a.key}`)).then((s) => {
+      if (this.rankKey !== a.key) return;
+      this.rank = contestRows(s.val() as Record<string, unknown> | null); this.rankLoaded = true;
+      for (const f of this.listeners) f();
+    }).catch(() => {}).finally(() => { this.rankBusy = false; });
+  }
+  // 방금 내가 대회 중에 낚았다: 다음에 읽어 올 때까지 내 줄만 먼저 올려 둔다 (판을 보고 있을 때 내 점수가 바로 오르게)
+  noteCatch(pts: number): void {
+    if (!this.rankLoaded || this.rankKey !== this.active()?.key) return;
+    const uid = this.w.uid;
+    let r = this.rank.find((x) => x.u === uid);
+    if (!r) { r = { u: uid, n: this.w.profile.nick, p: 0, c: 0, at: serverNow() }; this.rank.push(r); }
+    r.p += pts; r.c += 1;
+    this.rank.sort(contestOrder);
+    for (const f of this.listeners) f();
+  }
   // 이름표 앞의 메달: 지난 대회 1~3등은 다음 대회까지 🏆 · 🥈 · 🥉. 결과를 아직 못 읽었으면 1등만
   medal(uid: string): string { return contestMedal(uid, this.champion?.u, this.medalKey && this.medalKey === this.champion?.key ? this.medalUids : null); }
   // 2·3등은 그 대회의 결과에서 읽는다 (대회마다 한 번, 150B 쯤). 챔피언 칸에 같이 적지 않는 것은 옛 화면이 결과를 확정하면 빠지기 때문이다
@@ -62,6 +96,7 @@ export class ContestMgr {
       if (prev) void this.finalize(prev, true);
     }
     this.wasActive = !!a;
+    if (this.watching) this.pollRank();
   }
 
   private notice(text: string): void {

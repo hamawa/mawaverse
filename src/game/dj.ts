@@ -13,11 +13,15 @@
 // - 규칙이 못 지키는 것 (화면을 믿는다): 영상 길이를 모르므로 남의 곡도 10초가 지나면 넘길 수 있고, 예약의 순서(맨 앞인가)도 보지 않는다. 코인이 걸린 것이 아니라 감수했다.
 // - 취소: 예약은 건 사람만(관리자는 아무거나), 지금 곡 넘기기도 선곡한 사람만(관리자는 아무거나). 3시간 넘은 예약은 누구든 지운다 (다음 날 클럽에 들어온 사람에게 어제 예약이 나오지 않게).
 // - 제목: 예약할 때 유튜브 oEmbed(공개 주소, 열쇠 없음)에서 읽어 예약에 적는다. 재생이 막혔거나 없는 영상은 여기서 걸러진다. 못 읽으면 제목 없이 예약한다.
+//
+// 마와폰 (2026-11-24, 사용자 요청): 이 품목을 가진 사람은 어느 맵에서나 같은 방송을 보고(world 가 구독을 켠다), 어디서나 예약하고, 다음 곡으로 넘길 수 있다 (규칙이 보유를 본다).
+// 그래서 클럽에 아무도 없어도 마와폰으로 보는 사람이 있으면 노래가 이어진다
 import { ref, onValue, update, remove, push, serverTimestamp } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { CLUB_DJ_SPOTS } from './map';
 import { youtubeId, sameSong, djOrder, djSlotKey, djCleanTitle, DJ_Q_TTL_MS, DJ_SKIP_MIN_MS, DJ_Q_MAX, type DjEntry } from '../shared/youtube';
+import { MAWAPHONE_ID } from '../shared/shop';
 import type { WorldCtx } from './state';
 
 export interface DjState { v: string; at: number; u: string; n: string; k?: string; t?: string }
@@ -41,6 +45,7 @@ async function lookup(id: string): Promise<{ title: string } | 'blocked' | 'miss
 export class DjMgr {
   state: DjState | null = null;
   queue: DjEntry[] = [];                 // 나올 순서대로 (낡은 예약은 빠져 있다)
+  loaded = false;                        // 구독한 뒤 첫 값을 받았나 (받기 전에는 "나오는 노래가 없다"고 말할 수 없다)
   private raw: Record<string, RawEntry> = {};
   private unsub: (() => void) | null = null;
   private listeners = new Set<() => void>();
@@ -58,10 +63,11 @@ export class DjMgr {
         const c = (s.val() || {}) as { dj?: DjState | null; q?: Record<string, RawEntry> | null };
         this.state = c.dj && typeof c.dj.v === 'string' && typeof c.dj.at === 'number' ? c.dj : null;
         this.raw = c.q || {};
+        this.loaded = true;
         this.changed();
       }, () => {});
     } else {
-      this.unsub?.(); this.unsub = null; this.state = null; this.raw = {}; this.queue = [];
+      this.unsub?.(); this.unsub = null; this.state = null; this.raw = {}; this.queue = []; this.loaded = false;
       clearTimeout(this.kickTimer); clearTimeout(this.cleanTimer); this.kickTimer = this.cleanTimer = 0; this.tries.clear();
       this.emit();
     }
@@ -78,6 +84,8 @@ export class DjMgr {
 
   // 내가 DJ 기계 옆에 서 있나 (걷는 중이 아닐 때)
   atBooth(): boolean { const me = this.w.me; return !me.moving && CLUB_DJ_SPOTS.some((p) => p.x === me.x && p.y === me.y); }
+  // 지금 여기서 예약할 수 있나: 마와폰이 있으면 어디서나, 없으면 클럽의 DJ 기계 옆에서
+  canReserve(): boolean { return this.w.wallet.owns(MAWAPHONE_ID) || this.atBooth(); }
   // 내가 걸어 둔 예약
   mine(): DjEntry[] { return this.queue.filter((e) => e.u === this.w.uid); }
   // 이 곡을 내가 넘길 수 있나 (선곡한 사람·관리자)
@@ -88,7 +96,7 @@ export class DjMgr {
   async reserve(text: string, prio: boolean): Promise<DjResult> {
     const id = youtubeId(text);
     if (!id) return 'bad';
-    if (!this.atBooth()) return 'spot';
+    if (!this.canReserve()) return 'spot';
     const w = this.w, now = serverNow();
     // 내 낡은 예약이 자리를 차지하고 있으면 먼저 지운다 (규칙이 있는 열쇠에 덮어쓰기를 받지 않는다)
     const old = Object.keys(this.raw).filter((k) => this.raw[k]?.u === w.uid && now - this.raw[k].at >= DJ_Q_TTL_MS);
@@ -99,7 +107,7 @@ export class DjMgr {
     if (prio && this.mine().some((e) => e.p)) return 'prio';
     const info = await lookup(id);
     if (info === 'blocked' || info === 'missing') return info;
-    if (!this.atBooth()) return 'spot';
+    if (!this.canReserve()) return 'spot';
     const title = info ? info.title : '';
     const logKey = push(ref(db, 'logs/chat')).key!;
     try {

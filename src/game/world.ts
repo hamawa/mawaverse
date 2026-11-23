@@ -49,6 +49,7 @@ import { openHome, openFurniturePicker, openFurnitureEdit, openGuestbook } from 
 import { StockMgr } from './stock';
 import { DjMgr } from './dj';
 import { DjPanel } from './djui';
+import { ContestBoard } from './contestui';
 import { DJ_MY_MAX, DJ_Q_MAX, DJ_DEAD_CODES } from '../shared/youtube';
 import { openStock } from './stockui';
 import { TreeMgr } from './trees';
@@ -59,7 +60,7 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { batResultText, BAT_CHECK_MS, type BatKind, PET_NAME_FEE, PET_NAME_MAX, cleanPetName, rodTierOf, ROD_GOODS, fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, PET_IDS, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
+import { MAWAPHONE_ID, batResultText, BAT_CHECK_MS, type BatKind, PET_NAME_FEE, PET_NAME_MAX, cleanPetName, rodTierOf, ROD_GOODS, fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, PET_IDS, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
 import { SnowfightState, snowGateAt, snowfightAction, SNOW_PACK_HINT, SNOW_THROW_HINT, type SnowGate } from './snowfight';
 import { TASK_FOOTPRINT, FOG_RADIUS } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
@@ -173,6 +174,11 @@ export class World implements WorldCtx {
   winter = new WinterPlay(this.map); // 겨울 맵의 빙판 관성·눈덩이 (눈덩이는 이 브라우저에만 있는 장난감. 맵에 들어올 때마다 새로: resetWinter)
   private lastCoinTick = 0;
   private lastMafiaHud = 0;
+  private lastUiSync = 0;
+  private board: ContestBoard | null = null; // 낚시 대회 점수판 (TAB · 🏁 버튼)
+  // 유튜브 화면을 꺼 두었나 (Y 키 · 📺 버튼 · 창의 닫기. 이 브라우저에 기억한다). 켜 두면 클럽에서, 마와폰이 있으면 어디서나 노래가 나올 때 창이 뜬다
+  private tvOff = ((): boolean => { try { return localStorage.getItem('mv-tv-off') === '1'; } catch { return false; } })();
+  private tvAsk = false; // 방금 켰다: 나오는 노래가 없으면 한 번 알려 준다 (구독한 뒤 첫 값을 받아야 알 수 있다)
   private rouletteUnsub: (() => void) | null = null;
   private lastCoinText = '';
   hud!: Hud;
@@ -273,11 +279,17 @@ export class World implements WorldCtx {
       openShop: () => this.openShop(),
       toss: () => this.throwToss(),
       sound: () => this.toggleSound(),
+      tv: () => this.toggleTv(),
+      boardHold: (on) => this.board?.hold(on),
+      boardPin: () => this.board?.pin(),
       soundOn: soundOn(),
       input: this.input,
       myUid: this.uid,
     });
     this.wireEvents(canvas);
+    this.board = new ContestBoard({ contest: this.contest, uid: this.uid, mobile: this.hud.mobile, toast: (t, bad) => this.toast(t, bad) });
+    this.wallet.listen(() => this.syncTv()); // 마와폰을 샀다
+    this.mafia.listen(() => this.syncTv());  // 마피아 게임이 시작됐다 (참가 중에는 못 본다)
     this.wallet.listen(() => this.hud.setCoins(this.coinText()));
     this.wallet.listen(() => this.petRide.sync());
     // 낚싯대 강화 성이 바뀌면 presence 에 싣는다 (남들이 프로필에서 본다. 2026-11-20)
@@ -302,11 +314,12 @@ export class World implements WorldCtx {
     this.bugs.start();
     this.dig.start();
     this.stock.start();
-    const djPanel = this.djPanel = new DjPanel({ isAdmin: this.isAdmin, myUid: this.uid, onError: (msg, mine, code) => { if (mine) this.toast(`🎧 ${msg}`, true); if (DJ_DEAD_CODES.includes(code) && this.dj.state) this.dj.ended(this.dj.state, 6000); }, // 재생이 막혔거나 없는 영상: 안내를 읽을 시간을 두고 다음 곡으로
+    this.djPanel = new DjPanel({ isAdmin: this.isAdmin, myUid: this.uid, onError: (msg, mine, code) => { if (mine) this.toast(`🎧 ${msg}`, true); if (DJ_DEAD_CODES.includes(code) && this.dj.state) this.dj.ended(this.dj.state, 6000); }, // 재생이 막혔거나 없는 영상: 안내를 읽을 시간을 두고 다음 곡으로
       // 영상이 끝났다: 다음 예약으로 넘긴다. 클럽에 있는 아무 화면이나 할 수 있다 (2026-11-20 밤. 전에는 끌 수 있는 사람의 화면이 지우기만 했다)
-      onEnded: (song) => this.dj.ended(song) });
-    this.dj.listen(() => djPanel.set(this.dj.state));
-    djPanel.set(this.dj.state); // 클럽에서 시작했으면 구독이 먼저 걸려 있다: 이미 받은 상태를 한 번 그린다
+      onEnded: (song) => this.dj.ended(song),
+      onClose: () => this.closeTv(), onReserve: () => { this.input.releaseAll(); this.openDj(); }, canReserve: () => this.dj.canReserve() });
+    this.dj.listen(() => this.syncTv());
+    this.syncTv(); // 클럽에서 시작했으면 구독이 먼저 걸려 있다: 이미 받은 상태를 한 번 그린다
     this.casino.start();
     this.duel.start();
     void this.poker.recover(); // 지난번에 정산하지 못한 포커 판이 있으면 마무리한다
@@ -385,6 +398,8 @@ export class World implements WorldCtx {
       if (a === 'escape') { closeMenu(); this.hud.blurChat(); return; }
       if (a === 'interact') { this.interact(); return; }
       if (a === 'toss') { this.throwToss(); return; }
+      if (a === 'tv') { this.toggleTv(); return; }
+      if (typeof a === 'object' && 'board' in a) { this.board?.hold(a.board); return; }
       if (a === 'help') { toggleKeyGuide(); return; }
       if (typeof a === 'object' && 'chatPrefix' in a) { this.hud.focusChat(a.chatPrefix); return; }
       if (typeof a === 'object' && 'emote' in a) this.doEmote(a.emote);
@@ -467,6 +482,7 @@ export class World implements WorldCtx {
     this.mafia.tick(now);
     if (this.winter.active && now - this.lastSnowSync > 5000) { this.lastSnowSync = now; this.syncSnowmen(); }
     if (now - this.lastMafiaHud > 250) { this.lastMafiaHud = now; this.mafiaHud.update(); }
+    if (now - this.lastUiSync > 1000) { this.lastUiSync = now; this.board?.tick(); this.hud.setScoreBtn(!!this.contest.active()); } // 🏁 버튼은 대회 중에만 보인다
     if (now - this.lastCoinTick > 1000) { this.lastCoinTick = now; const t = this.coinText(); if (t !== this.lastCoinText) { this.lastCoinText = t; this.hud.setCoins(t); } }
     for (const rp of this.players.values()) {
       if (rp.moveStart) {
@@ -854,7 +870,7 @@ export class World implements WorldCtx {
 
   // ---------- 포탈 (맵 이동) ----------
   private setMap(map: MapData): void {
-    this.dj.setActive(this.mapId === CLUB_MAP_ID); // 클럽에 있는 동안에만 DJ 상태를 구독한다
+    this.syncTv(); // 클럽 안이거나 마와폰으로 유튜브 화면을 켜 둔 동안에만 DJ 상태를 구독한다
     this.map = map;
     if (!isHomeMapId(this.mapId)) faceChairs(map); // 탁자 옆 의자는 탁자를 본다 (집 안은 주인이 정한 방향 그대로)
     if (isHomeMapId(this.mapId)) this.homePets.setMap(map); else this.homePets.clear();
@@ -1607,6 +1623,33 @@ export class World implements WorldCtx {
   }
   // 클럽 노래 예약 (2026-11-20 밤, 사용자 요청: 노래방처럼. 전에는 DJ 자리에서 한 곡씩 덮어썼다): DJ 기계 옆에서 F → 지금 곡과 예약 목록을 보고, 링크로 예약·우선 예약, 내 예약 취소.
   // 목록은 열어 둔 동안 저절로 바뀐다 (dj.listen). 예약·취소·넘기기의 판정은 game/dj.ts 와 규칙이 한다
+  // ---- 유튜브 화면 켜고 끄기 (2026-11-24, 사용자 요청): Y 키 · 폰의 📺 버튼 · 창의 닫기 단추 ----
+  // 클럽 안에서는 누구나, 밖에서는 마와폰을 가진 사람만 본다. 켜 둔 동안에는 노래가 나오면 창이 뜨고, 끄면 다시 켤 때까지 뜨지 않는다
+  private tvUsable(): boolean { return this.mapId === CLUB_MAP_ID || this.wallet.owns(MAWAPHONE_ID); }
+  private tvBlocked(): boolean { return this.mafia.active && this.mafia.isParticipant(this.uid); } // 마피아 게임에 낀 동안에는 못 본다 (같이 보는 화면이 딴짓과 단서가 된다)
+  private syncTv(): void {
+    const usable = this.tvUsable(), want = !this.tvOff && usable && !this.tvBlocked();
+    this.dj.setActive(this.mapId === CLUB_MAP_ID || want); // 클럽 안에서는 창을 꺼 두어도 구독한다 (DJ 기계의 예약 창, 다음 곡 넘기기)
+    this.djPanel?.set(want ? this.dj.state : null);
+    this.hud?.setTvBtn(usable);
+    if (this.tvAsk && this.dj.loaded) {
+      this.tvAsk = false;
+      if (want && !this.dj.state) { this.toast('📺 지금 나오는 노래가 없어요.'); if (this.dj.canReserve()) { this.input.releaseAll(); this.openDj(); } }
+    }
+  }
+  private setTvOff(off: boolean): void {
+    this.tvOff = off;
+    try { localStorage.setItem('mv-tv-off', off ? '1' : '0'); } catch { /* ignore */ }
+    this.syncTv();
+  }
+  private closeTv(): void { this.setTvOff(true); this.toast(`📺 유튜브 화면을 껐어요. ${this.hud.mobile ? '📺 버튼으로' : 'Y 키로'} 다시 켤 수 있어요.`); }
+  toggleTv(): void {
+    if (!this.tvUsable()) { this.toast('📱 마와폰이 있으면 어디서나 클럽 방송(유튜브)을 볼 수 있어요. 상점의 장비 탭에 있어요.', true); return; }
+    if (this.tvBlocked()) { this.toast('🕵 마피아 게임 중에는 유튜브 화면을 켤 수 없어요.', true); return; }
+    if (this.djPanel?.shown) { this.closeTv(); return; }
+    this.tvAsk = true;
+    this.setTvOff(false);
+  }
   private openDj(): void {
     const dj = this.dj;
     const nowEl = el('div', { class: 'dj-now' }), listEl = el('div', { class: 'dj-list' }), subEl = el('div', { class: 'dj-sub', text: '예약 목록' });
@@ -1615,12 +1658,12 @@ export class World implements WorldCtx {
     const body = el('div', { class: 'dj-book' }, [
       nowEl,
       subEl, listEl,
-      el('div', { class: 'field' }, [el('label', { text: '유튜브 링크를 붙여 넣으세요. 클럽에 있는 모두에게 같은 지점부터 나옵니다.' }), input]),
+      el('div', { class: 'field' }, [el('label', { text: '유튜브 링크를 붙여 넣으세요. 클럽 방송을 보는 모두에게 같은 지점부터 나옵니다.' }), input]),
       el('div', { class: 'row', style: 'gap:6px;justify-content:flex-end' }, [prioBtn, addBtn]),
       el('div', { class: 'muted', style: 'font-size:12px;line-height:1.5;margin-top:8px', text: `한 사람이 ${DJ_MY_MAX}곡까지, 모두 합쳐 ${DJ_Q_MAX}곡까지 예약할 수 있어요. 우선 예약은 다른 예약보다 먼저 나오고 한 번에 한 곡만 걸 수 있어요. 다른 사이트에서 재생이 막힌 영상은 예약되지 않아요. 누가 무엇을 예약했는지는 관리자가 볼 수 있습니다.` }),
     ]);
     const FAIL: Record<string, string> = {
-      bad: '유튜브 링크가 아니에요. 영상 주소를 붙여 넣어 주세요.', spot: 'DJ 기계 옆에 서 있어야 예약할 수 있어요.',
+      bad: '유튜브 링크가 아니에요. 영상 주소를 붙여 넣어 주세요.', spot: 'DJ 기계 옆에 서 있어야 예약할 수 있어요. (마와폰이 있으면 어디서나 돼요)',
       full: `한 사람이 ${DJ_MY_MAX}곡까지 예약할 수 있어요. 내 예약이 나오거나 취소하면 다시 걸 수 있어요.`, prio: '우선 예약은 한 번에 한 곡만 걸 수 있어요.',
       qfull: `예약이 ${DJ_Q_MAX}곡으로 꽉 찼어요. 한 곡이 나오면 다시 걸 수 있어요.`,
       blocked: '다른 사이트에서 재생이 막힌 영상이에요. 다른 영상을 골라 주세요.', missing: '없는 영상이거나 비공개예요.', fail: '예약하지 못했습니다. 잠시 뒤에 다시 해 보세요.',
@@ -1776,7 +1819,7 @@ export class World implements WorldCtx {
     this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
     this.engine.stop();
-    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.campfire?.stop(); this.snowmen?.stop(); this.wallet.stop(); this.stock.stop(); this.dj.stop(); this.djPanel?.close(); this.contest.stop(); this.weekTop.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
+    this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.campfire?.stop(); this.snowmen?.stop(); this.wallet.stop(); this.stock.stop(); this.dj.stop(); this.djPanel?.close(); this.board?.dispose(); this.contest.stop(); this.weekTop.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});
     await this.net.leave(replaced);
     document.body.classList.remove('mobile');

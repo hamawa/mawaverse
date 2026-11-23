@@ -124,6 +124,8 @@ export function openKeyGuide(): void {
         <b>낚시</b><span>찌가 흔들리면(!) 바로 F. 이동하면 취소</span>
         <b>채집</b><span>풀밭·꽃밭의 벌레가 옆 8칸(대각선 포함)에 있으면 F. 지나가면서도 되고 연타 가능. 달려가면 날아감</span>
         <b>T</b><span>말랑이 던지기: 앞 3칸 안의 사람에게(말랑이 보따리가 있으면 앞 4×4칸 모두). 맞으면 1초 비틀, 0.4초 안에 옆으로 피하면 빗나감. 푹신 갑옷은 안 맞음</span>
+        <b>Y</b><span>유튜브 화면 켜기 · 끄기. 클럽 안에서, 마와폰이 있으면 어디서나 (모바일은 📺 버튼)</span>
+        <b>Tab</b><span>낚시 대회 점수판. 누르는 동안 보이고, 판의 📌 로 고정하면 누를 때마다 켜고 끈다 (모바일은 🏁 버튼)</span>
         <b>우클릭</b><span>메뉴 (모바일은 캐릭터를 톡 치기)</span>
         <b>💤</b><span>이름 옆에 뜨면 창을 다른 데 두고 자리를 비운 사람. 밀치기·말랑이는 그대로 통한다</span>
         <b>Alt+2</b><span>귓속말 열기</span>
@@ -323,6 +325,9 @@ export interface HudHandlers {
   interact: () => void;
   openShop: () => void;
   toss: () => void;
+  tv: () => void;                     // 유튜브 화면 켜고 끄기 (폰의 📺 버튼. PC 는 Y 키)
+  boardHold: (on: boolean) => void;   // 낚시 대회 점수판: 🏁 버튼을 눌렀다/뗐다
+  boardPin: () => void;               // 🏁 버튼을 누른 채 아래로 내렸다 뗐다: 점수판 고정
   sound: () => boolean; // 소리 버튼: 켜고 끈 뒤 지금 켜져 있는지 돌려준다 (2026-11-18)
   soundOn: boolean;     // 처음 그릴 때의 상태
   input: Input;
@@ -344,6 +349,10 @@ export class Hud {
   hintPill: HTMLElement;
   private soundBtn!: HTMLButtonElement;
   readonly mobile = isMobile();
+  private tvBtn: HTMLElement | null = null;    // 폰의 📺 버튼 (쓸 수 있을 때만 보인다: 클럽 안이거나 마와폰 보유)
+  private scoreBtn: HTMLElement | null = null; // 폰의 🏁 버튼 (낚시 대회 중에만 보인다)
+  setTvBtn(on: boolean): void { if (this.tvBtn) this.tvBtn.style.display = on ? '' : 'none'; }
+  setScoreBtn(on: boolean): void { if (this.scoreBtn) this.scoreBtn.style.display = on ? '' : 'none'; }
 
   constructor(parent: HTMLElement, private h: HudHandlers) {
     this.root = el('div', { id: 'hud' });
@@ -498,7 +507,24 @@ export class Hud {
     const runOff = (e: Event) => { e.preventDefault(); h.input.setRun(false); rB.classList.remove('on'); };
     rB.addEventListener('pointerdown', runOn);
     for (const t of ['pointerup', 'pointercancel', 'pointerleave']) rB.addEventListener(t, runOff);
-    btns.append(tB, pullB, pushB, fB, rB);
+    // 📺 유튜브 화면 · 🏁 대회 점수판 (2026-11-24, 사용자 요청): 말랑이 위에 📺, 그 위에 🏁. 쓸 수 있을 때만 보인다 (world 가 켠다)
+    const tvB = act('📺', '유튜브 화면 켜기 · 끄기', () => h.tv());
+    tvB.classList.add('tv'); tvB.style.display = 'none';
+    // 🏁 는 누르고 있는 동안 점수판이 보이고, 누른 채 아래로 내렸다 떼면 고정된다
+    const scB = el('button', { class: 'score', text: '🏁', title: '낚시 대회 점수판 (누르는 동안 보기 · 아래로 내렸다 떼면 고정)' });
+    scB.style.display = 'none';
+    let scId: number | null = null, scY = 0, scPin = false;
+    scB.addEventListener('pointerdown', (e) => {
+      if (!e.isTrusted || scId !== null) return;
+      e.preventDefault(); scId = e.pointerId; scY = e.clientY; scPin = false;
+      try { scB.setPointerCapture(e.pointerId); } catch { /* 합성 이벤트 등 */ }
+      h.boardHold(true);
+    });
+    scB.addEventListener('pointermove', (e) => { if (e.pointerId !== scId) return; const pin = e.clientY - scY > 36; if (pin !== scPin) { scPin = pin; scB.classList.toggle('pin', pin); } });
+    const scEnd = (e: PointerEvent) => { if (e.pointerId !== scId) return; scId = null; scB.classList.remove('pin'); if (scPin && e.type === 'pointerup') h.boardPin(); h.boardHold(false); };
+    scB.addEventListener('pointerup', scEnd); scB.addEventListener('pointercancel', scEnd);
+    this.tvBtn = tvB; this.scoreBtn = scB;
+    btns.append(scB, tvB, tB, pullB, pushB, fB, rB);
     const eWrap = el('div', { id: 'mbtn-emote' });
     eWrap.append(eB);
     m.append(joy, btns, eWrap, drawer);

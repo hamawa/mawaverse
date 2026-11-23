@@ -1244,7 +1244,17 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await root.ref('club/q/OK_0/at').set(Date.now() - 3 * 3600000 - 1000);
   await expect('남의 예약 치우기: 3시간이 지남', 'allow', () => other.ref('club/q/OK_0').remove());
   await expect('DJ: 예약하면서 남기는 기록 (채팅 로그)', 'allow', () => ok.ref('logs/chat/djtest1').set({ u: 'OK', n: '디제이', c: 'dj', t: '🎧 예약 ' + ID, ts: SV }));
-  await root.ref().update({ club: null, players: null, 'logs/chat/djtest1': null, 'approved/OTHER': null });
+  // 마와폰 (2026-11-24): 가진 사람은 클럽 밖에서도 예약하고 다음 곡으로 넘긴다. 없는 사람은 전처럼 클럽의 DJ 기계 옆에서만
+  await root.ref().update({ club: null, 'players/OK': { ...presence }, 'players/OTHER': { ...presence }, 'users/OK/own/mawaphone': true });
+  await expect('마와폰: 광장에서 예약 (없는 사람)', 'deny', () => other.ref('club/q/OTHER_0').set(ent('OTHER')));
+  await expect('마와폰: 광장에서 예약 (가진 사람)', 'allow', () => ok.ref('club/q/OK_0').set(ent('OK')));
+  await expect('마와폰: 남의 열쇠에는 여전히 못 적는다', 'deny', () => ok.ref('club/q/OTHER_1').set(ent('OK')));
+  await expect('마와폰: 없는 사람이 광장에서 예약을 올리기', 'deny', () => other.ref().update(promote('OK_0', { v: ID, u: 'OK', n: '디제이' })));
+  await expect('마와폰: 가진 사람이 광장에서 예약을 올리기', 'allow', () => ok.ref().update(promote('OK_0', { v: ID, u: 'OK', n: '디제이' })));
+  await root.ref('club/dj/at').set(Date.now() - 20000);
+  await expect('마와폰: 없는 사람이 광장에서 끝난 곡 치우기', 'deny', () => other.ref('club/dj').remove());
+  await expect('마와폰: 가진 사람이 광장에서 끝난 곡 치우기', 'allow', () => ok.ref('club/dj').remove());
+  await root.ref().update({ club: null, players: null, 'logs/chat/djtest1': null, 'approved/OTHER': null, 'users/OK/own': null });
 }
 
 // ---------- 2026-11-20 묶음 (v43): 마피아 동료·사보타지·초대, 모닥불, 눈사람, 금고, 사진 액자, 펫 꾸미기 ----------

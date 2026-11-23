@@ -310,12 +310,20 @@ table tr.off td { opacity: 0.5; }
 #dj-panel { position: fixed; top: 58px; right: 12px; z-index: 25; width: min(356px, 92vw); background: rgba(10, 14, 22, 0.88); border: 1px solid var(--border); border-radius: 10px; padding: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
 #dj-panel .dj-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; cursor: move; touch-action: none; user-select: none; -webkit-user-select: none; }
 #dj-panel .dj-btns { display: flex; gap: 4px; flex: none; }
-#dj-panel .dj-btns .btn { flex: none; }
+#dj-panel .dj-btns .btn { flex: none; min-width: 26px; padding: 2px 6px; line-height: 1.3; }
 /* 크기 조절 손잡이 (2026-11-20): 오른쪽 아래 모서리. 눈에 보이게 빗금 세 줄 */
 #dj-panel .dj-grip { position: absolute; right: 0; bottom: 0; width: 22px; height: 22px; cursor: nwse-resize; touch-action: none; border-bottom-right-radius: 10px;
   background: linear-gradient(135deg, transparent 0 46%, rgba(255, 233, 168, 0.95) 46% 54%, transparent 54% 62%, rgba(255, 233, 168, 0.95) 62% 70%, transparent 70% 78%, rgba(255, 233, 168, 0.95) 78% 86%, transparent 86%); }
-#dj-panel.fold .dj-grip { display: none; }
-#dj-panel .dj-frame:fullscreen { width: 100vw; height: 100vh; border-radius: 0; }
+#dj-panel.min .dj-grip, #dj-panel.dock .dj-grip, #dj-panel.max .dj-grip { display: none; }
+/* 전체 화면 (2026-11-24): 창 전체가 화면을 채운다. 제목 줄이 그대로 남아 거기 단추로 돌아온다 (영상 위에 다른 것을 겹치지 않는다: 유튜브 약관). 창(40)보다는 뒤: 초대·내기 창이 뜨면 보여야 한다 */
+#dj-panel.max { top: 0; right: 0; bottom: 0; left: 0; width: auto; transform: none; z-index: 39; border: 0; border-radius: 0; padding: 6px 8px 8px; background: #05070b; display: flex; flex-direction: column; }
+#dj-panel.max .dj-head { cursor: default; font-size: 13px; }
+#dj-panel.max .dj-frame { flex: 1; min-height: 0; height: auto; border-radius: 0; }
+/* 폰에서 최소화 = 화면 위에 붙이기 (2026-11-24): 게임 화면(#app)이 창의 높이만큼 내려간다. 영상이 게임을 덮지 않는다. 높이는 djui.ts 가 --dj-dock 에 적는다 */
+#dj-panel.dock { top: 0; right: 0; left: 0; width: auto; transform: none; border-width: 0 0 1px; border-radius: 0; padding: 4px 8px 6px; background: #0a0e16; box-shadow: none; }
+#dj-panel.dock .dj-head { cursor: default; }
+#dj-panel.dock .dj-frame { margin: 4px auto 0; border-radius: 4px; }
+body.dj-dock #app, body.dj-dock #casino { top: var(--dj-dock, 0px); }
 #dj-panel .dj-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ffe9a8; }
 #dj-panel .dj-frame { width: 100%; height: 200px; margin-top: 6px; border-radius: 6px; overflow: hidden; background: #000; }
 #dj-panel .dj-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
@@ -327,8 +335,6 @@ table tr.off td { opacity: 0.5; }
 .dj-book .dj-sub { font-weight: bold; font-size: 13px; margin: 12px 0 2px; }
 .dj-book .dj-list { max-height: 34vh; overflow: auto; margin-bottom: 12px; }
 #dj-panel .dj-note { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
-#dj-panel.fold { width: auto; max-width: 92vw; }
-#dj-panel.fold .dj-frame { display: none; }
 /* 좁은 화면(폰): 위 가운데에, 약관이 허락하는 가장 작은 크기(플레이어 200×200)로. 이 너비면 오른쪽 버튼 열과 겹치지 않는다 */
 @media (max-width: 700px) {
   #dj-panel { right: 50%; transform: translateX(50%); width: 214px; }
@@ -504,3 +510,45 @@ body.mobile #mafia-meet .cards { grid-template-columns: repeat(2, 1fr); gap: 8px
 .mafia-lobby .mafia-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .mafia-lobby .chip { background: #0d1510; border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px; font-size: 12px; }
 .mafia-lobby .chip.host { border-color: var(--accent); }
+/* ---- 2026-11-24: 폰의 📺 · 🏁 버튼, 영상을 위에 붙였을 때의 배치, 낚시 대회 점수판 ---- */
+/* 🏁 버튼을 누른 채 아래로 내리면(고정) 빛깔이 바뀐다 */
+#mbtns button.score.pin { background: rgba(255, 216, 77, 0.75); }
+/* 세로가 짧은 폰: 버튼이 일곱 개까지 늘어나므로 조금 줄인다 (위쪽 버튼 줄과 겹치지 않게) */
+@media (max-height: 640px) {
+  body.mobile #mbtns { gap: 6px; }
+  body.mobile #mbtns button, body.mobile #mbtn-emote button { width: 46px; height: 46px; font-size: 16px; }
+  body.mobile #mbtn-emote { right: 68px; bottom: 228px; }
+}
+/* 영상을 위에 붙인 동안(폰): 게임 화면이 낮아지므로 채팅 기록과 버튼을 줄이고, 📺 · 🏁 는 말랑이 · 끌기의 왼쪽으로 뺀다.
+   기준은 아이폰 17 프로 (사파리에서 402×714 쯤: 영상 줄 257, 게임 화면 457). 숫자를 바꾸면 그 크기에서 위쪽 버튼 줄·조이스틱과 겹치는지 볼 것 */
+body.dj-dock #chat-log { height: 58px; }
+body.dj-dock #joy { bottom: 124px; }
+body.dj-dock #mbtns { bottom: 124px; gap: 8px; }
+body.dj-dock #mbtns button, body.dj-dock #mbtn-emote button { width: 46px; height: 46px; font-size: 16px; }
+body.dj-dock #mbtn-emote { right: 66px; bottom: 178px; }
+body.dj-dock #mbtns .tv { position: absolute; right: 54px; top: 0; }
+body.dj-dock #mbtns .score { position: absolute; right: 54px; top: 54px; }
+/* 낚시 대회 점수판: TAB · 🏁 버튼. 지도를 가리지 않게 비치는 판에 그림자 글자. 왼쪽 위의 내 소식 한 줄 아래에 둔다 */
+#contest-board { position: absolute; top: 84px; left: 12px; z-index: 24; width: min(330px, calc(100vw - 24px)); background: rgba(6, 12, 8, 0.5); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 10px; padding: 6px 8px; color: #fff; font-size: 13px; text-shadow: 0 1px 2px #000; }
+#contest-board .cb-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; user-select: none; -webkit-user-select: none; touch-action: none; }
+#contest-board.pinned .cb-head { cursor: move; }
+#contest-board .cb-title { color: #ffe9a8; font-weight: bold; white-space: nowrap; }
+#contest-board .cb-btns { display: flex; gap: 4px; flex: none; }
+#contest-board .cb-btns .btn { flex: none; min-width: 26px; padding: 2px 6px; line-height: 1.3; opacity: 0.7; }
+#contest-board .cb-btns .btn.on { opacity: 1; border-color: #ffd84d; }
+#contest-board .cb-body { margin-top: 4px; }
+#contest-board .cb-row { display: flex; align-items: baseline; gap: 6px; padding: 0 3px; line-height: 1.5; border-radius: 4px; }
+#contest-board .cb-row.me { background: rgba(255, 216, 77, 0.22); color: #ffe9a8; }
+#contest-board .cb-rank { width: 22px; text-align: center; flex: none; }
+#contest-board .cb-nick { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#contest-board .cb-pts { flex: none; font-variant-numeric: tabular-nums; }
+#contest-board .cb-cnt { flex: none; width: 62px; text-align: right; color: #cfe9dc; font-size: 12px; font-variant-numeric: tabular-nums; }
+#contest-board .cb-gap, #contest-board .cb-empty { text-align: center; color: #cfd8d2; font-size: 12px; line-height: 1.5; }
+#contest-board .cb-foot { margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.15); color: #cfd8d2; font-size: 11px; text-align: center; }
+body.mobile #contest-board { left: 8px; width: min(280px, calc(100vw - 86px)); font-size: 12px; }
+body.mobile #contest-board .cb-cnt { width: 54px; font-size: 11px; }
+/* 영상을 위에 붙인 동안: 게임 화면이 낮아서 판을 조금 올리고 줄인다 (내 소식 한 줄과 조이스틱 사이에 들어가게). 알림은 게임 화면 쪽으로 내린다 (영상 위에 뜨지 않게) */
+body.dj-dock #contest-board { top: 78px; }
+body.dj-dock #contest-board .cb-foot, body.dj-dock #contest-board .cb-gap { display: none; }
+body.dj-dock #toasts { top: calc(var(--dj-dock, 0px) + 48px); }
+body.dj-dock #big-banner { top: calc(var(--dj-dock, 0px) + 22%); }

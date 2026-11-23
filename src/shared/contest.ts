@@ -66,8 +66,10 @@ export function contestMedal(uid: string, championUid: string | null | undefined
 export function contestPrize(rank: number, count: number): number {
   return (rank >= 0 && rank < CONTEST_PRIZES.length ? CONTEST_PRIZES[rank] : 0) + (count >= CONTEST_JOIN_MIN ? CONTEST_JOIN_PRIZE : 0);
 }
+export const CONTEST_RANK_POLL_MS = 15000; // 점수판이 떠 있는 동안 순위를 다시 읽는 간격 (구독하면 누가 낚을 때마다 모두에게 간다)
 // 순위표: 점수가 큰 순, 같으면 많이 낚은 순, 그것도 같으면 먼저 닿은 순 (도감의 대회 탭과 같은 순서)
 export interface ContestRow { u: string; n: string; p: number; c: number; at: number }
+export const contestOrder = (a: ContestRow, b: ContestRow): number => (b.p - a.p) || (b.c - a.c) || (a.at - b.at);
 export function contestRows(v: Record<string, unknown> | null | undefined): ContestRow[] {
   const out: ContestRow[] = [];
   for (const [u, e] of Object.entries(v || {})) {
@@ -75,5 +77,5 @@ export function contestRows(v: Record<string, unknown> | null | undefined): Cont
     if (u === 'result' || !r || typeof r.p !== 'number') continue;
     out.push({ u, n: typeof r.n === 'string' ? r.n : '?', p: r.p, c: r.c || 0, at: r.at || 0 });
   }
-  return out.sort((a, b) => (b.p - a.p) || (b.c - a.c) || (a.at - b.at));
+  return out.sort(contestOrder);
 }

@@ -276,7 +276,10 @@ test('DJ 기계에 닿는 자리: 탁자의 사방 여섯 칸이고 걸어서 �
   // 규칙의 좌표: 예약 쓰기에서 자리 조건을 떼어 내 그대로 계산해 본다
   const rules = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules.club;
   const w = rules.q.$k['.write'];
-  const from = w.indexOf("root.child('players/' + auth.uid + '/m').val() == 'club'"), to = w.indexOf(') : (');
+  // 자리 조건은 "마와폰이 있거나 (클럽의 DJ 기계 옆)" 의 뒤쪽이다 (2026-11-24): 괄호 둘이 더 닫힌 뒤에 삭제 쪽 조건이 온다
+  assert.ok(w.includes("(root.child('users/' + auth.uid + '/own/mawaphone').val() === true || (root.child('players/' + auth.uid + '/m').val() == 'club' && "), '마와폰이 있으면 어디서나 예약');
+  assert.ok(rules.dj['.write'].includes("(root.child('players/' + auth.uid + '/m').val() == 'club' || root.child('users/' + auth.uid + '/own/mawaphone').val() === true) && "), '마와폰이 있으면 어디서나 다음 곡으로');
+  const from = w.indexOf("root.child('players/' + auth.uid + '/m').val() == 'club'"), to = w.indexOf('))) : (');
   assert.ok(from > 0 && to > from, '예약 쓰기의 자리 조건');
   const expr = w.slice(from, to).replaceAll("root.child('players/' + auth.uid + '/m').val()", 'm').replaceAll("root.child('players/' + auth.uid + '/x').val()", 'x').replaceAll("root.child('players/' + auth.uid + '/y').val()", 'y');
   const at = new Function('m', 'x', 'y', `return ${expr};`);
@@ -816,6 +819,60 @@ test('DJ 창: 다른 화면 요소보다 앞에 그리고, 위쪽 버튼 줄 아
   assert.equal(djClampY(99999, 768, 28, 43), 728, '아래로는 제목 줄이 화면 안에 남게');
   assert.equal(djClampY(10, 60, 28, 43), 20, '화면이 아주 낮으면 아래쪽 한계가 먼저');
   assert.equal(djClampY(10, 768, 28, 0), 10, '버튼 줄을 못 찾으면 화면 맨 위부터');
+  // 영상의 높이를 주면 영상이 절반 넘게 화면 안에 남는 데까지만 내려간다 (2026-11-24: 화면에 보이지 않는 플레이어로 재생하면 안 된다)
+  const y = djClampY(99999, 768, 28, 43, 200);
+  assert.ok(768 - (y + 28 + 12) > 100 && 768 - (y + 28 + 12) <= 120, `영상 200 가운데 ${768 - (y + 28 + 12)} 이 보인다`);
+});
+
+// ---------- 2026-11-24: 마와폰 · 유튜브 창(Y 키 · 📺 버튼 · 최소화 · 전체 화면) · 대회 점수판(TAB · 🏁 버튼) ----------
+test('유튜브 창: 폰에서 최소화하면 위에 붙이고 게임 화면을 내린다 (기준: 아이폰 17 프로 402×714)', async () => {
+  const Y = await import('../src/shared/youtube.ts');
+  assert.deepEqual(Y.djDockFrame(402, 714, 28), { w: 386, h: 217 }, '화면 너비에 맞춘 16:9');
+  assert.ok(714 - (217 + 28 + 14) >= Y.DJ_DOCK_GAME_MIN, '게임 화면이 380 넘게 남는다');
+  assert.deepEqual(Y.djDockFrame(360, 760, 28), { w: 344, h: 200 }, '좁은 폰: 높이는 가장 작게 200');
+  assert.equal(Y.djDockFrame(375, 560, 28), null, '세로가 짧으면 붙이지 않는다 (게임 화면이 너무 좁아진다)');
+  assert.equal(Y.djDockFrame(874, 402, 28), null, '가로로 눕힌 화면');
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const ui = read('../src/game/djui.ts'), css = read('../src/styles.css');
+  // 화면 밖에서 재생하는 길을 만들지 않는다: 접기(가린 채 재생)·화면 밖 자리는 없다. 닫으면 플레이어를 없앤다
+  assert.ok(!ui.includes('folded') && !css.includes('#dj-panel.fold'), '접기는 없앴다');
+  assert.ok(ui.includes("this.dock(root.getBoundingClientRect().height);") && ui.includes("document.body.style.setProperty('--dj-dock', `${h}px`);"), '붙인 높이를 알린다');
+  assert.ok(css.includes('body.dj-dock #app, body.dj-dock #casino { top: var(--dj-dock, 0px); }'), '게임 화면이 그만큼 내려간다');
+  assert.ok(ui.includes("djClampY(pos.y, window.innerHeight, headH, top, frame.getBoundingClientRect().height)"), '끌어도 영상의 절반은 남는다');
+  assert.ok(ui.includes("if (m === 'max' && document.fullscreenEnabled) void root.requestFullscreen?.()"), '전체 화면은 창 전체(제목 줄 포함)');
+  // 영상 위에 다른 것을 겹치지 않는다: 붙인 동안 알림은 게임 화면 쪽으로 내린다
+  assert.ok(css.includes('body.dj-dock #toasts { top: calc(var(--dj-dock, 0px) + 48px); }'));
+});
+
+test('마와폰: 장비 품목이고, 가지면 어디서나 유튜브 화면을 켜고 예약한다', async () => {
+  const shop = await import('../src/shared/shop.ts');
+  const it = shop.itemById(shop.MAWAPHONE_ID);
+  assert.ok(it && it.kind === 'gear' && it.price === 30000 && shop.isOwnItem(it.id), '보관함에 들어가는 장비 30,000');
+  assert.ok(shop.GEAR_GOODS.includes(it));
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const world = read('../src/game/world.ts'), dj = read('../src/game/dj.ts'), input = read('../src/game/input.ts'), hud = read('../src/game/ui.ts');
+  assert.ok(world.includes('private tvUsable(): boolean { return this.mapId === CLUB_MAP_ID || this.wallet.owns(MAWAPHONE_ID); }'), '클럽 안이거나 마와폰 보유');
+  assert.ok(world.includes('private tvBlocked(): boolean { return this.mafia.active && this.mafia.isParticipant(this.uid); }'), '마피아 게임 중에는 못 켠다');
+  assert.ok(world.includes('this.dj.setActive(this.mapId === CLUB_MAP_ID || want);'), '켜 둔 동안에만 클럽 밖에서 구독한다');
+  assert.ok(dj.includes('canReserve(): boolean { return this.w.wallet.owns(MAWAPHONE_ID) || this.atBooth(); }'));
+  assert.equal((dj.match(/if \(!this\.canReserve\(\)\) return 'spot';/g) || []).length, 2, '제목을 읽기 전과 읽은 뒤 둘 다');
+  assert.ok(input.includes("KeyY: 'tv'") && world.includes("if (a === 'tv') { this.toggleTv(); return; }"), 'Y 키');
+  assert.ok(hud.includes("const tvB = act('📺', '유튜브 화면 켜기 · 끄기', () => h.tv());") && hud.includes('btns.append(scB, tvB, tB, pullB, pushB, fB, rB);'), '폰: 말랑이 위에 📺, 그 위에 🏁');
+});
+
+test('대회 점수판: TAB 은 누르는 동안, 고정하면 켜고 끄기. 폰은 🏁 버튼', async () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const input = read('../src/game/input.ts'), ui = read('../src/game/contestui.ts'), mgr = read('../src/game/contest.ts'), hud = read('../src/game/ui.ts');
+  assert.ok(input.includes("if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) this.onAction?.({ board: true }); return; }"), '누름');
+  assert.ok(input.includes("if (e.code === 'Tab') this.onAction?.({ board: false });"), '뗌은 언제나 알린다');
+  assert.ok(/addEventListener\('blur', \(\) => \{[^\n]*this\.onAction\?\.\(\{ board: false \}\);/.test(input), '창이 뒤로 가면 닫는다');
+  assert.ok(ui.includes('if (this.pinned) this.open = !this.open; else this.held = true;'), '고정이면 토글, 아니면 누르는 동안');
+  assert.ok(ui.includes("if (scPin && e.type === 'pointerup') h.boardPin();") || hud.includes("if (scPin && e.type === 'pointerup') h.boardPin();"), '폰: 누른 채 아래로 내렸다 떼면 고정');
+  // 순위는 판이 떠 있는 동안에만, 15초마다 읽는다 (구독하지 않는다)
+  const c = await import('../src/shared/contest.ts');
+  assert.equal(c.CONTEST_RANK_POLL_MS, 15000);
+  assert.ok(mgr.includes('if (this.watching) this.pollRank();') && mgr.includes('get(ref(db, `fish/contest/${a.key}`))') && !/onValue\(ref\(db, `fish\/contest/.test(mgr));
+  assert.ok(read('../src/game/fishing.ts').includes('if (contest) w.contest.noteCatch(pts);'), '내가 낚은 것은 바로 반영');
 });
 
 // ---- 2026-11-20: 말풍선 꾸미기 ----
