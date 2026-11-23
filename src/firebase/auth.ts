@@ -99,9 +99,12 @@ export async function withdraw(uid: string, profile: Pick<UserProfile, 'id' | 'n
 
 // 프로필이 없는 로그인 계정(가입이 거절됐거나 관리자가 지운 계정의 껍데기)을 지운다: 같은 아이디로 다시 가입할 수 있게.
 // 로그인한 지 오래된 세션이면 지우지 못하고 로그아웃만 한다 (다음에 직접 로그인할 때 지워진다)
-export async function dropOrphanAccount(): Promise<void> {
+// uid: 프로필이 없다고 확인한 그 계정. 확인하는 사이에 로그인한 계정이 바뀌었으면(같은 페이지에서 다른 계정으로 가입·로그인) 건드리지 않는다:
+// 전에는 "지금 로그인한 계정"을 지워서, 엉뚱한 계정이 지워질 수 있었다 (2026-11-23, 에뮬레이터에서 겪음)
+// 부르는 쪽은 프로필 읽기가 "성공했고 없었다"일 때만 부를 것. 읽기가 실패한 것은 없는 것이 아니다 (main.ts enter)
+export async function dropOrphanAccount(uid: string): Promise<void> {
   const user = auth.currentUser;
-  if (!user) return;
+  if (!user || user.uid !== uid) return;
   try { await deleteUser(user); } catch { await fbSignOut(auth).catch(() => {}); }
 }
 

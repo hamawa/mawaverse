@@ -62,10 +62,23 @@ async function enter(uid: string): Promise<void> {
   const admin = await isAdmin(uid);
   // 평일 근무시간: 관리자가 아니면 로그인해도 들어갈 수 없다
   if (!admin && (await blockedNow())) { await logout(); showBlocked(); return; }
-  const profile = await loadProfile(uid).catch(() => null);
+  // 프로필을 "읽지 못한 것"과 프로필이 "없는 것"을 가른다 (2026-11-23). 전에는 읽기가 실패해도 없는 것으로 보고 아래에서 로그인 계정을 지웠다:
+  // 서버가 내 프로필 읽기를 거부하면(이용 시간 차단이 화면의 판정과 어긋난 순간 등) 방금 로그인한 사람의 계정이 사라졌다. 프로필·아이디는 남아서 다시 가입도 못 한다
+  let profile: UserProfile | null;
+  try { profile = await loadProfile(uid); }
+  catch (e) {
+    console.warn('프로필을 읽지 못했습니다', e);
+    showMessageScreen(root, APP_NAME, '계정 정보를 읽지 못했습니다.\n잠시 뒤에 다시 시도해 주세요. 계속 안 되면 관리자에게 알려 주세요.',
+      { label: '다시 시도', onClick: () => {
+        showMessageScreen(root, APP_NAME, '다시 확인하는 중...');
+        enter(uid).catch((err) => showMessageScreen(root, '오류', String((err as Error).message || err), { label: '새로고침', onClick: () => location.reload() }));
+      } },
+      { label: '로그아웃', onClick: async () => { await logout(); showLogin(); } });
+    return;
+  }
   if (!profile) {
-    // 프로필이 없다: 가입이 거절됐거나 삭제된 계정. 남은 로그인 계정도 지워 같은 아이디로 다시 가입할 수 있게 한다
-    await dropOrphanAccount();
+    // 프로필이 없다(읽기는 됐다): 가입이 거절됐거나 삭제된 계정. 남은 로그인 계정도 지워 같은 아이디로 다시 가입할 수 있게 한다
+    await dropOrphanAccount(uid);
     await logout().catch(() => {});
     showLogin('계정 정보를 찾을 수 없습니다. 다시 가입해 주세요.');
     return;

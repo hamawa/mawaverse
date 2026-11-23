@@ -338,6 +338,16 @@ test('노래 예약: 규칙의 숫자가 화면의 숫자와 같고, 넘기는 �
   assert.deepEqual([...Y.DJ_DEAD_CODES], [100, 101, 150], '없는 영상·막힌 영상만 스스로 넘긴다 (기기 탓인 오류로 남의 곡을 넘기지 않는다)');
 });
 
+// ---------- 로그인: 프로필을 "못 읽은 것"과 "없는 것" (2026-11-23) ----------
+test('로그인: 프로필 읽기가 실패하면 로그인 계정을 지우지 않는다 (읽기가 됐고 없을 때만 껍데기를 지운다)', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const main = read('../src/main.ts'), authSrc = read('../src/firebase/auth.ts');
+  assert.ok(!/loadProfile\(uid\)\.catch\(/.test(main), '읽기 실패를 "없음"으로 바꾸지 않는다');
+  assert.ok(/try \{ profile = await loadProfile\(uid\); \}\s*catch \(e\) \{[\s\S]*?return;\s*\}\s*if \(!profile\) \{[\s\S]*?await dropOrphanAccount\(uid\);/.test(main), '실패하면 안내하고 끝낸다. 지우는 것은 읽기가 됐고 없을 때만');
+  assert.equal(main.split('dropOrphanAccount(').length - 1, 1, '계정을 지우는 곳은 한 군데');
+  assert.ok(authSrc.includes('if (!user || user.uid !== uid) return;'), '프로필이 없다고 확인한 그 계정만 지운다');
+});
+
 // ---------- 클럽 영상의 자막 (2026-11-23, 사용자 요청: 자막은 꺼진 채로 나오게) ----------
 test('클럽 영상: 자막은 꺼 둔다 (준비됐을 때·자막 모듈이 실렸을 때·재생이 시작됐을 때)', () => {
   const ui = readFileSync(new URL('../src/game/djui.ts', import.meta.url), 'utf8');
