@@ -346,7 +346,7 @@ test('클럽 영상: 자막은 꺼 둔다 (준비됐을 때·자막 모듈이 �
   assert.ok(ui.includes('onApiChange: () => this.captionsOff()'), '자막 모듈이 실렸을 때 (영상이 바뀔 때마다)');
   assert.ok(ui.includes('if (e.data === 1) this.captionsOff();'), '재생이 시작됐을 때');
   assert.ok(ui.includes('controls: 0'), '조작 줄은 숨긴 채다 (그래서 보는 사람이 자막을 끌 수 없다)');
-  assert.ok(!ui.includes('cc_load_policy'), '자막을 켜는 설정은 넣지 않는다');
+  assert.ok(!/cc_load_policy\s*:/.test(ui), '자막을 켜는 설정은 넣지 않는다 (주석에서 말하는 것은 괜찮다)');
 });
 
 // ---------- 소모품 한도 안내 (2026-11-23 제보: 미끼 999개에서 더 사려 하면 "코인이 모자랍니다"가 떴다) ----------
