@@ -338,6 +338,18 @@ test('노래 예약: 규칙의 숫자가 화면의 숫자와 같고, 넘기는 �
   assert.deepEqual([...Y.DJ_DEAD_CODES], [100, 101, 150], '없는 영상·막힌 영상만 스스로 넘긴다 (기기 탓인 오류로 남의 곡을 넘기지 않는다)');
 });
 
+// ---------- 포커 판: 테이블 상자의 높이 (2026-11-23 제보: 1번 테이블에서 판이 돌면 2번 테이블의 단추가 오르내렸다) ----------
+test('포커 판: 테이블 상자의 높이를 붙박는다 (위 테이블의 상태가 바뀌어도 아래 테이블이 밀리지 않게)', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const css = read('../src/styles.css'), ui = read('../src/game/pokerui.ts');
+  // 보통 상태의 높이는 CSS 가, 그보다 커진 높이는 화면이 --pt-min 으로 넘긴다. 둘 중 큰 쪽이 쓰인다 (min-height 를 직접 적으면 CSS 의 더 큰 값을 이겨 버린다)
+  assert.ok(/#casino\.poker \.ptable \{[^}]*min-height: max\(224px, var\(--pt-min, 0px\)\)/.test(css), 'PC');
+  assert.ok(/body\.mobile #casino\.poker \.ptable \{ min-height: max\(241px, var\(--pt-min, 0px\)\)/.test(css), '폰');
+  assert.ok(ui.includes("b.style.setProperty('--pt-min', `${this.minH[i]}px`)") && !ui.includes('style.minHeight'), '높이는 --pt-min 으로 넘긴다');
+  assert.ok(ui.includes('this.minH[i] = Math.max(this.minH[i] || 0, b.offsetHeight)'), '커지기만 하고 줄지 않는다');
+  assert.ok(ui.includes('this.minH = [];'), '판을 다시 열면 처음부터 잰다');
+});
+
 // ---------- 로그인: 프로필을 "못 읽은 것"과 "없는 것" (2026-11-23) ----------
 test('로그인: 프로필 읽기가 실패하면 로그인 계정을 지우지 않는다 (읽기가 됐고 없을 때만 껍데기를 지운다)', () => {
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');

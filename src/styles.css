@@ -101,7 +101,9 @@ body.mobile #casino .horse .ic { font-size: 20px; }
 body.mobile #casino .amts .btn { padding: 8px 10px; }
 body.mobile.in-casino #mobile { display: none; }
 /* 포커 방 판 (#casino.poker): 테이블 두 개 */
-#casino.poker .ptable { margin: 8px 0; padding: 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); }
+/* 테이블 상자는 높이를 붙박는다 (2026-11-23 제보: 1번 테이블에서 판이 돌면 2번 테이블의 단추가 오르내렸다). 224px = 가장 큰 보통 상태(지난 판 결과: 카드 줄 + 두 줄까지의 결과 글 + 판 열기 줄).
+   내 차례의 단추 줄처럼 이보다 커지는 경우는 pokerui.ts 가 한 번 커진 높이를 --pt-min 으로 넘겨 그대로 지킨다 (둘 중 큰 쪽). 숫자는 임시 시험 페이지에서 상태마다 재서 정했다 (CLAUDE.md) */
+#casino.poker .ptable { margin: 8px 0; padding: 8px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); min-height: max(224px, var(--pt-min, 0px)); }
 #casino.poker .ptable.mine { outline: 1px solid #ffd84d; }
 #casino.poker .pt-head { display: flex; justify-content: space-between; margin-bottom: 6px; }
 #casino.poker .pt-head span { color: #ffd84d; }
@@ -119,6 +121,7 @@ body.mobile.in-casino #mobile { display: none; }
 #casino.poker .pt-last { opacity: 0.85; }
 #casino.poker .pay { font-size: 11px; }
 body.mobile #casino.poker .pcard { width: 60px; height: 80px; font-size: 34px; }
+body.mobile #casino.poker .ptable { min-height: max(241px, var(--pt-min, 0px)); } /* 폰: 지난 판 결과가 딱 들어가는 높이. 더 잡으면 2번 테이블의 단추가 화면 아래 조작 영역에 가린다 */
 body.mobile #casino.poker .pacts .btn { padding: 10px 12px; font-size: 14px; }
 /* 낚시 내기 진행 띠: 위쪽 가운데. 뒤가 비치고 글자에 그림자 */
 #duel-bar { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); max-width: 94vw; padding: 5px 14px; border-radius: 999px; background: rgba(6, 12, 8, 0.4); border: 1px solid rgba(255, 255, 255, 0.25); color: #fff; font-size: 13px; white-space: nowrap; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); pointer-events: none; }

@@ -18,6 +18,7 @@ export class PokerPanel {
   private root: HTMLElement | null = null;
   private offs: (() => void)[] = [];
   private timer = 0;
+  private minH: number[] = []; // 테이블마다 지금까지 가장 컸던 상자 높이 (판을 열어 둔 동안. render 머리말)
   constructor(private h: PokerHost) {}
 
   get open(): boolean { return !!this.root; }
@@ -28,6 +29,7 @@ export class PokerPanel {
     (document.getElementById('app') || document.body).append(root);
     document.body.classList.add('in-casino');
     this.root = root;
+    this.minH = [];
     this.h.poker.open();
     this.offs.push(this.h.poker.listen(() => this.render()));
     this.offs.push(this.h.wallet.listen(() => this.render()));
@@ -65,9 +67,14 @@ export class PokerPanel {
     };
     root.append(el('div', { class: 'ch' }, [el('b', { text: '🃏 포커 방' }), el('span', { class: 'cnt' }), out]));
     root.append(el('div', { class: 'sub', text: `인디언 포커: 내 카드(1~10)는 못 보고 상대 카드만 봅니다. 큰 쪽이 이깁니다. 잔액 ${fmtCoins(this.h.wallet.balance)}` }));
-    p.tables().forEach((v, i) => root.append(this.table(v, i)));
+    // 테이블 상자의 높이를 붙박아 둔다 (2026-11-23 제보: 1번 테이블에서 판이 돌면 2번 테이블의 단추가 오르내렸다. 누르려던 단추가 밀리면 다른 참가비를 누르게 된다).
+    // 보통 상태의 높이는 CSS(.ptable 의 min-height)가 잡는다. 그보다 커진 적이 있으면(내 차례의 단추 줄, 줄이 넘어간 긴 닉네임, 글꼴이 다른 기기) 그 높이를 --pt-min 으로 넘겨 지킨다: 커지기만 하고 줄지 않는다.
+    // (min-height 를 직접 적지 않는다: 직접 적은 값은 CSS 의 값이 더 클 때도 이겨 버린다)
+    // 단추의 자리를 상자 아래에 붙박지는 않았다: 상태가 다르면 단추도 다른 자리에 있어야, 판이 바뀌는 순간에 누르던 자리에서 엉뚱한 단추(다른 사람 판의 참가)가 눌리지 않는다
+    const boxes = p.tables().map((v, i) => { const b = this.table(v, i); if (this.minH[i]) b.style.setProperty('--pt-min', `${this.minH[i]}px`); root.append(b); return b; });
     root.append(el('div', { class: 'sub pay', text: `이기면 겨룬 돈에서 수수료 ${duelFee(this.h.config.duelFee)}% 를 뗍니다. 한 판에 걸 수 있는 돈은 참가비의 50배까지. 차례마다 ${POKER_TURN_MS / 1000}초(넘기면 다이). 돈이 모자라면 가진 만큼 올인하고 바로 공개합니다.` }));
     this.tickCounts();
+    boxes.forEach((b, i) => { this.minH[i] = Math.max(this.minH[i] || 0, b.offsetHeight); });
   }
 
   private table(v: TableView, i: number): HTMLElement {
