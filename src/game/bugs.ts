@@ -93,7 +93,7 @@ export class BugHunt {
       if (!isWalkable(m, x, y) || this.w.occupied(x, y) || (x === me.x && y === me.y)) continue;
       if (Math.abs(x - me.x) + Math.abs(y - me.y) < 2) continue;
       if (this.alive.some((a) => a.view.x === x && a.view.y === y)) continue;
-      const def = bugColl.pick();
+      const def = bugColl.pick(undefined, undefined, { rain: this.w.raining(), snow: this.w.snowing() }); // 눈 오는 날 한정 종 (2026-11-23)
       this.alive.push({ def, born: now, life: BUG_LIFE_MIN_MS + Math.random() * (BUG_LIFE_MAX_MS - BUG_LIFE_MIN_MS), view: { x, y, icon: def.icon, state: 'idle', since: now, seed: Math.random() * 1000 } });
       return;
     }

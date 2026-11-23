@@ -16,7 +16,7 @@ import type { SnowView } from './winterplay';
 import { snowActive, SNOW_PENALTY_TITLE } from '../shared/snowpenalty';
 import { LABEL_FADE, standsBelow, inRowBelow } from '../shared/overlap';
 import { hasBubbleSkin, paintBubble } from './bubbles';
-import { drawHat, hatAbove, nameStyle, titleStyle, isLabelFlow, labelFlow, spawnFx, drawFx, drawPet, drawMount, mountInfo, drawAfterimages, AFTERIMAGE_FX } from './cosmetics';
+import { drawHat, hatAbove, nameStyle, titleStyle, isLabelFlow, labelFlow, spawnFx, drawFx, drawFxGlow, drawPet, drawMount, mountInfo, drawAfterimages, AFTERIMAGE_FX } from './cosmetics';
 
 export type BubbleKind = 'near' | 'all' | 'w';
 export interface Bubble { text: string; kind: BubbleKind; at: number }
@@ -24,6 +24,8 @@ export interface Bubble { text: string; kind: BubbleKind; at: number }
 export interface Entity {
   uid: string;
   nick: string;
+  nickPre?: string;   // 이름표에서 닉네임 앞·뒤에 붙는 표시 (👻 · 🏆 · 🎣 / 😴 · 🐟3 · 💥 …). 이름표 효과(빛깔)는 닉네임에만 입힌다 (2026-11-23 건의)
+  nickPost?: string;
   avatar: string;
   x: number;          // 보간된 타일 좌표
   y: number;
@@ -382,7 +384,7 @@ export function render(eng: Engine, st: RenderState): void {
   }
 
   // ---- 낮과 밤: 이름표·말풍선·안내보다 먼저 덧칠한다 (글자는 어두워지지 않는다) ----
-  if (st.night && st.night.a > 0.005) drawNight(eng, map, vis, st.night, st.fires, xmasLights);
+  if (st.night && st.night.a > 0.005) { drawNight(eng, map, vis, st.night, st.fires, xmasLights); drawFxGlow(ctx, st.now, eng.cam.x, eng.cam.y, eng.scale * eng.dpr, st.night.lamp); } // 별가루는 밤에 빛난다 (덧칠 뒤에 한 번 더)
   if (st.club) drawClubLights(eng, st.club, st.now);
 
   // ---- 화면 좌표 오버레이 ----
@@ -470,7 +472,9 @@ export function render(eng: Engine, st: RenderState): void {
     // 칭호 (상점): 닉네임 바로 위. 눈사람 칭호가 있으면 그 아래
     const ts = titleStyle(e.title);
     if (ts) { drawLabel(ctx, ts.text, sx, under - 1, ts.color, ts.bg, 10, ts.border, fade); under += 16; }
-    drawLabel(ctx, name, sx, under, nameColor, ns?.bg ?? 'rgba(0,0,0,0.55)', 12, ns?.border, fade);
+    // 이름표 효과(산 빛깔·흐르는 빛깔)는 닉네임에만 입힌다: 앞뒤의 표시는 기본 빛깔 그대로 (2026-11-23 건의)
+    const side = e.nickPre || e.nickPost ? { pre: e.nickPre || '', post: e.nickPost || '', color: e.isMe ? '#ffe9a8' : '#ffffff' } : undefined;
+    drawLabel(ctx, name, sx, under, nameColor, ns?.bg ?? 'rgba(0,0,0,0.55)', 12, ns?.border, fade, side);
     // 머리 위: 😵 · 입질 · 이모트 · 말풍선. 물속이면 가라앉은 만큼 내려가고, 모자가 프레임 위로 솟았으면 그만큼 올라간다
     const [, syTop] = eng.worldToScreen(e.x * TILE + TILE / 2, e.y * TILE + TILE - FRAME_H + pos.sink - pos.above);
     let top = syTop - 4;
@@ -881,10 +885,12 @@ function drawProgress(ctx: CanvasRenderingContext2D, cx: number, bottom: number,
 }
 
 // fade: 비치게 그린다 (다른 캐릭터를 덮는 이름표. box 바탕 상자·text 글자의 진하기. 글자에는 그림자를 넣어 바탕이 옅어도 읽히게)
-export function drawLabel(ctx: CanvasRenderingContext2D, text: string, cx: number, bottom: number, color: string, bg: string, size: number, border?: string, fade?: { box: number; text: number }): void {
+// side: 글자 앞뒤에 붙여 한 상자에 그리는 표시 (이름표의 🏆 · 🐟3 · 💥 …). color 와 흐르는 빛깔은 text 에만 입히고, 표시는 side.color 로 그린다
+export function drawLabel(ctx: CanvasRenderingContext2D, text: string, cx: number, bottom: number, color: string, bg: string, size: number, border?: string, fade?: { box: number; text: number }, side?: { pre: string; post: string; color: string }): void {
   ctx.font = `bold ${size}px "Malgun Gothic", "Apple SD Gothic Neo", sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  const w = ctx.measureText(text).width + 8;
+  const wPre = side?.pre ? ctx.measureText(side.pre).width : 0, wText = ctx.measureText(text).width, wPost = side?.post ? ctx.measureText(side.post).width : 0;
+  const w = wPre + wText + wPost + 8;
   const h = size + 6;
   const alpha = ctx.globalAlpha;
   if (fade) ctx.globalAlpha = alpha * fade.box;
@@ -892,8 +898,16 @@ export function drawLabel(ctx: CanvasRenderingContext2D, text: string, cx: numbe
   roundRect(ctx, cx - w / 2, bottom - h, w, h, 4); ctx.fill();
   if (border) { ctx.strokeStyle = border; ctx.lineWidth = 1; ctx.stroke(); }
   if (fade) { ctx.globalAlpha = alpha * fade.text; ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3; }
-  ctx.fillStyle = isLabelFlow(color) ? labelFlow(ctx, color, cx - w / 2, cx + w / 2, performance.now()) : color;
-  ctx.fillText(text, cx, bottom - 3);
+  const tx = cx - w / 2 + 4 + wPre; // text 가 시작하는 x. 흐르는 빛깔의 폭도 text 만큼만 (표시가 붙었다고 빛깔 띠가 늘어나지 않게)
+  ctx.fillStyle = isLabelFlow(color) ? labelFlow(ctx, color, tx - 4, tx + wText + 4, performance.now()) : color;
+  if (!wPre && !wPost) ctx.fillText(text, cx, bottom - 3);
+  else {
+    ctx.textAlign = 'left';
+    ctx.fillText(text, tx, bottom - 3);
+    ctx.fillStyle = side!.color;
+    if (wPre) ctx.fillText(side!.pre, tx - wPre, bottom - 3);
+    if (wPost) ctx.fillText(side!.post, tx + wText, bottom - 3);
+  }
   if (fade) { ctx.globalAlpha = alpha; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent'; }
 }
 

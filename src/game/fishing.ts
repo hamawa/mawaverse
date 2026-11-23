@@ -118,7 +118,7 @@ export class Fishing {
     const stars = wallet.fishStarsFor(fam);
     // 미끼: 꽝·일반 제외(희귀 이상 확정)만. 영웅·전설 배수는 없다 (2026-11-09 두 번째 조정). 신화는 장비·미끼·강화와 무관 (collection.ts)
     const opt = { boost: ROD_BOOST[rod], junkMul: ROD_JUNK[rod], tierMul: starFactor(stars), ...(baited ? { noJunk: true, minRarity: 1 } : {}) };
-    this.fish = fam === 'ice' ? pickWinterFish(undefined, opt) : pickFish(undefined, undefined, { contest: !!this.w.contest.active(), rain: this.w.raining(), ...opt });
+    this.fish = fam === 'ice' ? pickWinterFish(undefined, opt) : pickFish(undefined, undefined, { contest: !!this.w.contest.active(), rain: this.w.raining(), snow: this.w.snowing(), ...opt });
     this.state = 'cast';
     this.castAt = performance.now();
     this.show(t, wallet.autoReelActive(), rod, wallet.shownStarsFor(fam));
@@ -242,6 +242,7 @@ export class Fishing {
       if (contestPath) Object.assign(upd, tally(contestPath)); // 대회 중 잡은 것만 집계
       try { await update(ref(db), upd); } catch (e) { forgetOwn(bookPath); throw e; } // 기억해 둔 값이 서버와 어긋났을 수 있다: 다음엔 다시 읽는다
       rememberOwn(bookPath, { ...book, f: b?.f || serverNow() });
+      if (contest) w.contest.noteCatch(pts); // 점수판을 보고 있으면 내 줄이 바로 오른다
       if (pts > 0) void w.wallet.earn(pts); // 점수만큼 코인
       if (!b) { const t = f.junk ? `${f.icon} 꽝 컬렉션에 추가: ${f.name}` : `${f.icon} 도감에 새로 등록: ${f.name}`; w.toast(t); w.catchLog.add('fish', t); }
       if (king && !b?.k) { const t = `👑 킹 도감에 새로 등록: ${f.name}`; w.toast(t); w.catchLog.add('fish', t); }

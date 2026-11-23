@@ -32,6 +32,11 @@ export const DEFAULT_BUGS: CollDef[] = [
   // 전설
   { id: 'goldbug', name: '황금 무당벌레', icon: '🌟', rarity: 3, min: 6, max: 9, w: 0.5, desc: '등딱지가 진짜 금이라는 소문. 보면 소원을 빌자.' },
   { id: 'ghostmoth', name: '유령 나방', icon: '👻', rarity: 3, min: 90, max: 130, w: 0.4, time: 'night', desc: '밤에만 나타나는 반투명 나방. 잡아도 믿어주지 않는다.' },
+  // 눈 오는 날 한정 (2026-11-23, 건의 반영): 눈이 오는 동안에만 풀밭에 나타난다 (눈 오는 철 11/15~1/31 의 비 = 전체 시간의 약 15%).
+  //  가중치는 같은 등급의 기존 종과 같게 했다 (썰매 = 호랑나비, 루돌프 = 황금 무당벌레, 산타 = 요정). 채집은 수입이 낚시의 100분의 1쯤이라(2026-11-23 라이브 주간 기록) 코인 걱정은 없다. 크기는 mm
+  { id: 'snowsled', name: '빈 썰매', icon: '🛷', rarity: 1, min: 900, max: 1500, w: 6, time: 'snow', desc: '눈 오는 날에만 미끄러져 온다. 주인은 어디 갔지?' },
+  { id: 'snowdeer', name: '루돌프', icon: '🦌', rarity: 3, min: 1100, max: 1600, w: 0.5, time: 'snow', desc: '코가 빨갛다. 눈 오는 날 길을 잃고 풀밭에 내려왔다.' },
+  { id: 'snowsanta', name: '산타', icon: '🎅', rarity: 4, min: 1700, max: 1900, w: 0.002, time: 'snow', desc: '잠자리채에 걸린 산타. 올해 선물은 없다고 한다.' },
   // 신화 (2026-11-09): 장비와 무관하게 나타날 확률 w/전체 ≈ 1/50,000 (나타나도 잡힐 확률은 절반). collection.ts pick
   { id: 'fairy', name: '요정', icon: '🧚', rarity: 4, min: 90, max: 150, w: 0.002, desc: '잠자리채에 걸린 요정. 화가 많이 났다. 소원 대신 잔소리를 들어준다.' },
   // 꽝

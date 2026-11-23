@@ -229,6 +229,14 @@ export class WalletMgr {
       return true;
     } catch (e) { console.warn('내기 정산이 거부됨', e); return false; }
   }
+  // ---- 낚시 대회 상금 (2026-11-23. shared/contest.ts 머리말) ----
+  // 상금과 받았다는 표시를 쓰기 한 번에: 표시가 이미 있거나 금액이 결과와 다르면 규칙이 통째로 거부한다 (코인이 두 번 들어오지 않는다)
+  async contestPrize(key: string, amount: number): Promise<boolean> {
+    if (amount <= 0) return false;
+    const uid = this.w.uid, W = `wallet/${uid}`;
+    try { await update(ref(db), { [`${W}/c`]: increment(amount), [`${W}/e`]: increment(amount), [`fish/cprize/${key}/${uid}`]: amount }); return true; }
+    catch (e) { console.warn('대회 상금 쓰기가 거부됨 (이미 받았거나 결과와 다름)', e); return false; }
+  }
   // ---- 인디언 포커 (2026-11-12. 설계는 shared/poker.ts 머리말) ----
   // 판에 돈 걸기: 지갑(값 빼기, b='poker', pk=판 id, ps=자리)과 판 쪽 쓰기(extra)를 쓰기 한 번에. amount 가 0 이면(체크, 가진 게 없는 올인) 판 쪽만 쓴다
   async pokerPut(hid: string, side: 'a' | 'b', amount: number, extra: Record<string, unknown>): Promise<boolean> {

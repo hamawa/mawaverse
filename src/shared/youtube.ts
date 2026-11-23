@@ -55,9 +55,20 @@ export function djClampWidth(w: number, viewW: number, viewH: number, headH: num
   return Math.max(DJ_MIN_EDGE, Math.min(Math.round(w), byW, Math.max(DJ_MIN_EDGE, byH)));
 }
 // 끌어 옮긴 창의 세로 자리: 화면 위 버튼 줄(top) 아래부터, 제목 줄이 화면 안에 남는 데까지 (2026-11-20. 화면이 아주 낮으면 아래쪽 한계가 먼저다)
-export function djClampY(y: number, viewH: number, headH: number, top: number): number {
-  const maxY = Math.max(0, viewH - Math.min(headH + 12, viewH));
+// frameH: 영상의 높이. 아래로는 영상의 절반이 화면 안에 남는 데까지만 내려간다 (2026-11-24. 유튜브 개발자 정책: 화면에 보이지 않는 플레이어로 재생하는 기능을 두면 안 된다.
+// 전에는 제목 줄만 남기고 영상이 통째로 화면 아래로 내려갔다). 0 이면 제목 줄만 본다
+export function djClampY(y: number, viewH: number, headH: number, top: number, frameH = 0): number {
+  const maxY = Math.max(0, viewH - Math.min(headH + 12 + frameH * 0.55, viewH)); // 절반을 조금 넘게 남긴다 (약관의 선이 "절반 넘게"다)
   return Math.max(Math.min(Math.max(0, top), maxY), Math.min(y, maxY));
+}
+// 폰에서 최소화: 영상을 화면 위에 붙이고 게임 화면을 그만큼 내린다 (2026-11-24, 사용자와 정한 배치. 기준 기기는 아이폰 17 프로: 사파리에서 402×714 쯤).
+// 영상은 화면 너비에 맞춘 16:9 (가장 작게는 200). 게임 화면이 DJ_DOCK_GAME_MIN 보다 낮아지면 붙이지 않는다 (null: 그때는 떠 있는 가장 작은 창으로)
+export const DJ_DOCK_GAME_MIN = 380;
+export function djDockFrame(viewW: number, viewH: number, barH: number): { w: number; h: number } | null {
+  if (viewW >= viewH) return null; // 가로로 눕힌 화면에서는 붙이지 않는다
+  const w = Math.max(DJ_MIN_EDGE, Math.floor(viewW - 16)), room = viewH - DJ_DOCK_GAME_MIN - barH - 14;
+  const h = Math.min(djFrameHeight(w), Math.floor(room));
+  return h >= DJ_MIN_EDGE ? { w, h } : null;
 }
 // 영상이 끝났나: 튼 뒤 흐른 시간이 길이를 넘었거나, 플레이어가 끝났다고 하고(ended) 재생 지점이 끝 근처일 때. 플레이어가 끝났다고만 하고 지점이 앞쪽이면(광고가 끝난 경우 등) 아니다
 export function djEnded(wantSec: number, durSec: number, curSec: number, playerEnded: boolean): boolean {

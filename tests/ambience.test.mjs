@@ -276,7 +276,10 @@ test('DJ 기계에 닿는 자리: 탁자의 사방 여섯 칸이고 걸어서 �
   // 규칙의 좌표: 예약 쓰기에서 자리 조건을 떼어 내 그대로 계산해 본다
   const rules = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules.club;
   const w = rules.q.$k['.write'];
-  const from = w.indexOf("root.child('players/' + auth.uid + '/m').val() == 'club'"), to = w.indexOf(') : (');
+  // 자리 조건은 "마와폰이 있거나 (클럽의 DJ 기계 옆)" 의 뒤쪽이다 (2026-11-24): 괄호 둘이 더 닫힌 뒤에 삭제 쪽 조건이 온다
+  assert.ok(w.includes("(root.child('users/' + auth.uid + '/own/mawaphone').val() === true || (root.child('players/' + auth.uid + '/m').val() == 'club' && "), '마와폰이 있으면 어디서나 예약');
+  assert.ok(rules.dj['.write'].includes("(root.child('players/' + auth.uid + '/m').val() == 'club' || root.child('users/' + auth.uid + '/own/mawaphone').val() === true) && "), '마와폰이 있으면 어디서나 다음 곡으로');
+  const from = w.indexOf("root.child('players/' + auth.uid + '/m').val() == 'club'"), to = w.indexOf('))) : (');
   assert.ok(from > 0 && to > from, '예약 쓰기의 자리 조건');
   const expr = w.slice(from, to).replaceAll("root.child('players/' + auth.uid + '/m').val()", 'm').replaceAll("root.child('players/' + auth.uid + '/x').val()", 'x').replaceAll("root.child('players/' + auth.uid + '/y').val()", 'y');
   const at = new Function('m', 'x', 'y', `return ${expr};`);
@@ -336,6 +339,106 @@ test('노래 예약: 규칙의 숫자가 화면의 숫자와 같고, 넘기는 �
   const world = read('../src/game/world.ts');
   assert.ok(world.includes('onEnded: (song) => this.dj.ended(song)'), '끝난 곡은 누구 화면이든 넘긴다');
   assert.deepEqual([...Y.DJ_DEAD_CODES], [100, 101, 150], '없는 영상·막힌 영상만 스스로 넘긴다 (기기 탓인 오류로 남의 곡을 넘기지 않는다)');
+});
+
+// ---------- 2026-11-23 건의: 낚시 대회 상금·참가상·메달, 눈 오는 날 한정 채집 ----------
+test('낚시 대회: 상금·참가상 계산과 순위 순서, 규칙의 숫자가 같다', async () => {
+  const c = await import('../src/shared/contest.ts');
+  assert.deepEqual([...c.CONTEST_PRIZES], [30000, 20000, 10000]); // 사용자가 정한 금액 (2026-11-23)
+  assert.deepEqual([c.CONTEST_JOIN_MIN, c.CONTEST_JOIN_PRIZE], [100, 5000]);
+  assert.ok(/^\d{8}$/.test(c.CONTEST_PRIZE_FROM) && c.CONTEST_PRIZE_FROM > '20261123', '이 기능을 넣기 전에 끝난 대회에는 주지 않는다 (사용자가 정하면 내린다)');
+  // 1~3등은 순위 상금, 100마리 이상이면 참가상을 더 받는다. 순위 밖이고 100마리가 안 되면 없다
+  assert.deepEqual([c.contestPrize(0, 400), c.contestPrize(1, 99), c.contestPrize(2, 100), c.contestPrize(-1, 100), c.contestPrize(-1, 99), c.contestPrize(3, 500)], [35000, 20000, 15000, 5000, 0, 5000]);
+  // 순위: 점수 → 마릿수 → 먼저 닿은 사람. 결과 칸은 참가자가 아니다
+  const rows = c.contestRows({ a: { n: 'A', p: 10, c: 5, at: 9 }, b: { n: 'B', p: 30, c: 1, at: 5 }, d: { n: 'D', p: 10, c: 7, at: 9 }, e: { n: 'E', p: 10, c: 7, at: 3 }, result: { at: 1, top: [] } });
+  assert.deepEqual(rows.map((r) => r.u), ['b', 'e', 'd', 'a']);
+  assert.deepEqual(c.contestRows(null), []);
+  // 메달: 결과를 읽었으면 1~3등, 아직이면 챔피언 칸의 1등만
+  assert.deepEqual(['x', 'y', 'z', 'w'].map((u) => c.contestMedal(u, 'x', ['x', 'y', 'z'])), ['🏆', '🥈', '🥉', '']);
+  assert.deepEqual(['x', 'y'].map((u) => c.contestMedal(u, 'x', null)), ['🏆', '']);
+  // 규칙 (fish/cprize, 손으로 넣은 줄)의 금액·마릿수가 같은 값이다
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const rules = read('../database.rules.json');
+  const line = rules.slice(rules.indexOf('"cprize"'), rules.indexOf('"best"'));
+  assert.ok(line.includes("top/0/u').val() == $uid ? 30000") && line.includes("top/1/u').val() == $uid ? 20000") && line.includes("top/2/u').val() == $uid ? 10000"), '순위 상금');
+  assert.ok(line.includes("'/c').val() >= 100 ? 5000 : 0"), '참가상');
+  assert.ok(line.includes('!data.exists() && newData.exists()'), '한 번만 받는다 (지울 수도 없다)');
+  // 화면: 상금은 지갑과 받았다는 표시를 쓰기 한 번에, 이름표의 메달은 1~3등
+  assert.ok(read('../src/game/wallet.ts').includes('[`${W}/c`]: increment(amount), [`${W}/e`]: increment(amount), [`fish/cprize/${key}/${uid}`]: amount'));
+  assert.ok(read('../src/game/world.ts').includes('const m = this.contest.medal(uid) + this.weekTop.marks(uid);'));
+  const mgr = read('../src/game/contest.ts');
+  assert.ok(mgr.includes('get(ref(db, `fish/contest/${win.key}/${uid}/c`))'), '마릿수는 받기 직전에 다시 읽는다');
+  assert.ok(mgr.includes('if (win.key < CONTEST_PRIZE_FROM || this.claiming.has(win.key)) return;'), '시작 날짜 앞의 대회는 건너뛴다');
+  assert.equal((mgr.match(/void this\.claim\(win, /g) || []).length, 3, '결과를 알게 되는 세 길 모두에서 받는다');
+});
+
+test('눈 오는 날 한정 채집: 눈이 올 때만 풀에 들어오고, 규칙이 그 시간대를 받는다', async () => {
+  const { timeActive, DEF_TIMES, TIME_LABEL } = await import('../src/shared/collection.ts');
+  const { DEFAULT_BUGS, bugColl } = await import('../src/shared/bugs.ts');
+  const at = new Date(2026, 10, 23, 15, 0, 0);
+  assert.deepEqual([timeActive('snow', at), timeActive('snow', at, false, true), timeActive('snow', at, false, true, true)], [false, false, true]);
+  assert.equal(timeActive('rain', at, false, true, true), true, '비 한정은 눈이 올 때도 나온다');
+  assert.ok(TIME_LABEL.snow && DEF_TIMES.includes('snow'));
+  const snow = DEFAULT_BUGS.filter((f) => f.time === 'snow');
+  assert.deepEqual(snow.map((f) => [f.id, f.rarity]), [['snowsled', 1], ['snowdeer', 3], ['snowsanta', 4]]); // 건의대로: 썰매 희귀 · 루돌프 전설 · 산타 신화
+  // 가중치는 같은 등급의 기존 종을 넘지 않는다 (호랑나비 6 · 황금 무당벌레 0.5 · 요정 0.002)
+  const w = (id) => DEFAULT_BUGS.find((f) => f.id === id).w;
+  assert.ok(w('snowsled') <= w('swallowtail') && w('snowdeer') <= w('goldbug') && w('snowsanta') <= w('fairy'));
+  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 4000; i++) assert.notEqual(bugColl.pick(rnd, at, { rain: true }).time, 'snow', '눈이 아니면 나오지 않는다');
+  let got = 0; for (let i = 0; i < 4000; i++) if (bugColl.pick(rnd, at, { rain: true, snow: true }).time === 'snow') got++;
+  assert.ok(got > 50, '눈이 오면 나온다');
+  // 화면: 벌레를 뽑을 때 날씨를 넘긴다. 눈 = 눈 오는 철의 비
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  assert.ok(read('../src/game/bugs.ts').includes('bugColl.pick(undefined, undefined, { rain: this.w.raining(), snow: this.w.snowing() })'));
+  assert.ok(read('../src/game/world.ts').includes('snowing(): boolean { return this.raining() && snowSeason(serverNow()); }'));
+  // 규칙: 곤충 목록의 시간대에 snow 가 있다 (없으면 관리자 화면의 첫 저장이 통째로 거부된다: 2026-11-05 에 겪은 일)
+  const rules = read('../database.rules.json');
+  const times = [...rules.matchAll(/"time": \{ "\.validate": "([^"]+)" \}/g)].map((m) => m[1]);
+  assert.equal(times.length, 2);
+  for (const t of DEF_TIMES) assert.ok(times[0].includes(`'${t}'`), `물고기 ${t}`);
+  for (const t of DEFAULT_BUGS.map((f) => f.time).filter(Boolean)) assert.ok(times[1].includes(`'${t}'`), `곤충 ${t}`);
+});
+
+// ---------- 2026-11-23 건의·제보: 이름표 효과는 닉네임에만 · 별가루는 밤에 빛난다 · 찌를 기다리는 중의 F ----------
+test('이름표: 닉네임 앞뒤의 표시는 따로 넘기고, 이름표 효과는 닉네임에만 입힌다', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const world = read('../src/game/world.ts'), render = read('../src/game/render.ts');
+  // 표시(🏆 · 🐟3 · 💥 …)를 닉네임 글자열에 붙이지 않는다
+  assert.ok(world.includes('nick: this.profile.nick, nickPost:') && world.includes('nick: rp.st.n, nickPost:'), '닉네임만 nick 에');
+  assert.ok(world.includes("nickPre: (iGhost ? '👻 ' : '') + this.nickMarks(this.uid)") && world.includes("nickPre: (ghost ? '👻 ' : '') + this.nickMarks(rp.uid)"), '앞 표시');
+  // 그리는 쪽: 흐르는 빛깔의 폭은 닉네임만큼, 표시는 기본 빛깔
+  assert.ok(render.includes('side?: { pre: string; post: string; color: string }'), 'drawLabel 의 side');
+  assert.ok(render.includes('labelFlow(ctx, color, tx - 4, tx + wText + 4, performance.now())'), '흐르는 빛깔은 닉네임 폭');
+  assert.ok(render.includes("color: e.isMe ? '#ffe9a8' : '#ffffff' } : undefined;"), '표시는 기본 빛깔');
+});
+
+test('별가루: 낮밤 덧칠 뒤에 한 번 더 얹는다 (밤에 어두워지지 않게)', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const cos = read('../src/game/cosmetics.ts'), render = read('../src/game/render.ts');
+  assert.ok(/export function drawFxGlow\([^)]*lamp: number\): void \{\s*if \(lamp <= 0\.02\) return;/.test(cos), '낮에는 아무것도 하지 않는다');
+  assert.ok(cos.includes("if (p.kind !== 'stardust') continue;"), '별가루만');
+  assert.ok(/drawNight\(eng, map, vis, st\.night, st\.fires, xmasLights\); drawFxGlow\(ctx, st\.now, eng\.cam\.x, eng\.cam\.y, eng\.scale \* eng\.dpr, st\.night\.lamp\);/.test(render), '덧칠 바로 뒤');
+});
+
+test('낚시: 찌를 기다리는 중에 옆에 벌레가 있으면 F 는 벌레를 잡는다 (입질이 오면 당기기)', () => {
+  const world = readFileSync(new URL('../src/game/world.ts', import.meta.url), 'utf8');
+  const i = world.indexOf("if (bug && !fv.bite) return { x: bug.x, y: bug.y, text: 'F 채집', kind: 'bug' };");
+  const j = world.indexOf("text: fv.bite ? 'F 당겨!' : '찌를 기다리는 중… (이동하면 취소)', kind: 'fishing' }");
+  assert.ok(i > 0 && j > i, '벌레가 낚시 안내보다 먼저');
+  assert.ok(world.indexOf('if (fv.auto) return null;') < i, '자동 낚시 중에는 그대로 (안내 없음)');
+});
+
+// ---------- 포커 판: 테이블 상자의 높이 (2026-11-23 제보: 1번 테이블에서 판이 돌면 2번 테이블의 단추가 오르내렸다) ----------
+test('포커 판: 테이블 상자의 높이를 붙박는다 (위 테이블의 상태가 바뀌어도 아래 테이블이 밀리지 않게)', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const css = read('../src/styles.css'), ui = read('../src/game/pokerui.ts');
+  // 보통 상태의 높이는 CSS 가, 그보다 커진 높이는 화면이 --pt-min 으로 넘긴다. 둘 중 큰 쪽이 쓰인다 (min-height 를 직접 적으면 CSS 의 더 큰 값을 이겨 버린다)
+  assert.ok(/#casino\.poker \.ptable \{[^}]*min-height: max\(224px, var\(--pt-min, 0px\)\)/.test(css), 'PC');
+  assert.ok(/body\.mobile #casino\.poker \.ptable \{ min-height: max\(241px, var\(--pt-min, 0px\)\)/.test(css), '폰');
+  assert.ok(ui.includes("b.style.setProperty('--pt-min', `${this.minH[i]}px`)") && !ui.includes('style.minHeight'), '높이는 --pt-min 으로 넘긴다');
+  assert.ok(ui.includes('this.minH[i] = Math.max(this.minH[i] || 0, b.offsetHeight)'), '커지기만 하고 줄지 않는다');
+  assert.ok(ui.includes('this.minH = [];'), '판을 다시 열면 처음부터 잰다');
 });
 
 // ---------- 로그인: 프로필을 "못 읽은 것"과 "없는 것" (2026-11-23) ----------
@@ -700,7 +803,7 @@ test('그리는 쪽이 그 판정을 쓴다: 펫 이름·이름표·자동 표�
   const src = readFileSync(new URL('../src/game/render.ts', import.meta.url), 'utf8');
   assert.ok(src.includes('if (st.entities.some((e) => standsBelow(p.x, p.y, e.x, e.y))) {'), '펫 아래 칸에 누가 있으면 이름을 펫 위에');
   assert.ok(src.includes('const fade = ents.some((o) => o !== e && standsBelow(e.x, e.y, o.x, o.y)) ? LABEL_FADE : undefined;'), '아래 칸에 누가 있으면 이름표를 비치게');
-  assert.equal((src.match(/, fade\);/g) || []).length, 3, '벌칙 칭호·칭호·이름 셋 다');
+  assert.equal((src.match(/, fade(, side)?\);/g) || []).length, 3, '벌칙 칭호·칭호·이름 셋 다'); // 이름은 앞뒤 표시(side)를 같이 넘긴다 (2026-11-23)
   assert.ok(src.includes("if (autoBelow(e)) drawLabel(ctx, txt, sx, under + 17,"), '남쪽으로 던진 찌의 자동 표시는 이름표 아래에');
   assert.ok(src.includes('if (me && inRowBelow(me.x, me.y, st.hint.x, st.hint.y)) {') && src.includes('Math.max(tileBottom - 4, stackBottom(me) + 22)'), '아래 줄을 가리키는 안내는 내 이름표 아래로');
 });
@@ -716,6 +819,60 @@ test('DJ 창: 다른 화면 요소보다 앞에 그리고, 위쪽 버튼 줄 아
   assert.equal(djClampY(99999, 768, 28, 43), 728, '아래로는 제목 줄이 화면 안에 남게');
   assert.equal(djClampY(10, 60, 28, 43), 20, '화면이 아주 낮으면 아래쪽 한계가 먼저');
   assert.equal(djClampY(10, 768, 28, 0), 10, '버튼 줄을 못 찾으면 화면 맨 위부터');
+  // 영상의 높이를 주면 영상이 절반 넘게 화면 안에 남는 데까지만 내려간다 (2026-11-24: 화면에 보이지 않는 플레이어로 재생하면 안 된다)
+  const y = djClampY(99999, 768, 28, 43, 200);
+  assert.ok(768 - (y + 28 + 12) > 100 && 768 - (y + 28 + 12) <= 120, `영상 200 가운데 ${768 - (y + 28 + 12)} 이 보인다`);
+});
+
+// ---------- 2026-11-24: 마와폰 · 유튜브 창(Y 키 · 📺 버튼 · 최소화 · 전체 화면) · 대회 점수판(TAB · 🏁 버튼) ----------
+test('유튜브 창: 폰에서 최소화하면 위에 붙이고 게임 화면을 내린다 (기준: 아이폰 17 프로 402×714)', async () => {
+  const Y = await import('../src/shared/youtube.ts');
+  assert.deepEqual(Y.djDockFrame(402, 714, 28), { w: 386, h: 217 }, '화면 너비에 맞춘 16:9');
+  assert.ok(714 - (217 + 28 + 14) >= Y.DJ_DOCK_GAME_MIN, '게임 화면이 380 넘게 남는다');
+  assert.deepEqual(Y.djDockFrame(360, 760, 28), { w: 344, h: 200 }, '좁은 폰: 높이는 가장 작게 200');
+  assert.equal(Y.djDockFrame(375, 560, 28), null, '세로가 짧으면 붙이지 않는다 (게임 화면이 너무 좁아진다)');
+  assert.equal(Y.djDockFrame(874, 402, 28), null, '가로로 눕힌 화면');
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const ui = read('../src/game/djui.ts'), css = read('../src/styles.css');
+  // 화면 밖에서 재생하는 길을 만들지 않는다: 접기(가린 채 재생)·화면 밖 자리는 없다. 닫으면 플레이어를 없앤다
+  assert.ok(!ui.includes('folded') && !css.includes('#dj-panel.fold'), '접기는 없앴다');
+  assert.ok(ui.includes("this.dock(root.getBoundingClientRect().height);") && ui.includes("document.body.style.setProperty('--dj-dock', `${h}px`);"), '붙인 높이를 알린다');
+  assert.ok(css.includes('body.dj-dock #app, body.dj-dock #casino { top: var(--dj-dock, 0px); }'), '게임 화면이 그만큼 내려간다');
+  assert.ok(ui.includes("djClampY(pos.y, window.innerHeight, headH, top, frame.getBoundingClientRect().height)"), '끌어도 영상의 절반은 남는다');
+  assert.ok(ui.includes("if (m === 'max' && document.fullscreenEnabled) void root.requestFullscreen?.()"), '전체 화면은 창 전체(제목 줄 포함)');
+  // 영상 위에 다른 것을 겹치지 않는다: 붙인 동안 알림은 게임 화면 쪽으로 내린다
+  assert.ok(css.includes('body.dj-dock #toasts { top: calc(var(--dj-dock, 0px) + 48px); }'));
+});
+
+test('마와폰: 장비 품목이고, 가지면 어디서나 유튜브 화면을 켜고 예약한다', async () => {
+  const shop = await import('../src/shared/shop.ts');
+  const it = shop.itemById(shop.MAWAPHONE_ID);
+  assert.ok(it && it.kind === 'gear' && it.price === 30000 && shop.isOwnItem(it.id), '보관함에 들어가는 장비 30,000');
+  assert.ok(shop.GEAR_GOODS.includes(it));
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const world = read('../src/game/world.ts'), dj = read('../src/game/dj.ts'), input = read('../src/game/input.ts'), hud = read('../src/game/ui.ts');
+  assert.ok(world.includes('private tvUsable(): boolean { return this.mapId === CLUB_MAP_ID || this.wallet.owns(MAWAPHONE_ID); }'), '클럽 안이거나 마와폰 보유');
+  assert.ok(world.includes('private tvBlocked(): boolean { return this.mafia.active && this.mafia.isParticipant(this.uid); }'), '마피아 게임 중에는 못 켠다');
+  assert.ok(world.includes('this.dj.setActive(this.mapId === CLUB_MAP_ID || want);'), '켜 둔 동안에만 클럽 밖에서 구독한다');
+  assert.ok(dj.includes('canReserve(): boolean { return this.w.wallet.owns(MAWAPHONE_ID) || this.atBooth(); }'));
+  assert.equal((dj.match(/if \(!this\.canReserve\(\)\) return 'spot';/g) || []).length, 2, '제목을 읽기 전과 읽은 뒤 둘 다');
+  assert.ok(input.includes("KeyY: 'tv'") && world.includes("if (a === 'tv') { this.toggleTv(); return; }"), 'Y 키');
+  assert.ok(hud.includes("const tvB = act('📺', '유튜브 화면 켜기 · 끄기', () => h.tv());") && hud.includes('btns.append(scB, tvB, tB, pullB, pushB, fB, rB);'), '폰: 말랑이 위에 📺, 그 위에 🏁');
+});
+
+test('대회 점수판: TAB 은 누르는 동안, 고정하면 켜고 끄기. 폰은 🏁 버튼', async () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const input = read('../src/game/input.ts'), ui = read('../src/game/contestui.ts'), mgr = read('../src/game/contest.ts'), hud = read('../src/game/ui.ts');
+  assert.ok(input.includes("if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) this.onAction?.({ board: true }); return; }"), '누름');
+  assert.ok(input.includes("if (e.code === 'Tab') this.onAction?.({ board: false });"), '뗌은 언제나 알린다');
+  assert.ok(/addEventListener\('blur', \(\) => \{[^\n]*this\.onAction\?\.\(\{ board: false \}\);/.test(input), '창이 뒤로 가면 닫는다');
+  assert.ok(ui.includes('if (this.pinned) this.open = !this.open; else this.held = true;'), '고정이면 토글, 아니면 누르는 동안');
+  assert.ok(ui.includes("if (scPin && e.type === 'pointerup') h.boardPin();") || hud.includes("if (scPin && e.type === 'pointerup') h.boardPin();"), '폰: 누른 채 아래로 내렸다 떼면 고정');
+  // 순위는 판이 떠 있는 동안에만, 15초마다 읽는다 (구독하지 않는다)
+  const c = await import('../src/shared/contest.ts');
+  assert.equal(c.CONTEST_RANK_POLL_MS, 15000);
+  assert.ok(mgr.includes('if (this.watching) this.pollRank();') && mgr.includes('get(ref(db, `fish/contest/${a.key}`))') && !/onValue\(ref\(db, `fish\/contest/.test(mgr));
+  assert.ok(read('../src/game/fishing.ts').includes('if (contest) w.contest.noteCatch(pts);'), '내가 낚은 것은 바로 반영');
 });
 
 // ---- 2026-11-20: 말풍선 꾸미기 ----

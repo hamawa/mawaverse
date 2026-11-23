@@ -105,6 +105,7 @@ export interface WorldCtx {
   batReport(ok: Promise<boolean>, hits: { rp: RemotePlayer; kind: 0 | 1 | 2 }[], wait?: number): void; // 빠따를 쓴 결과를 상대의 반응을 보고 한 줄로 알린다 (world.ts batReport)
   banner(title: string, sub?: string): void; // 화면 가운데 큰 배너 (신화 등급 소식)
   raining(): boolean;                        // 지금 내가 있는 곳에 비가 오나 (바깥 맵만. shared/weather.ts)
+  snowing(): boolean;                        // 그 비가 눈인가 (눈 오는 철. 눈 한정 종이 나온다)
   sitting(): boolean;                        // 벤치·의자·소파에 앉아 있나
   forceLogout(reason: string, replaced?: boolean): void;
   isTileVisible(x: number, y: number): boolean;

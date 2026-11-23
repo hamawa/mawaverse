@@ -171,8 +171,11 @@ export const GEAR_GOODS: ShopItem[] = [
   { id: 'tossbag', kind: 'gear', name: '말랑이 보따리', price: 10000, icon: '🎁', desc: '말랑이를 앞 4칸 × 옆 4칸 안의 모두에게 한꺼번에 던진다. 영구.' },
   { id: 'pusharmor', kind: 'gear', name: '철벽 갑옷', price: 10000, icon: '🛡', desc: '입고 있으면 밀치기가 안 먹힌다. 입고 벗을 수 있음. 영구.' },
   { id: 'tossarmor', kind: 'gear', name: '푹신 갑옷', price: 10000, icon: '🧥', desc: '입고 있으면 말랑이를 맞아도 멀쩡하다. 입고 벗을 수 있음. 영구.' },
+  { id: 'mawaphone', kind: 'gear', name: '마와폰', price: 30000, icon: '📱', desc: '어느 맵에서나 클럽 방송(유튜브)을 보고 노래를 예약한다. Y 키(폰은 📺 버튼)로 켜고 끈다. 마피아 게임 중에는 쓸 수 없다. 영구.' },
   { id: 'hook', kind: 'gear', name: '갈고리', price: 20000, icon: '⚓', desc: '끌기(R)를 할 때 바로 앞에 아무도 없으면 앞 4칸 × 옆 4칸 안의 한 명을 무작위로 내 앞까지 끌어온다. 철벽 갑옷은 못 끈다. 영구.' },
 ];
+// 마와폰 (2026-11-24, 사용자 요청): 가지고 있으면 어느 맵에서나 클럽 방송(유튜브 창)을 보고 예약한다. 규칙의 club 블록이 이 품목의 보유를 본다 (글자로 들어 있다)
+export const MAWAPHONE_ID = 'mawaphone';
 export type ArmorKey = 'pa' | 'ta';
 export const ARMOR_KEY: Partial<Record<string, ArmorKey>> = { pusharmor: 'pa', tossarmor: 'ta' };
 
