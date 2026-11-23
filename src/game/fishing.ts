@@ -118,7 +118,7 @@ export class Fishing {
     const stars = wallet.fishStarsFor(fam);
     // 미끼: 꽝·일반 제외(희귀 이상 확정)만. 영웅·전설 배수는 없다 (2026-11-09 두 번째 조정). 신화는 장비·미끼·강화와 무관 (collection.ts)
     const opt = { boost: ROD_BOOST[rod], junkMul: ROD_JUNK[rod], tierMul: starFactor(stars), ...(baited ? { noJunk: true, minRarity: 1 } : {}) };
-    this.fish = fam === 'ice' ? pickWinterFish(undefined, opt) : pickFish(undefined, undefined, { contest: !!this.w.contest.active(), rain: this.w.raining(), ...opt });
+    this.fish = fam === 'ice' ? pickWinterFish(undefined, opt) : pickFish(undefined, undefined, { contest: !!this.w.contest.active(), rain: this.w.raining(), snow: this.w.snowing(), ...opt });
     this.state = 'cast';
     this.castAt = performance.now();
     this.show(t, wallet.autoReelActive(), rod, wallet.shownStarsFor(fam));

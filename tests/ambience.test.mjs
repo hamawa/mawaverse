@@ -338,6 +338,65 @@ test('노래 예약: 규칙의 숫자가 화면의 숫자와 같고, 넘기는 �
   assert.deepEqual([...Y.DJ_DEAD_CODES], [100, 101, 150], '없는 영상·막힌 영상만 스스로 넘긴다 (기기 탓인 오류로 남의 곡을 넘기지 않는다)');
 });
 
+// ---------- 2026-11-23 건의: 낚시 대회 상금·참가상·메달, 눈 오는 날 한정 채집 ----------
+test('낚시 대회: 상금·참가상 계산과 순위 순서, 규칙의 숫자가 같다', async () => {
+  const c = await import('../src/shared/contest.ts');
+  assert.deepEqual([...c.CONTEST_PRIZES], [30000, 20000, 10000]); // 사용자가 정한 금액 (2026-11-23)
+  assert.deepEqual([c.CONTEST_JOIN_MIN, c.CONTEST_JOIN_PRIZE], [100, 5000]);
+  assert.ok(/^\d{8}$/.test(c.CONTEST_PRIZE_FROM) && c.CONTEST_PRIZE_FROM > '20261123', '이 기능을 넣기 전에 끝난 대회에는 주지 않는다 (사용자가 정하면 내린다)');
+  // 1~3등은 순위 상금, 100마리 이상이면 참가상을 더 받는다. 순위 밖이고 100마리가 안 되면 없다
+  assert.deepEqual([c.contestPrize(0, 400), c.contestPrize(1, 99), c.contestPrize(2, 100), c.contestPrize(-1, 100), c.contestPrize(-1, 99), c.contestPrize(3, 500)], [35000, 20000, 15000, 5000, 0, 5000]);
+  // 순위: 점수 → 마릿수 → 먼저 닿은 사람. 결과 칸은 참가자가 아니다
+  const rows = c.contestRows({ a: { n: 'A', p: 10, c: 5, at: 9 }, b: { n: 'B', p: 30, c: 1, at: 5 }, d: { n: 'D', p: 10, c: 7, at: 9 }, e: { n: 'E', p: 10, c: 7, at: 3 }, result: { at: 1, top: [] } });
+  assert.deepEqual(rows.map((r) => r.u), ['b', 'e', 'd', 'a']);
+  assert.deepEqual(c.contestRows(null), []);
+  // 메달: 결과를 읽었으면 1~3등, 아직이면 챔피언 칸의 1등만
+  assert.deepEqual(['x', 'y', 'z', 'w'].map((u) => c.contestMedal(u, 'x', ['x', 'y', 'z'])), ['🏆', '🥈', '🥉', '']);
+  assert.deepEqual(['x', 'y'].map((u) => c.contestMedal(u, 'x', null)), ['🏆', '']);
+  // 규칙 (fish/cprize, 손으로 넣은 줄)의 금액·마릿수가 같은 값이다
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const rules = read('../database.rules.json');
+  const line = rules.slice(rules.indexOf('"cprize"'), rules.indexOf('"best"'));
+  assert.ok(line.includes("top/0/u').val() == $uid ? 30000") && line.includes("top/1/u').val() == $uid ? 20000") && line.includes("top/2/u').val() == $uid ? 10000"), '순위 상금');
+  assert.ok(line.includes("'/c').val() >= 100 ? 5000 : 0"), '참가상');
+  assert.ok(line.includes('!data.exists() && newData.exists()'), '한 번만 받는다 (지울 수도 없다)');
+  // 화면: 상금은 지갑과 받았다는 표시를 쓰기 한 번에, 이름표의 메달은 1~3등
+  assert.ok(read('../src/game/wallet.ts').includes('[`${W}/c`]: increment(amount), [`${W}/e`]: increment(amount), [`fish/cprize/${key}/${uid}`]: amount'));
+  assert.ok(read('../src/game/world.ts').includes('const m = this.contest.medal(uid) + this.weekTop.marks(uid);'));
+  const mgr = read('../src/game/contest.ts');
+  assert.ok(mgr.includes('get(ref(db, `fish/contest/${win.key}/${uid}/c`))'), '마릿수는 받기 직전에 다시 읽는다');
+  assert.ok(mgr.includes('if (win.key < CONTEST_PRIZE_FROM || this.claiming.has(win.key)) return;'), '시작 날짜 앞의 대회는 건너뛴다');
+  assert.equal((mgr.match(/void this\.claim\(win, /g) || []).length, 3, '결과를 알게 되는 세 길 모두에서 받는다');
+});
+
+test('눈 오는 날 한정 채집: 눈이 올 때만 풀에 들어오고, 규칙이 그 시간대를 받는다', async () => {
+  const { timeActive, DEF_TIMES, TIME_LABEL } = await import('../src/shared/collection.ts');
+  const { DEFAULT_BUGS, bugColl } = await import('../src/shared/bugs.ts');
+  const at = new Date(2026, 10, 23, 15, 0, 0);
+  assert.deepEqual([timeActive('snow', at), timeActive('snow', at, false, true), timeActive('snow', at, false, true, true)], [false, false, true]);
+  assert.equal(timeActive('rain', at, false, true, true), true, '비 한정은 눈이 올 때도 나온다');
+  assert.ok(TIME_LABEL.snow && DEF_TIMES.includes('snow'));
+  const snow = DEFAULT_BUGS.filter((f) => f.time === 'snow');
+  assert.deepEqual(snow.map((f) => [f.id, f.rarity]), [['snowsled', 1], ['snowdeer', 3], ['snowsanta', 4]]); // 건의대로: 썰매 희귀 · 루돌프 전설 · 산타 신화
+  // 가중치는 같은 등급의 기존 종을 넘지 않는다 (호랑나비 6 · 황금 무당벌레 0.5 · 요정 0.002)
+  const w = (id) => DEFAULT_BUGS.find((f) => f.id === id).w;
+  assert.ok(w('snowsled') <= w('swallowtail') && w('snowdeer') <= w('goldbug') && w('snowsanta') <= w('fairy'));
+  let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let i = 0; i < 4000; i++) assert.notEqual(bugColl.pick(rnd, at, { rain: true }).time, 'snow', '눈이 아니면 나오지 않는다');
+  let got = 0; for (let i = 0; i < 4000; i++) if (bugColl.pick(rnd, at, { rain: true, snow: true }).time === 'snow') got++;
+  assert.ok(got > 50, '눈이 오면 나온다');
+  // 화면: 벌레를 뽑을 때 날씨를 넘긴다. 눈 = 눈 오는 철의 비
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  assert.ok(read('../src/game/bugs.ts').includes('bugColl.pick(undefined, undefined, { rain: this.w.raining(), snow: this.w.snowing() })'));
+  assert.ok(read('../src/game/world.ts').includes('snowing(): boolean { return this.raining() && snowSeason(serverNow()); }'));
+  // 규칙: 곤충 목록의 시간대에 snow 가 있다 (없으면 관리자 화면의 첫 저장이 통째로 거부된다: 2026-11-05 에 겪은 일)
+  const rules = read('../database.rules.json');
+  const times = [...rules.matchAll(/"time": \{ "\.validate": "([^"]+)" \}/g)].map((m) => m[1]);
+  assert.equal(times.length, 2);
+  for (const t of DEF_TIMES) assert.ok(times[0].includes(`'${t}'`), `물고기 ${t}`);
+  for (const t of DEFAULT_BUGS.map((f) => f.time).filter(Boolean)) assert.ok(times[1].includes(`'${t}'`), `곤충 ${t}`);
+});
+
 // ---------- 2026-11-23 건의·제보: 이름표 효과는 닉네임에만 · 별가루는 밤에 빛난다 · 찌를 기다리는 중의 F ----------
 test('이름표: 닉네임 앞뒤의 표시는 따로 넘기고, 이름표 효과는 닉네임에만 입힌다', () => {
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');

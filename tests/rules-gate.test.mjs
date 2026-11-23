@@ -1373,5 +1373,47 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await root.ref().update({ players: null, users: null, homes: null, homepic: null, fires: null, wallet: null, 'approved/THIRD': null, 'approved/OTHER': null });
 }
 
+// ---- 낚시 대회 상금 (2026-11-23, fish/cprize) · 눈 한정 종의 시간대 ----
+{
+  await setNow('2026-11-14 12:00:00');
+  const third = as('THIRD');
+  const inc = (n) => ServerValue.increment(n);
+  const entry = (n, p, c) => ({ n, p, c, at: 1 });
+  await root.ref().update({ 'approved/OK': true, 'approved/OTHER': true, 'approved/THIRD': true, 'config/hoursBlock': null,
+    users: { OK: profile('ok', '승인됨'), OTHER: profile('other', '남'), THIRD: profile('third', '셋째'), PEND: profile('pend', '대기중') },
+    wallet: { OK: { c: 1000, e: 1000 }, OTHER: { c: 1000, e: 1000 }, THIRD: { c: 1000, e: 1000 }, PEND: { c: 1000, e: 1000 } },
+    'fish/contest': { K1: { OK: entry('승인됨', 500, 120), OTHER: entry('남', 300, 40), THIRD: entry('셋째', 100, 150), PEND: entry('대기중', 50, 200) }, K2: { THIRD: entry('셋째', 10, 30), OTHER: entry('남', 5, 99) } },
+    'fish/cprize': null });
+  // 화면이 쓰는 모양 그대로: 지갑 +금액(c·e)과 받았다는 표시를 쓰기 한 번에 (WalletMgr.contestPrize)
+  const claim = (db, uid, key, amount) => db.ref().update({ [`wallet/${uid}/c`]: inc(amount), [`wallet/${uid}/e`]: inc(amount), [`fish/cprize/${key}/${uid}`]: amount });
+  await expect('대회 상금: 결과가 나오기 전에는 못 받는다', 'deny', () => claim(ok, 'OK', 'K1', 35000));
+  await root.ref().update({ 'fish/contest/K1/result': { at: 1, top: [{ u: 'OK', n: '승인됨', p: 500 }, { u: 'OTHER', n: '남', p: 300 }] }, 'fish/contest/K2/result': { at: 1, top: [{ u: 'A', n: 'a', p: 9 }, { u: 'B', n: 'b', p: 8 }, { u: 'THIRD', n: '셋째', p: 10 }] } });
+  await expect('대회 상금: 1등이 순위 상금만 적기 (참가상을 빼먹음)', 'deny', () => claim(ok, 'OK', 'K1', 30000));
+  await expect('대회 상금: 1등이 더 많이 적기', 'deny', () => claim(ok, 'OK', 'K1', 40000));
+  await expect('대회 상금: 1등 + 참가상 (100마리 이상)', 'allow', () => claim(ok, 'OK', 'K1', 35000));
+  await expect('대회 상금: 두 번 받기', 'deny', () => claim(ok, 'OK', 'K1', 35000));
+  await expect('대회 상금: 받은 표시 지우기', 'deny', () => ok.ref('fish/cprize/K1/OK').remove());
+  await expect('대회 상금: 2등인데 100마리가 안 되면 참가상은 없다', 'deny', () => claim(other, 'OTHER', 'K1', 25000));
+  await expect('대회 상금: 2등 상금', 'allow', () => claim(other, 'OTHER', 'K1', 20000));
+  await expect('대회 상금: 순위 밖이 순위 상금 적기', 'deny', () => claim(third, 'THIRD', 'K1', 10000));
+  await expect('대회 상금: 순위 밖 100마리 이상은 참가상만', 'allow', () => claim(third, 'THIRD', 'K1', 5000));
+  await expect('대회 상금: 남의 표시를 대신 쓰기', 'deny', () => other.ref('fish/cprize/K2/THIRD').set(10000));
+  await expect('대회 상금: 3등인데 100마리가 안 되면 참가상은 없다', 'deny', () => claim(third, 'THIRD', 'K2', 15000));
+  await expect('대회 상금: 3등 상금', 'allow', () => claim(third, 'THIRD', 'K2', 10000));
+  await expect('대회 상금: 순위 밖이고 99마리면 받을 것이 없다', 'deny', () => claim(other, 'OTHER', 'K2', 5000));
+  await expect('대회 상금: 0 을 적기', 'deny', () => other.ref('fish/cprize/K2/OTHER').set(0));
+  await expect('대회 상금: 승인 안 된 사용자', 'deny', () => claim(pend, 'PEND', 'K1', 5000));
+  await expect('대회 상금: 승인된 사용자는 표시를 읽는다', 'allow', () => other.ref('fish/cprize/K1/OK').get());
+  const w = (await root.ref('wallet').get()).val();
+  await expect('대회 상금: 받은 만큼만 지갑에 들어왔다', 'allow', async () => { if (w.OK.c !== 36000 || w.OK.e !== 36000 || w.OTHER.c !== 21000 || w.THIRD.c !== 16000) throw new Error('permission: 지갑 값이 다르다 ' + JSON.stringify(w)); });
+  // 눈 한정 종 (시간대 snow): 관리자가 곤충·물고기 목록에 적을 수 있다. 곤충에 대회 한정은 여전히 없다
+  const def = (time) => ({ name: '빈 썰매', icon: '🛷', rarity: 1, min: 900, max: 1500, w: 6, time, desc: '눈 오는 날에만', ord: 1 });
+  await expect('도감 목록: 곤충의 눈 한정', 'allow', () => admin.ref('bug/defs/snowsled').set(def('snow')));
+  await expect('도감 목록: 곤충의 대회 한정은 없다', 'deny', () => admin.ref('bug/defs/x1').set(def('contest')));
+  await expect('도감 목록: 물고기의 눈 한정', 'allow', () => admin.ref('fish/defs/x2').set(def('snow')));
+  await expect('도감 목록: 모르는 시간대', 'deny', () => admin.ref('fish/defs/x3').set(def('storm')));
+  await root.ref().update({ users: null, wallet: null, 'fish/contest': null, 'fish/cprize': null, 'fish/defs': null, 'bug/defs': null, 'approved/THIRD': null, 'approved/OTHER': null });
+}
+
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
 process.exit(fail ? 1 : 0);

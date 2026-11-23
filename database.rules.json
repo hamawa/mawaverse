@@ -650,7 +650,7 @@
           "min": { ".validate": "newData.isNumber() && newData.val() >= 0" },
           "max": { ".validate": "newData.isNumber() && newData.val() >= 0" },
           "w": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-          "time": { ".validate": "newData.val() == 'lunch' || newData.val() == 'night' || newData.val() == 'contest' || newData.val() == 'dawn' || newData.val() == 'rain'" },
+          "time": { ".validate": "newData.val() == 'lunch' || newData.val() == 'night' || newData.val() == 'contest' || newData.val() == 'dawn' || newData.val() == 'rain' || newData.val() == 'snow'" },
           "desc": { ".validate": "newData.isString() && newData.val().length <= 80" },
           "on": { ".validate": "newData.isBoolean()" },
           "ord": { ".validate": "newData.isNumber()" },
@@ -689,6 +689,14 @@
         ".write": "auth != null",
         ".validate": "newData.hasChildren(['u', 'n', 'key']) && newData.child('u').isString() && newData.child('n').isString() && newData.child('key').isString()"
       },
+      "cprize": {
+        "$key": {
+          "$uid": {
+            ".write": "auth != null && auth.uid == $uid && !data.exists() && newData.exists()",
+            ".validate": "newData.isNumber() && newData.val() > 0 && root.child('fish/contest/' + $key + '/result').exists() && newData.val() == (root.child('fish/contest/' + $key + '/result/top/0/u').val() == $uid ? 30000 : (root.child('fish/contest/' + $key + '/result/top/1/u').val() == $uid ? 20000 : (root.child('fish/contest/' + $key + '/result/top/2/u').val() == $uid ? 10000 : 0))) + (root.child('fish/contest/' + $key + '/' + $uid + '/c').val() >= 100 ? 5000 : 0)"
+          }
+        }
+      },
       "best": {
         "$fid": {
           ".write": "auth != null && newData.exists() && newData.child('u').val() == auth.uid && (!data.exists() || newData.child('s').val() > data.child('s').val())",
@@ -718,7 +726,7 @@
           "min": { ".validate": "newData.isNumber() && newData.val() >= 0" },
           "max": { ".validate": "newData.isNumber() && newData.val() >= 0" },
           "w": { ".validate": "newData.isNumber() && newData.val() >= 0" },
-          "time": { ".validate": "newData.val() == 'lunch' || newData.val() == 'night'" },
+          "time": { ".validate": "newData.val() == 'lunch' || newData.val() == 'night' || newData.val() == 'dawn' || newData.val() == 'rain' || newData.val() == 'snow'" },
           "desc": { ".validate": "newData.isString() && newData.val().length <= 80" },
           "on": { ".validate": "newData.isBoolean()" },
           "ord": { ".validate": "newData.isNumber()" },

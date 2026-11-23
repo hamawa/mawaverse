@@ -52,7 +52,7 @@ function setup({ auto = false } = {}) {
     me: { x: 6, y: 5, dir: 1, moving: false, locked: false, roomId: null },
     wallet: { bait: 0, baitOn: false, kingStars: 0, autoReelActive: () => auto, fishStarsFor: () => 0, shownStarsFor: () => 0, takeBait: async () => {}, earn: async () => {} },
     contest: { active: () => null, multiplier: () => 1 },
-    toast: () => {}, catchNote: () => {}, fishCaught: () => {}, banner: () => {}, catchLog: { add: () => {} }, raining: () => false,
+    toast: () => {}, catchNote: () => {}, fishCaught: () => {}, banner: () => {}, catchLog: { add: () => {} }, raining: () => false, snowing: () => false,
   };
   // 가짜 Net: 쓴 찌를 기록하고, echo 가 켜져 있으면 서버에도 그대로 올라간 것으로 보여 준다
   const net = {

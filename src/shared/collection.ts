@@ -8,9 +8,10 @@ export const MYTHIC: Rarity = 4;
 // 코인 보상 1000(대회 2000)은 지갑 규칙의 md 분기(하루 한 번, 10분 창 상한 제외)로 지급된다 (tools/gen-rules.cjs)
 
 // dawn·rain (2026-11-18): 새벽(5시~7시 반: 낮밤 효과에서 동이 트는 시간)과 비 오는 동안(shared/weather.ts)
-export type DefTime = 'lunch' | 'night' | 'contest' | 'dawn' | 'rain';
-export const TIME_LABEL: Record<DefTime, string> = { lunch: '점심시간(12~13시)에만', night: '퇴근 후(18시 이후)에만', contest: '낚시 대회 중에만', dawn: '새벽(5시~7시 반)에만', rain: '비·눈이 오는 동안에만' };
-export const DEF_TIMES: readonly DefTime[] = ['lunch', 'night', 'contest', 'dawn', 'rain'];
+// snow (2026-11-23, 건의 반영): 눈이 오는 동안. 눈 오는 철(shared/season.ts snowSeason)의 비가 눈이다. 비 한정(rain)은 눈이 올 때도 나오지만 눈 한정은 눈일 때만 나온다
+export type DefTime = 'lunch' | 'night' | 'contest' | 'dawn' | 'rain' | 'snow';
+export const TIME_LABEL: Record<DefTime, string> = { lunch: '점심시간(12~13시)에만', night: '퇴근 후(18시 이후)에만', contest: '낚시 대회 중에만', dawn: '새벽(5시~7시 반)에만', rain: '비·눈이 오는 동안에만', snow: '눈이 오는 동안에만' };
+export const DEF_TIMES: readonly DefTime[] = ['lunch', 'night', 'contest', 'dawn', 'rain', 'snow'];
 
 export interface CollDef {
   id: string;
@@ -29,12 +30,13 @@ export interface CollDef {
 export interface CollDefRecord { name: string; icon: string; rarity: Rarity; junk?: boolean; min: number; max: number; w: number; time?: DefTime; desc: string; on?: boolean; ord: number }
 // pick 옵션: noJunk 꽝 제외, minRarity 그 등급 미만 제외(미끼: 희귀 이상만), boost 희귀 이상 가중치 배수(낚싯대), heroMul 영웅 이상 가중치 배수(지금은 안 씀), junkMul 꽝 가중치 배수(낚싯대),
 // tierMul 등급 거듭제곱 배수(낚싯대 강화: 등급 r 의 가중치 × tierMul^r, 2026-11-10), contest 대회 한정 종 포함. 신화에는 어느 배수도 안 붙는다
-export interface PickOpt { noJunk?: boolean; minRarity?: number; boost?: number; heroMul?: number; junkMul?: number; tierMul?: number; contest?: boolean; rain?: boolean } // rain: 지금 비가 온다 (비 한정 종 포함)
+export interface PickOpt { noJunk?: boolean; minRarity?: number; boost?: number; heroMul?: number; junkMul?: number; tierMul?: number; contest?: boolean; rain?: boolean; snow?: boolean } // rain: 지금 비가 온다 (비 한정 종 포함), snow: 지금 눈이 온다 (눈 한정 종 포함)
 
-export function timeActive(t: DefTime | undefined, d = new Date(), contest = false, rain = false): boolean {
+export function timeActive(t: DefTime | undefined, d = new Date(), contest = false, rain = false, snow = false): boolean {
   if (!t) return true;
   if (t === 'contest') return contest;
   if (t === 'rain') return rain;
+  if (t === 'snow') return snow;
   const h = d.getHours();
   if (t === 'dawn') { const m = h * 60 + d.getMinutes(); return m >= 300 && m < 450; }
   if (t === 'lunch') return h === 12;
@@ -63,7 +65,7 @@ export class Collection {
   defaultById(id: string): CollDef | undefined { return this.defaultMap.get(id); }
 
   // 그 시각에 뽑힐 수 있는 목록
-  pool(d = new Date(), list = this.active(), contest = false, rain = false): CollDef[] { return list.filter((f) => timeActive(f.time, d, contest, rain)); }
+  pool(d = new Date(), list = this.active(), contest = false, rain = false, snow = false): CollDef[] { return list.filter((f) => timeActive(f.time, d, contest, rain, snow)); }
   // 관리자 화면용: 그 풀에서 id 가 뽑힐 확률 (0~1)
   chance(id: string, pool: CollDef[]): number {
     const total = pool.reduce((s, x) => s + x.w, 0);
@@ -72,8 +74,8 @@ export class Collection {
   }
   // 가중치로 하나 고른다. 관리자가 전부 꺼 두었으면 기본 목록에서
   pick(rand = Math.random, d = new Date(), opt?: PickOpt): CollDef {
-    let pool = this.pool(d, this.active(), !!opt?.contest, !!opt?.rain);
-    if (!pool.length || pool.every((f) => f.w <= 0)) pool = this.pool(d, this.defaults, !!opt?.contest, !!opt?.rain);
+    let pool = this.pool(d, this.active(), !!opt?.contest, !!opt?.rain, !!opt?.snow);
+    if (!pool.length || pool.every((f) => f.w <= 0)) pool = this.pool(d, this.defaults, !!opt?.contest, !!opt?.rain, !!opt?.snow);
     // 신화는 장비·미끼 배수를 타지 않도록 먼저 따로 굴린다 (확률 = w / 풀 전체 w)
     const myth = pool.filter((f) => !f.junk && f.rarity >= MYTHIC);
     if (myth.length) {

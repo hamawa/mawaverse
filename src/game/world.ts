@@ -652,7 +652,7 @@ export class World implements WorldCtx {
   snowPenaltyActive(): boolean { return snowActive(this.snowBrokenAt, serverNow()); }
   guardBroken(): boolean { return serverNow() < this.guardUntil || this.snowPenaltyActive(); }
   // 이름표 앞의 표시: 낚시 대회 우승 🏆 · 지난 주 랭킹 1위 🎣🐛🧸 (2026-11-21. 여럿이면 붙여 쓰고 한 칸 띈다)
-  private nickMarks(uid: string): string { const m = (this.contest.isChampion(uid) ? '🏆' : '') + this.weekTop.marks(uid); return m ? `${m} ` : ''; }
+  private nickMarks(uid: string): string { const m = this.contest.medal(uid) + this.weekTop.marks(uid); return m ? `${m} ` : ''; } // 대회 1~3등 🏆 · 🥈 · 🥉 + 주간 1위
   breakGuard(byNick: string, dark = false): void {
     if (this.home.useShield(byNick, dark)) return; // 겨울잠으로 쌓은 든든함: 빠따 한 번을 막는다 (방어가 안 깨지니 갑옷·펫이 그대로 막는다. 상대 빠따는 소모됐다)
     this.guardUntil = serverNow() + GUARD_BREAK_MS;
@@ -975,6 +975,7 @@ export class World implements WorldCtx {
   private outdoors(): boolean { return !isHomeMapId(this.mapId) && this.mapId !== GOLD_MINE_MAP_ID && this.mapId !== CLUB_MAP_ID; }
   private rainHere(): number { return this.outdoors() ? rainLevel(serverNow()) : 0; }
   raining(): boolean { return this.mapId !== WINTER_MAP_ID && this.rainHere() > 0; }
+  snowing(): boolean { return this.raining() && snowSeason(serverNow()); } // 눈 오는 철의 비는 눈이다 (눈 한정 채집, 2026-11-23)
   // 눈이 오는 철(11/15~1/31)에는 어느 맵에서나 비를 눈으로 그린다 (겨울 낚시터는 언제나 눈)
   private snowy(): boolean { return this.mapId === WINTER_MAP_ID || snowSeason(serverNow()); }
   private rainView(): { level: number; snow: boolean } | null { const level = this.dayOff ? 0 : this.rainHere(); return level > 0 ? { level, snow: this.snowy() } : null; }
