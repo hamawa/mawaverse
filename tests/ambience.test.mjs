@@ -865,7 +865,7 @@ test('대회 점수판: TAB 은 누르는 동안, 고정하면 켜고 끄기. �
   const input = read('../src/game/input.ts'), ui = read('../src/game/contestui.ts'), mgr = read('../src/game/contest.ts'), hud = read('../src/game/ui.ts');
   assert.ok(input.includes("if (e.code === 'Tab') { e.preventDefault(); if (!e.repeat) this.onAction?.({ board: true }); return; }"), '누름');
   assert.ok(input.includes("if (e.code === 'Tab') this.onAction?.({ board: false });"), '뗌은 언제나 알린다');
-  assert.ok(/addEventListener\('blur', \(\) => \{[^\n]*this\.onAction\?\.\(\{ board: false \}\);/.test(input), '창이 뒤로 가면 닫는다');
+  assert.ok(/onBlur = \(\): void => \{[^\n]*this\.onAction\?\.\(\{ board: false \}\);/.test(input) && input.includes("window.addEventListener('blur', this.onBlur);"), '창이 뒤로 가면 닫는다');
   assert.ok(ui.includes('if (this.pinned) this.open = !this.open; else this.held = true;'), '고정이면 토글, 아니면 누르는 동안');
   assert.ok(ui.includes("if (scPin && e.type === 'pointerup') h.boardPin();") || hud.includes("if (scPin && e.type === 'pointerup') h.boardPin();"), '폰: 누른 채 아래로 내렸다 떼면 고정');
   // 순위는 판이 떠 있는 동안에만, 15초마다 읽는다 (구독하지 않는다)
@@ -873,6 +873,42 @@ test('대회 점수판: TAB 은 누르는 동안, 고정하면 켜고 끄기. �
   assert.equal(c.CONTEST_RANK_POLL_MS, 15000);
   assert.ok(mgr.includes('if (this.watching) this.pollRank();') && mgr.includes('get(ref(db, `fish/contest/${a.key}`))') && !/onValue\(ref\(db, `fish\/contest/.test(mgr));
   assert.ok(read('../src/game/fishing.ts').includes('if (contest) w.contest.noteCatch(pts);'), '내가 낚은 것은 바로 반영');
+});
+
+// ---------- 2026-11-24 밤 (제보 두 건: 유튜브 창이 두 개 뜬다 · 집에서 F 를 누르니 "미끼를 달았다"가 뜬다) ----------
+// 원인은 하나였다: 게임에서 나가도(로그아웃·다른 곳에서 로그인되어 끊김) 그 게임의 키 리스너가 창(window)에 남아서,
+// 새로고침 없이 다시 들어오면 옛 게임이 F·Y 에 같이 반응했다 (옛 자리가 물가면 낚시를 던지고, Y 를 누르면 자기 유튜브 창을 따로 띄웠다)
+test('입력: 게임에서 나가면 키 리스너를 뗀다 (나간 게임은 F·Y 에 반응하지 않는다)', async () => {
+  const { Input } = await import('../src/game/input.ts');
+  const had = 'window' in globalThis, prev = globalThis.window;
+  const hs = new Map(); // 종류 → 걸려 있는 리스너
+  globalThis.window = {
+    addEventListener: (t, fn) => { if (!hs.has(t)) hs.set(t, new Set()); hs.get(t).add(fn); },
+    removeEventListener: (t, fn) => { hs.get(t)?.delete(fn); },
+  };
+  try {
+    const fire = (t, e) => { for (const fn of [...(hs.get(t) || [])]) fn(e); };
+    const key = (code, k) => ({ isTrusted: true, code, key: k, target: null, preventDefault() {} });
+    const count = () => [...hs.values()].reduce((n, s) => n + s.size, 0);
+    const old = new Input(), got = [];
+    old.onAction = (a) => got.push(a);
+    fire('keydown', key('KeyF', 'f')); fire('keydown', key('KeyY', 'y'));
+    assert.deepEqual(got, ['interact', 'tv'], '들어와 있는 게임은 받는다');
+    assert.equal(count(), 3, '키 누름 · 키 뗌 · 창이 뒤로 감');
+    old.dispose(); // 게임에서 나감
+    assert.equal(count(), 0, '나가면 하나도 남지 않는다');
+    const now = new Input(), got2 = []; // 새로고침 없이 다시 들어옴
+    now.onAction = (a) => got2.push(a);
+    fire('keydown', key('KeyF', 'f')); fire('keydown', key('KeyY', 'y')); fire('keydown', key('KeyE', 'e')); fire('keydown', key('ArrowLeft', 'ArrowLeft')); fire('blur', {});
+    assert.deepEqual(got, ['interact', 'tv'], '나간 게임은 더 받지 않는다');
+    assert.deepEqual(got2, ['interact', 'tv', { emote: 10 }, { board: false }], '새 게임만 받는다');
+    assert.equal(old.heldDir(), null, '방향키도 나간 게임을 움직이지 않는다');
+    assert.equal(count(), 3, '새 게임의 것만 걸려 있다');
+    now.dispose();
+  } finally { if (had) globalThis.window = prev; else delete globalThis.window; }
+  const world = readFileSync(new URL('../src/game/world.ts', import.meta.url), 'utf8');
+  assert.ok(/private async stop\(replaced = false\): Promise<void> \{\r?\n    if \(this\.stopped\) return;\r?\n    this\.stopped = true;\r?\n    this\.input\.dispose\(\);/.test(world), '나갈 때 맨 먼저 입력을 끊는다');
+  assert.ok(/private syncTv\(\): void \{\r?\n    if \(this\.stopped\) return;/.test(world), '나간 게임은 유튜브 창을 다시 띄우지도, 방송을 다시 구독하지도 않는다');
 });
 
 // ---- 2026-11-20: 말풍선 꾸미기 ----
