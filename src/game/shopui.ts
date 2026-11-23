@@ -300,7 +300,14 @@ export function openShop(h: ShopHost): void {
     for (const n of [5, 20, 50]) {
       const b = el('button', { class: 'btn small' + (n === 5 ? ' primary' : ''), text: `${n}개 ${fmtCoins(bPrice * n)}` });
       if (h.wallet.balance < bPrice * n) b.disabled = true;
-      b.onclick = async () => { b.disabled = true; if (await h.wallet.buyBait(bPrice, n)) h.toast(`🐛 미끼 ${n}개 구매`); else h.toast('코인이 모자랍니다.', true); render(); };
+      // 999개 한도(지갑 규칙)를 넘는 구매는 보내지 않고 한도라고 알린다. 전에는 규칙이 거부한 것을 "코인이 모자랍니다"로 알렸다 (2026-11-23 제보)
+      b.onclick = async () => {
+        if (h.wallet.bait + n > 999) { h.toast(`미끼는 999개까지 가질 수 있어요. (지금 ${h.wallet.bait}개)`, true); return; }
+        b.disabled = true;
+        if (await h.wallet.buyBait(bPrice, n)) h.toast(`🐛 미끼 ${n}개 구매`);
+        else h.toast(h.wallet.balance < bPrice * n ? '코인이 모자랍니다.' : '구매하지 못했습니다. 잠시 뒤에 다시 해 보세요.', true);
+        render();
+      };
       bBtns.append(b);
     }
     bRow.append(bBtns);
@@ -435,7 +442,7 @@ export function openShop(h: ShopHost): void {
       for (const n of [1, 10]) {
         const b = el('button', { class: 'btn small', text: `주문서 ${n}장 ${fmtCoins(sp * n)}` });
         if (h.wallet.balance < sp * n) { b.disabled = true; b.title = '코인이 모자랍니다'; }
-        b.onclick = async () => { b.disabled = true; if (await h.wallet.buyScrolls(sp, n)) h.toast(`📜 강화 주문서 ${n}장 구매`); else h.toast('코인이 모자랍니다.', true); render(); };
+        b.onclick = async () => { if (h.wallet.scrolls + n > 999) { h.toast(`강화 주문서는 999장까지 가질 수 있어요. (지금 ${h.wallet.scrolls}장)`, true); return; } b.disabled = true; if (await h.wallet.buyScrolls(sp, n)) h.toast(`📜 강화 주문서 ${n}장 구매`); else h.toast(h.wallet.balance < sp * n ? '코인이 모자랍니다.' : '구매하지 못했습니다. 잠시 뒤에 다시 해 보세요.', true); render(); };
         btns.append(b);
       }
       const go = el('button', { class: 'btn small primary', text: stars >= ROD_MAX_STARS ? '최고 강화' : `강화 (${Math.round(chance * 100)}%)` });
@@ -488,7 +495,7 @@ export function openShop(h: ShopHost): void {
         for (const n of [1, 10]) {
           const b = el('button', { class: 'btn small', text: `주문서 ${n}장 ${fmtCoins(sp * n)}` });
           if (h.wallet.balance < sp * n) { b.disabled = true; b.title = '코인이 모자랍니다'; }
-          b.onclick = async () => { b.disabled = true; if (await h.wallet.buyScrolls(sp, n)) h.toast(`📜 강화 주문서 ${n}장 구매`); else h.toast('코인이 모자랍니다.', true); render(); };
+          b.onclick = async () => { if (h.wallet.scrolls + n > 999) { h.toast(`강화 주문서는 999장까지 가질 수 있어요. (지금 ${h.wallet.scrolls}장)`, true); return; } b.disabled = true; if (await h.wallet.buyScrolls(sp, n)) h.toast(`📜 강화 주문서 ${n}장 구매`); else h.toast(h.wallet.balance < sp * n ? '코인이 모자랍니다.' : '구매하지 못했습니다. 잠시 뒤에 다시 해 보세요.', true); render(); };
           btns.append(b);
         }
         const go = el('button', { class: 'btn small primary', text: ks >= KING_MAX_STARS ? '최고 강화' : `강화 (${Math.round(chance * 100)}%)` });

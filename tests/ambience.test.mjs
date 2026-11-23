@@ -338,6 +338,20 @@ test('노래 예약: 규칙의 숫자가 화면의 숫자와 같고, 넘기는 �
   assert.deepEqual([...Y.DJ_DEAD_CODES], [100, 101, 150], '없는 영상·막힌 영상만 스스로 넘긴다 (기기 탓인 오류로 남의 곡을 넘기지 않는다)');
 });
 
+// ---------- 소모품 한도 안내 (2026-11-23 제보: 미끼 999개에서 더 사려 하면 "코인이 모자랍니다"가 떴다) ----------
+test('상점: 999개 한도에 걸린 구매는 코인 부족이 아니라 한도라고 알린다 (미끼·강화 주문서)', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const shop = read('../src/game/shopui.ts'), gen = read('../tools/gen-rules.cjs');
+  // 한도는 지갑 규칙의 숫자와 같아야 한다
+  assert.ok(gen.includes("child('bait', 'newData.isNumber() && newData.val() >= 0 && newData.val() <= 999')"), '규칙: 미끼 999');
+  assert.ok(gen.includes("child('es', 'newData.isNumber() && newData.val() >= 0 && newData.val() <= 999')"), '규칙: 주문서 999');
+  assert.ok(shop.includes('if (h.wallet.bait + n > 999) { h.toast(`미끼는 999개까지 가질 수 있어요.'), '미끼: 한도를 먼저 본다');
+  assert.equal(shop.split('if (h.wallet.scrolls + n > 999) { h.toast(`강화 주문서는 999장까지 가질 수 있어요.').length - 1, 2, '주문서: 두 곳(명품·킹) 모두');
+  // 구매가 거부됐을 때 코인이 충분하면 "코인이 모자랍니다"라고 하지 않는다
+  assert.ok(!/buyBait\(bPrice, n\)\) h\.toast\([^;]*\); else h\.toast\('코인이 모자랍니다\.'/.test(shop), '미끼 실패 안내');
+  assert.ok(!/buyScrolls\(sp, n\)\) h\.toast\([^;]*\); else h\.toast\('코인이 모자랍니다\.'/.test(shop), '주문서 실패 안내');
+});
+
 // ---------- 2026-11-20 묶음 (v43) ----------
 const RULES43 = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules;
 
