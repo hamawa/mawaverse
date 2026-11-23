@@ -18,7 +18,8 @@ export function youtubeId(text: string): string | null {
 }
 
 // ---- 클럽 노래 예약 (2026-11-20 밤. 진행은 game/dj.ts, 규칙은 club 블록) ----
-export const DJ_MY_MAX = 2;                // 한 사람이 걸어 둘 수 있는 예약 (규칙: 예약의 열쇠가 {uid}_0·{uid}_1 둘뿐이다)
+export const DJ_MY_MAX = 10;               // 한 사람이 걸어 둘 수 있는 예약 (규칙: 예약의 열쇠가 {uid}_0 ~ {uid}_9 열 개뿐이다. 2026-11-23 에 2 → 10, 사용자 요청: 틀어 놓고 딴짓하게)
+export const DJ_Q_MAX = 20;                // 예약 전체 한도 (화면이 지킨다: 규칙은 개수를 셀 수 없다. 둘이 한꺼번에 걸면 한두 곡 넘을 수 있다)
 export const DJ_Q_TTL_MS = 3 * 3600_000;   // 이보다 오래된 예약은 버린다 (규칙의 10800000: 그때부터 누구든 지울 수 있다)
 export const DJ_SKIP_MIN_MS = 10_000;      // 남이 선곡한 곡은 튼 지 이만큼 지나야 넘길 수 있다 (규칙의 10000)
 export const DJ_TITLE_MAX = 80;            // 제목 길이 (규칙도 같다)
@@ -33,7 +34,7 @@ export function djOrder(raw: Record<string, Omit<DjEntry, 'k'>> | null | undefin
   }
   return list.sort((a, b) => (b.p || 0) - (a.p || 0) || a.at - b.at || (a.k < b.k ? -1 : 1));
 }
-// 내 예약을 적을 빈 열쇠 (둘 다 차 있으면 null)
+// 내 예약을 적을 빈 열쇠 (열 개가 다 차 있으면 null)
 export function djSlotKey(uid: string, used: readonly string[]): string | null {
   for (let i = 0; i < DJ_MY_MAX; i++) if (!used.includes(`${uid}_${i}`)) return `${uid}_${i}`;
   return null;

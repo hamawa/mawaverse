@@ -49,7 +49,7 @@ import { openHome, openFurniturePicker, openFurnitureEdit, openGuestbook } from 
 import { StockMgr } from './stock';
 import { DjMgr } from './dj';
 import { DjPanel } from './djui';
-import { DJ_MY_MAX, DJ_DEAD_CODES } from '../shared/youtube';
+import { DJ_MY_MAX, DJ_Q_MAX, DJ_DEAD_CODES } from '../shared/youtube';
 import { openStock } from './stockui';
 import { TreeMgr } from './trees';
 import { type HomeData, homeTier, furnitureOf, canTurn, CHOP_SWINGS, SLEEP_MS } from '../shared/home';
@@ -1602,19 +1602,20 @@ export class World implements WorldCtx {
   // 목록은 열어 둔 동안 저절로 바뀐다 (dj.listen). 예약·취소·넘기기의 판정은 game/dj.ts 와 규칙이 한다
   private openDj(): void {
     const dj = this.dj;
-    const nowEl = el('div', { class: 'dj-now' }), listEl = el('div', { class: 'dj-list' });
+    const nowEl = el('div', { class: 'dj-now' }), listEl = el('div', { class: 'dj-list' }), subEl = el('div', { class: 'dj-sub', text: '예약 목록' });
     const input = el('input', { type: 'text', maxlength: '200', placeholder: 'https://youtu.be/…' });
     const addBtn = el('button', { class: 'btn primary', text: '예약' }), prioBtn = el('button', { class: 'btn', text: '⚡ 우선 예약' });
     const body = el('div', { class: 'dj-book' }, [
       nowEl,
-      el('div', { class: 'dj-sub', text: '예약 목록' }), listEl,
+      subEl, listEl,
       el('div', { class: 'field' }, [el('label', { text: '유튜브 링크를 붙여 넣으세요. 클럽에 있는 모두에게 같은 지점부터 나옵니다.' }), input]),
       el('div', { class: 'row', style: 'gap:6px;justify-content:flex-end' }, [prioBtn, addBtn]),
-      el('div', { class: 'muted', style: 'font-size:12px;line-height:1.5;margin-top:8px', text: `한 사람이 ${DJ_MY_MAX}곡까지 예약할 수 있어요. 우선 예약은 다른 예약보다 먼저 나오고 한 번에 한 곡만 걸 수 있어요. 다른 사이트에서 재생이 막힌 영상은 예약되지 않아요. 누가 무엇을 예약했는지는 관리자가 볼 수 있습니다.` }),
+      el('div', { class: 'muted', style: 'font-size:12px;line-height:1.5;margin-top:8px', text: `한 사람이 ${DJ_MY_MAX}곡까지, 모두 합쳐 ${DJ_Q_MAX}곡까지 예약할 수 있어요. 우선 예약은 다른 예약보다 먼저 나오고 한 번에 한 곡만 걸 수 있어요. 다른 사이트에서 재생이 막힌 영상은 예약되지 않아요. 누가 무엇을 예약했는지는 관리자가 볼 수 있습니다.` }),
     ]);
     const FAIL: Record<string, string> = {
       bad: '유튜브 링크가 아니에요. 영상 주소를 붙여 넣어 주세요.', spot: 'DJ 기계 옆에 서 있어야 예약할 수 있어요.',
       full: `한 사람이 ${DJ_MY_MAX}곡까지 예약할 수 있어요. 내 예약이 나오거나 취소하면 다시 걸 수 있어요.`, prio: '우선 예약은 한 번에 한 곡만 걸 수 있어요.',
+      qfull: `예약이 ${DJ_Q_MAX}곡으로 꽉 찼어요. 한 곡이 나오면 다시 걸 수 있어요.`,
       blocked: '다른 사이트에서 재생이 막힌 영상이에요. 다른 영상을 골라 주세요.', missing: '없는 영상이거나 비공개예요.', fail: '예약하지 못했습니다. 잠시 뒤에 다시 해 보세요.',
     };
     const name = (e: { v: string; t?: string }): string => e.t || `유튜브 영상 (${e.v})`;
@@ -1632,6 +1633,7 @@ export class World implements WorldCtx {
         ...(cur ? [el('div', { class: 'dj-who', text: cur.n })] : []),
         ...(cur && dj.canSkip() ? [small('넘기기', () => dj.skip(), '🎧 다음 곡으로 넘겼습니다.', '넘기지 못했습니다.')] : []),
       ]));
+      subEl.textContent = `예약 목록 (${dj.queue.length}/${DJ_Q_MAX})`;
       listEl.innerHTML = '';
       if (!dj.queue.length) listEl.append(el('div', { class: 'muted', style: 'font-size:12px;padding:6px 0', text: '예약된 노래가 없어요.' }));
       dj.queue.forEach((e, i) => listEl.append(el('div', { class: 'dj-row' }, [
@@ -1639,7 +1641,7 @@ export class World implements WorldCtx {
         el('div', { class: 'dj-who', text: e.n }),
         ...(dj.canCancel(e) ? [small('취소', () => dj.cancel(e.k), '🎧 예약을 취소했습니다.', '취소하지 못했습니다.')] : []),
       ])));
-      addBtn.disabled = busy || mine.length >= DJ_MY_MAX;
+      addBtn.disabled = busy || mine.length >= DJ_MY_MAX || dj.queue.length >= DJ_Q_MAX;
       prioBtn.disabled = addBtn.disabled || mine.some((e) => !!e.p);
     };
     const book = async (prio: boolean): Promise<void> => {

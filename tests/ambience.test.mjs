@@ -297,11 +297,14 @@ test('노래 예약: 우선 예약이 먼저, 그 안에서는 먼저 건 것부
   assert.deepEqual(list.map((e) => e.k), ['b_0', 'a_1', 'a_0']);
   assert.equal(list[1].t, '제목'); assert.equal(list[0].p, 1); assert.equal(list[2].p, undefined);
   assert.deepEqual(Y.djOrder(null, now), []);
-  // 한 사람 두 곡: 열쇠가 둘뿐이다
-  assert.equal(Y.DJ_MY_MAX, 2);
+  // 한 사람 열 곡: 열쇠가 {uid}_0 ~ {uid}_9 열 개뿐이다 (2026-11-23 에 두 곡 → 열 곡). 전체 20곡은 화면이 지킨다
+  assert.equal(Y.DJ_MY_MAX, 10); assert.equal(Y.DJ_Q_MAX, 20);
   assert.equal(Y.djSlotKey('me', []), 'me_0');
   assert.equal(Y.djSlotKey('me', ['me_0', 'you_0', 'you_1']), 'me_1');
-  assert.equal(Y.djSlotKey('me', ['me_1', 'me_0']), null);
+  assert.equal(Y.djSlotKey('me', ['me_1', 'me_0']), 'me_2');
+  const all = [...Array(10).keys()].map((i) => `me_${i}`);
+  assert.equal(Y.djSlotKey('me', all.filter((k) => k !== 'me_7')), 'me_7');
+  assert.equal(Y.djSlotKey('me', all), null);
   // 제목
   assert.equal(Y.djCleanTitle('  가나\n다   라 '), '가나 다 라');
   assert.equal(Y.djCleanTitle('x'.repeat(200)).length, Y.DJ_TITLE_MAX);
@@ -316,8 +319,16 @@ test('노래 예약: 규칙의 숫자가 화면의 숫자와 같고, 넘기는 �
   assert.ok(rules.q.$k['.write'].includes(`data.child('at').val() + ${Y.DJ_Q_TTL_MS}`), '낡은 예약');
   assert.ok(rules.dj['.write'].includes(`data.child('at').val() + ${Y.DJ_SKIP_MIN_MS}`), '남의 곡 넘기기');
   assert.ok(rules.dj.t['.validate'].includes(`<= ${Y.DJ_TITLE_MAX}`) && rules.q.$k.t['.validate'].includes(`<= ${Y.DJ_TITLE_MAX}`), '제목 길이');
-  for (let i = 0; i < Y.DJ_MY_MAX; i++) assert.ok(rules.q.$k['.write'].includes(`$k == auth.uid + '_${i}'`), `열쇠 _${i}`);
-  assert.ok(!rules.q.$k['.write'].includes(`auth.uid + '_${Y.DJ_MY_MAX}'`), '그보다 많은 열쇠는 없다');
+  // 열쇠는 내 uid + '_' + 숫자 한 자리 (= DJ_MY_MAX 열 개). 우선 예약은 내 다른 열쇠 아홉 개에 하나도 없어야 한다
+  assert.equal(Y.DJ_MY_MAX, 10, '규칙의 열쇠 모양(숫자 한 자리)과 같아야 한다');
+  assert.ok(rules.q.$k['.write'].includes("$k.beginsWith(auth.uid + '_') && $k.length == auth.uid.length + 2 && $k.matches(/_[0-9]$/)"), '열쇠 모양');
+  for (let i = 0; i < Y.DJ_MY_MAX; i++) assert.ok(rules.q.$k['.validate'].includes(`($k == auth.uid + '_${i}' || !newData.parent().child(auth.uid + '_${i}/p').exists())`), `우선 예약: 열쇠 _${i}`);
+  assert.ok(!rules.q.$k['.validate'].includes(`auth.uid + '_${Y.DJ_MY_MAX}`), '그보다 많은 열쇠는 없다');
+  const djSrc = read('../src/game/dj.ts');
+  assert.ok(djSrc.includes("if (this.queue.length >= DJ_Q_MAX) return 'qfull';"), '전체 한도는 화면이 지킨다');
+  // 두더지 창: 정리(키 입력 되살리기)는 닫는 길이 모두 거치는 onClose 로 넘긴다 (2026-11-23: Esc·바깥 누르기로 닫으면 키가 안 먹던 일)
+  const mole = read('../src/game/moleui.ts');
+  assert.ok(mole.includes("modal('🕹 두더지 잡기', body, [], false, cleanup)") && !mole.includes('m.close ='), '두더지 창의 정리');
   assert.ok(rules.dj['.validate'].includes("!newData.parent().child('q/' + newData.child('k').val()).exists()"), '올린 예약은 같은 쓰기에서 빠져야 한다');
   const dj = read('../src/game/dj.ts');
   assert.ok(dj.includes("await update(ref(db), { 'club/dj': { v: head.v, at: serverTimestamp(), u: head.u, n: head.n, k: head.k, ...(head.t ? { t: head.t } : {}) }, [`club/q/${head.k}`]: null });"), '올리기와 예약 지우기를 한 번에');

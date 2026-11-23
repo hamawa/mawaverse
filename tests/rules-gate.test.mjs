@@ -1171,7 +1171,14 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   // 예약
   await expect('예약: 기계 옆이 아닌 사람', 'deny', () => other.ref('club/q/OTHER_0').set(ent('OTHER')));
   await expect('예약: 남의 열쇠에', 'deny', () => ok.ref('club/q/OTHER_0').set(ent('OK')));
-  await expect('예약: 셋째 열쇠', 'deny', () => ok.ref('club/q/OK_2').set(ent('OK')));
+  // 열쇠는 내 uid + '_' + 숫자 한 자리 (한 사람 열 곡. 2026-11-23 에 두 곡 → 열 곡)
+  await expect('예약: 열한째 열쇠', 'deny', () => ok.ref('club/q/OK_10').set(ent('OK')));
+  await expect('예약: 숫자가 아닌 열쇠', 'deny', () => ok.ref('club/q/OK_a').set(ent('OK')));
+  await expect('예약: 내 uid 로 시작하지만 모양이 다른 열쇠', 'deny', () => ok.ref('club/q/OKX_1').set(ent('OK')));
+  await expect('예약: 꼬리표가 없는 열쇠', 'deny', () => ok.ref('club/q/OK').set(ent('OK')));
+  await expect('예약: 열째 열쇠', 'allow', () => ok.ref('club/q/OK_9').set(ent('OK', { v: ID2 })));
+  await expect('예약: 셋째 열쇠', 'allow', () => ok.ref('club/q/OK_2').set(ent('OK', { v: ID2 })));
+  await root.ref().update({ 'club/q/OK_9': null, 'club/q/OK_2': null });
   await expect('예약: 남의 이름으로', 'deny', () => ok.ref('club/q/OK_0').set(ent('OTHER')));
   await expect('예약: 시각을 내 마음대로', 'deny', () => ok.ref('club/q/OK_0').set({ ...ent('OK'), at: 123 }));
   await expect('예약: 영상 id 모양이 아님', 'deny', () => ok.ref('club/q/OK_0').set({ ...ent('OK'), v: 'https://x.y' }));
@@ -1193,6 +1200,10 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('우선 예약', 'allow', () => ok.ref('club/q/OK_1').set(ent('OK', { v: ID2, p: 1 })));
   await root.ref('club/q/OK_0').remove();
   await expect('우선 예약: 둘째', 'deny', () => ok.ref('club/q/OK_0').set(ent('OK', { p: 1 })));
+  await expect('우선 예약: 둘째 (멀리 있는 열쇠)', 'deny', () => ok.ref('club/q/OK_7').set(ent('OK', { p: 1 })));
+  await expect('우선 예약: 한 번에 둘', 'deny', () => ok.ref().update({ 'club/q/OK_1': null, 'club/q/OK_3': ent('OK', { p: 1 }), 'club/q/OK_8': ent('OK', { p: 1 }) }));
+  await expect('우선 예약이 있어도 보통 예약은 여러 곡', 'allow', () => ok.ref().update({ 'club/q/OK_4': ent('OK'), 'club/q/OK_5': ent('OK', { v: ID2 }) }));
+  await root.ref().update({ 'club/q/OK_4': null, 'club/q/OK_5': null });
   await expect('우선 예약 표시에 다른 값', 'deny', () => ok.ref('club/q/OK_0').set(ent('OK', { p: 2 })));
   await expect('우선 예약이 있어도 보통 예약은 된다', 'allow', () => ok.ref('club/q/OK_0').set(ent('OK', { t: '첫 곡' })));
   // 취소: 건 사람만. 관리자는 아무거나

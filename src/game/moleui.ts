@@ -24,14 +24,14 @@ const KEYPAD = [7, 8, 9, 4, 5, 6, 1, 2, 3]; // 구멍 i(읽는 순서)에 붙는
 export function openMole(h: MoleHost): void {
   h.input.enabled = false; h.input.releaseAll(); // 숫자 키가 이모트로 새지 않게
   const body = el('div', { class: 'mole' });
-  const m = modal('🕹 두더지 잡기', body, [], false);
-  m.root.querySelector('.actions')?.remove();
-  withCloseX(m);
   let timer = 0, loopId = 0;
   const onKey = (e: KeyboardEvent) => { if (!playing) return; const cell = KEYPAD.indexOf(Number(e.key)); if (cell >= 0) { e.preventDefault(); e.stopPropagation(); hitCell(cell); } };
-  const origClose = m.close;
-  const cleanup = () => { clearInterval(loopId); clearTimeout(timer); document.removeEventListener('keydown', onKey, true); h.input.enabled = true; };
-  m.close = () => { cleanup(); origClose(); };
+  // 정리는 modal 의 onClose 로 넘긴다: 닫는 길(✕ · Esc · 창 바깥 누르기)이 모두 거친다. 전에는 돌려받은 close 만 바꿔 끼워서 ✕ 로 닫을 때만 정리됐고,
+  // Esc 나 바깥을 눌러 닫으면 input.enabled 가 꺼진 채로 남아 이동·Enter(채팅)·F 가 전부 안 먹혔다 (2026-11-23 제보: "게임 끝나고 움직이려 하면 키가 안 먹는다")
+  const cleanup = () => { clearInterval(loopId); clearTimeout(timer); playing = false; document.removeEventListener('keydown', onKey, true); h.input.enabled = true; };
+  const m = modal('🕹 두더지 잡기', body, [], false, cleanup);
+  m.root.querySelector('.actions')?.remove();
+  withCloseX(m);
   document.addEventListener('keydown', onKey, true);
 
   const head = el('div', { class: 'mole-head' });

@@ -4,7 +4,8 @@
 // 유튜브 약관: 공식 플레이어를 화면에 보이는 채로(200×200 이상) 써야 하고 소리만 따로 틀면 안 된다. 그래서 패널을 접으면 내 화면에서는 재생을 멈춘다 (djui.ts)
 //
 // 노래 예약 (2026-11-20 밤, 사용자 요청: 노래방처럼). 전에는 한 곡씩 덮어썼다.
-// - 예약: DJ 기계 옆(CLUB_DJ_SPOTS: 사방 여섯 칸)에서 club/q/{uid}_0 또는 {uid}_1 = { v, u, n, at, t?, p? } 를 쓴다. 열쇠가 둘뿐이라 한 사람 두 곡은 규칙이 지킨다.
+// - 예약: DJ 기계 옆(CLUB_DJ_SPOTS: 사방 여섯 칸)에서 club/q/{uid}_0 ~ {uid}_9 = { v, u, n, at, t?, p? } 를 쓴다. 열쇠가 열 개뿐이라 한 사람 열 곡은 규칙이 지킨다
+//   (2026-11-23 에 두 곡 → 열 곡). 전체 20곡(DJ_Q_MAX)은 화면이 지킨다: 규칙은 예약의 개수를 셀 수 없다.
 //   p: 1 은 우선 예약 (보통 예약보다 먼저 나온다. 한 사람이 한 번에 하나: 규칙). 순서는 shared/youtube.ts djOrder.
 // - 다음 곡: 서버가 없으므로 클럽에 있는 아무 화면이 넘긴다 (거래소의 가격 굴리기와 같은 방식). 넘기는 쓰기는 "club/dj = 그 예약, club/q/{k} = 지움" 한 번이고
 //   규칙이 그 예약이 같은 쓰기에서 빠졌는지와 내용이 같은지를 본다: 여럿이 한꺼번에 보내도 한 번만 넘어가고, 예약에 없는 영상은 틀 수 없다.
@@ -16,11 +17,11 @@ import { ref, onValue, update, remove, push, serverTimestamp } from 'firebase/da
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { CLUB_DJ_SPOTS } from './map';
-import { youtubeId, sameSong, djOrder, djSlotKey, djCleanTitle, DJ_Q_TTL_MS, DJ_SKIP_MIN_MS, type DjEntry } from '../shared/youtube';
+import { youtubeId, sameSong, djOrder, djSlotKey, djCleanTitle, DJ_Q_TTL_MS, DJ_SKIP_MIN_MS, DJ_Q_MAX, type DjEntry } from '../shared/youtube';
 import type { WorldCtx } from './state';
 
 export interface DjState { v: string; at: number; u: string; n: string; k?: string; t?: string }
-export type DjResult = 'ok' | 'bad' | 'spot' | 'full' | 'prio' | 'blocked' | 'missing' | 'fail';
+export type DjResult = 'ok' | 'bad' | 'spot' | 'full' | 'qfull' | 'prio' | 'blocked' | 'missing' | 'fail';
 type RawEntry = Omit<DjEntry, 'k'>;
 
 // 영상 제목을 읽는다. 재생이 막힌 영상(401·403)과 없는 영상(400·404)은 그렇게 알려 준다. 못 읽으면 null (예약은 제목 없이 받는다)
@@ -94,6 +95,7 @@ export class DjMgr {
     if (old.length) await update(ref(db), Object.fromEntries(old.map((k) => [`club/q/${k}`, null]))).catch(() => {});
     const key = djSlotKey(w.uid, Object.keys(this.raw).filter((k) => !old.includes(k)));
     if (!key) return 'full';
+    if (this.queue.length >= DJ_Q_MAX) return 'qfull';
     if (prio && this.mine().some((e) => e.p)) return 'prio';
     const info = await lookup(id);
     if (info === 'blocked' || info === 'missing') return info;
