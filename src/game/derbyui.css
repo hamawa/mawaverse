@@ -1,0 +1,220 @@
+/* 경마공원 마권 판 (#derby): 공원 옆 판 + 분점 판 공용. 전역 styles.css를 건드리지 않고
+   derbyui.ts가 import './derbyui.css'로 싣는다. 자리 배치는 #casino(오른쪽 옆 판)를
+   참고했지만 선택자·색은 겹치지 않게 따로 둔다 (#derby .d-*). */
+/* 공원: 맵이 보이는 오른쪽 옆 판 */
+#derby {
+  position: absolute;
+  right: 8px;
+  top: 48px;
+  width: 340px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(12, 26, 18, 0.9);
+  border: 1px solid rgba(120, 200, 140, 0.45);
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 12px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  z-index: 24; /* #hud(23) 위 */
+  box-sizing: border-box;
+}
+#derby .d-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  flex: none;
+}
+#derby .d-title { white-space: nowrap; }
+#derby .d-race { color: #ffe9a8; font-weight: bold; white-space: nowrap; }
+#derby .d-count { flex: 1; text-align: right; color: #ffd84d; font-weight: bold; white-space: nowrap; }
+#derby .d-body { overflow-y: auto; min-height: 0; padding-right: 2px; }
+#derby .d-sec { margin: 8px 0 4px; font-weight: bold; color: #bfe8c8; }
+#derby .d-banner, #derby .d-hint {
+  color: #cfe3d4;
+  margin: 4px 0 6px;
+  word-break: keep-all;
+}
+#derby .d-hint { font-size: 11px; opacity: 0.9; }
+#derby .d-warn {
+  color: #ffd84d;
+  font-weight: bold;
+  margin: 4px 0;
+  word-break: keep-all;
+}
+/* 예정 경주 띠 */
+#derby .d-sched { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 4px; }
+#derby .d-sched .btn.on { border-color: #7ac88f; background: #14301c; color: #ffe9a8; }
+#derby .d-sched .btn:disabled { opacity: 0.85; cursor: default; }
+#derby .d-next { color: #9be7ff; font-size: 11px; }
+/* 분점 미니 중계 */
+#derby .d-mini { margin: 4px 0; }
+#derby .d-minicv { display: block; width: 100%; border-radius: 8px; background: #1d2b1f; }
+#derby .d-minicap { margin-top: 2px; color: #ffe9a8; font-size: 11px; word-break: keep-all; }
+/* 출마표 */
+#derby .d-card { display: flex; flex-direction: column; gap: 4px; }
+#derby .d-horse {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  flex-wrap: wrap;
+}
+#derby .d-gate {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: #0d1a12;
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+}
+/* 마번 버튼 바탕은 마번 고유 색(인라인)이라, 고른 상태는 두꺼운 노란 테두리로 보인다 */
+#derby .d-gate[aria-pressed="true"] { border-color: #ffd84d; box-shadow: 0 0 0 2px #ffd84d; }
+#derby .d-nm { font-weight: bold; min-width: 64px; word-break: break-all; }
+#derby .d-sx { color: #9fd8ab; font-size: 11px; white-space: nowrap; }
+#derby .d-jk { color: #cfe3d4; font-size: 11px; }
+#derby .d-odds { flex: 1; text-align: right; color: #ffd84d; font-size: 11px; white-space: nowrap; }
+#derby .d-detail {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: #e6f2e9;
+  word-break: keep-all;
+}
+/* 승식·방식 탭 */
+#derby .d-tabs { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; }
+#derby .d-tabs .btn { flex: 1; white-space: nowrap; }
+#derby .d-tabs .btn.on { border-color: #7ac88f; background: #14301c; color: #ffe9a8; }
+#derby .d-tabs.sub .btn { font-size: 11px; }
+/* 마번 고르기 */
+#derby .d-pick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0; }
+#derby .d-picklab { font-size: 11px; color: #bfe8c8; margin-right: 2px; }
+#derby .d-num {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: #0d1a12;
+  color: #fff;
+  font-weight: bold;
+  cursor: pointer;
+}
+#derby .d-num.on { border-color: #ffd84d; box-shadow: 0 0 0 2px #ffd84d; }
+#derby .d-picked { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+#derby .d-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 216, 77, 0.16);
+  border: 1px solid rgba(255, 216, 77, 0.5);
+  font-size: 11px;
+}
+#derby .d-x {
+  border: none;
+  background: transparent;
+  color: #ffd84d;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 4px;
+}
+/* 조합당 금액 */
+#derby .d-stake { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
+#derby .d-stakein {
+  width: 90px;
+  background: #0d1a12;
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+#derby .d-coin { color: #cfe3d4; font-size: 11px; }
+/* 견적·바구니 */
+#derby .d-quote { margin-top: 4px; }
+#derby .d-combos { display: flex; flex-direction: column; gap: 3px; max-height: 180px; overflow-y: auto; }
+#derby .d-combo {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+#derby .d-combo.err { outline: 1px solid #ff8a8a; }
+#derby .d-cb { font-weight: bold; }
+#derby .d-odd { color: #ffd84d; margin-left: auto; white-space: nowrap; }
+#derby .d-est { color: #9be7ff; font-size: 11px; white-space: nowrap; }
+#derby .d-err { flex-basis: 100%; color: #ff9a9a; font-size: 11px; word-break: keep-all; }
+#derby .d-total { margin: 6px 0; color: #e6f2e9; font-size: 11px; word-break: keep-all; }
+#derby .d-go { display: block; width: 100%; margin-top: 6px; }
+#derby .d-go:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 내 마권 */
+#derby .d-tickets { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+#derby .d-ticket {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+#derby .d-ticket.won { outline: 1px solid #ffd84d; }
+#derby .d-ticket.lost { opacity: 0.75; }
+#derby .d-ticket.void { opacity: 0.75; outline: 1px dashed #9be7ff; }
+#derby .d-tst { margin-left: auto; font-size: 11px; color: #ffe9a8; white-space: nowrap; }
+#derby .d-ticket.won .d-tst { color: #ffd84d; font-weight: bold; }
+/* 확정 착순·배당판 */
+#derby .d-stand { color: #ffe9a8; font-weight: bold; word-break: keep-all; margin-bottom: 4px; }
+#derby .d-gridwrap { margin-bottom: 8px; }
+#derby .d-gridlab { font-size: 11px; color: #bfe8c8; margin-bottom: 2px; }
+#derby .d-grid { border-collapse: collapse; font-size: 10px; }
+#derby .d-grid th, #derby .d-grid td {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  padding: 2px 4px;
+  text-align: center;
+  min-width: 26px;
+}
+#derby .d-grid th { background: rgba(255, 255, 255, 0.08); color: #ffe9a8; }
+/* 접힘 상태 */
+#derby.fold .d-body { display: none; }
+/* 모바일: 공원은 접을 수 있는 아래 시트라 맵이 보인다 */
+@media (max-width: 760px) {
+  #derby.park {
+    top: auto;
+    bottom: 12px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-height: 62vh;
+  }
+  #derby.park.fold { max-height: none; }
+  #derby.park.fold .d-body { display: none; }
+  #derby .d-head { font-size: 15px; }
+  #derby .d-num { width: 38px; height: 38px; }
+  #derby .d-go { padding: 12px; font-size: 15px; }
+  #derby .d-horse { padding: 8px; }
+  /* 분점은 자리에 앉아 보는 판이라 화면을 덮는다. 위쪽 표시·채팅(#hud)은 그 위에 둔다 */
+  #derby.branch {
+    position: fixed;
+    inset: 0;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+    padding: 52px 12px 120px;
+    font-size: 14px;
+    z-index: 21;
+  }
+  body.in-derby #mobile { display: none; }
+}

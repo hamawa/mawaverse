@@ -4,17 +4,21 @@ import { serverNow } from '../firebase/db';
 import { changeNick, changePassword, logout, idPathKey, withdraw } from '../firebase/auth';
 import { hoursState, clientBlocked, WARN_MESSAGE } from '../shared/hours';
 import { HOLIDAYS, BREAKS, BLOCK_MESSAGE } from '../shared/schedule';
-import { TILE, STEP_MS, PUSH_COOLDOWN_MS, PUSH_STUN_MS, WATER_TURN_HOLD_MS, DEFAULT_CONFIG } from '../shared/config';
+import { TILE, STEP_MS, PUSH_COOLDOWN_MS, PUSH_STUN_MS, WATER_TURN_HOLD_MS, DEFAULT_CONFIG, normalizeRaceHours, raceHoursOf } from '../shared/config';
+import type { RaceHours } from '../shared/derby/time';
 import type { Dir, UserProfile, ServerConfig, RoomState } from '../shared/types';
 import { randomId, el, lerp } from '../shared/util';
 import { Engine } from './engine';
 import { Input } from './input';
 import { Emitter } from './emitter';
 import { render, poseForEmote, type Entity, type Bubble } from './render';
-import { O, objectAt, faceChairs, buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, CLUB_FLOOR, CLUB_DANCERS, djDeckFor, buildHomeMap, HOME_EXIT_ZONE, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
-import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, playerMapId, isHomeMapId, homeMapId, homeOwnerOf } from '../shared/maps';
+import { O, objectAt, faceChairs, buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, buildRaceParkMap, CLUB_FLOOR, CLUB_DANCERS, djDeckFor, RACE_STANDS, buildHomeMap, HOME_EXIT_ZONE, portalNear, portalDests, sanitizeMap, isWalkable, isWater, roomAt, roomSeat, findFreeTile, nearZone, type MapData, type Zone, type PortalDest } from './map';
+import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, RACE_PARK_MAP_ID, playerMapId, isHomeMapId, homeMapId, homeOwnerOf } from '../shared/maps';
 import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, whereLabel, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { openPortalPicker } from './portalui';
+import { derbyFrame, derbyPhaseAt, derbyCaption, derbySoundEvents, derbyHoofActive, derbyFocusAt, derbyNearestRunner, snapshotInput, DERBY_CYCLE_MS, DERBY_HOOF_INTERVAL_MS, type DerbyShowInput, type DerbyFrame, type DerbyFieldSnapshot } from './derbyshow';
+import { DerbyView, derbyParkCap } from './derbyview';
+import { describeHorse } from './derbyui';
 import { Net } from './net';
 import { Chat } from './chat';
 import { Rooms } from './rooms';
@@ -184,6 +188,8 @@ export class World implements WorldCtx {
   private boardZone: Zone | undefined;
   private fishZone: Zone | undefined;
   private arcadeZone: Zone | undefined;
+  private derbyPaddock: Zone | undefined; // 경마공원 예시장 (옆에서 F → 출전마 카드)
+  private derbyTellers: Zone[] = []; // 경마공원 발매소 창구 둘 (옆에서 F → 마권 구매 판)
   private linkZones: Zone[] = []; // 바깥 게임으로 가는 오락기 (shared/links.ts)
 
   constructor(private root: HTMLElement, public uid: string, public profile: UserProfile, public isAdmin: boolean) {
@@ -321,7 +327,7 @@ export class World implements WorldCtx {
     // 평일 근무시간 차단(관리자 설정으로 켰을 때): 차단이 시작되기 5분 전(08:55, 쉬는 시간이 끝나기 5분 전)에 안내하고 그 시각에 내보낸다 (관리자 제외). 그 5분 사이에 들어온 사람도 바로 안내를 본다
     // 차단 설정은 따로 구독한다: 이 칸은 누구나 읽을 수 있어서, 관리자가 차단을 켜는 순간에도 값이 확실히 온다 (config 전체는 차단되면 읽을 수 없다)
     if (!this.isAdmin) {
-      this.hoursUnsub = onValue(ref(db, 'config/hoursBlock'), (s) => { this.hoursBlock = s.val() === true; this.checkHours(); }, () => {});
+      this.hoursUnsub = onValue(ref(db, 'config/hoursBlock'), (s) => { this.hoursBlock = s.val() === true; this.checkHours(); this.derby?.changed(); }, () => {});
       this.hoursTimer = window.setInterval(() => this.checkHours(), 1000);
     }
   }
@@ -475,10 +481,15 @@ export class World implements WorldCtx {
         if (t >= 1) { rp.moveStart = 0; rp.x = rp.toX; rp.y = rp.toY; }
       }
     }
-    this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
+    this.derbyTick(); // 경마공원: 쇼 출전표 채우기·마권 판 갱신 (공원을 벗어나면 판을 거둔다)
+    // 경마공원 관람석: 앉아 있으면 경주 40초 동안 선두 무리를 따라가고 끝나면 돌아온다
+    const derbyCam = this.derbyCamera();
+    if (derbyCam) this.engine.follow(derbyCam.x * TILE + TILE / 2, derbyCam.y * TILE + TILE / 2, this.map.w, this.map.h);
+    else this.engine.follow(me.dispX * TILE + TILE / 2, me.dispY * TILE + TILE / 2, this.map.w, this.map.h);
     this.snowfight.sync(this.snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     this.updateHint();
-    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView(), treeLook: this.treeTint, xmas: this.xmasOn, club: this.clubView(), fog: this.fogView(), fires: this.fireViews(), alerts: this.fireAlerts() });
+    render(this.engine, { map: this.map, entities: this.entities(now), rooms: this.rooms, now, serverNow: serverNow(), hint: this.shownHint(), bugs: this.bugs.views(), tosses: this.toss.views(now), bodies: this.bodyViews(), marks: this.taskMarks(), snow: this.winter.views(now), objAt: this.trees.shown, plaques: this.homePlaques(), roamers: this.roamers(), night: this.nightTint(), rain: this.rainView(), treeLook: this.treeTint, xmas: this.xmasOn, club: this.clubView(), derby: this.derbyView(), fog: this.fogView(), fires: this.fireViews(), alerts: this.fireAlerts() });
+    this.derbyPoll(serverNow()); // 경마 쇼 자막·소리 (공원에 있을 때만)
     if (now - this.sceneAt > 1000) { this.sceneAt = now; setScene(this.sceneNow(), isNight(kstMinuteOfDay(serverNow())), xmasSeason(serverNow())); this.weatherTick(); } // 배경음악: 지금 상황에 맞는 곡 (1초에 한 번 본다)
   }
 
@@ -860,6 +871,8 @@ export class World implements WorldCtx {
     this.boardZone = map.zones.find((z) => z.kind === 'board');
     this.fishZone = map.zones.find((z) => z.kind === 'fish');
     this.arcadeZone = map.zones.find((z) => z.kind === 'arcade');
+    this.derbyPaddock = map.zones.find((z) => z.kind === 'paddock');
+    this.derbyTellers = map.zones.filter((z) => z.kind === 'teller');
     this.linkZones = map.zones.filter((z) => z.kind === 'link' && !!gameLinkOf(z.id));
   }
   private builtinMaps = new Map<string, MapData>(); // 코드에 든 맵은 한 번 만들어 두고 다시 쓴다
@@ -959,6 +972,133 @@ export class World implements WorldCtx {
   }
   // 앉은 상태를 푼다 (자리는 건드리지 않는다: 이미 자리를 떠났거나 가구가 없어진 뒤에 부른다)
   private standUp(): void { if (!this.sitAt) return; this.sitAt = null; this.sitFrom = null; this.net.setSit(false); }
+
+  // ---------- 경마공원 쇼 (derbyshow.ts 는 순수 계산, 여기는 묶기·자막·소리·카메라만) ----------
+  private derbySnaps = new Map<number, DerbyFieldSnapshot>(); // n → 라운드 출전표 (코어·티켓 판이 채운다. 목 데이터는 dev 미리보기 전용)
+  private derbyCaptionShown = '';
+  private derbyPrevMs = 0;
+  private derbyHoofAt = 0;
+  private derbyFresh = true; // 공원에 들어온 첫 프레임: 지나간 단계 자막·소리를 반복하지 않는다
+  // 차후 클라이언트 로직이 DB 출전표·res 를 여기서 넘긴다 (라운드 범위 스냅샷. result null = 아직 결과 없음)
+  setDerbySnapshot(snap: DerbyFieldSnapshot): void {
+    this.derbySnaps.set(snap.n, snap);
+    for (const k of [...this.derbySnaps.keys()]) if (k < snap.n - 1) this.derbySnaps.delete(k);
+  }
+  private derbyInput(): DerbyShowInput | null {
+    if (this.mapId !== RACE_PARK_MAP_ID) return null;
+    const nowMs = serverNow();
+    const n = Math.floor(nowMs / DERBY_CYCLE_MS);
+    const snap = this.derbySnaps.get(n);
+    if (!snap) return null; // 목 데이터를 실전에 띄우지 않는다 (dev 미리보기만 목 출전표)
+    return snapshotInput(snap, nowMs - n * DERBY_CYCLE_MS);
+  }
+  private derbyView(): DerbyFrame | null {
+    const input = this.derbyInput();
+    return input ? derbyFrame(input) : null;
+  }
+  // 관람석에 앉아 있으면 경주 40초 동안 선두 무리를 따라간다 (끝나면 평소 카메라로)
+  private derbyCamera(): { x: number; y: number } | null {
+    if (this.mapId !== RACE_PARK_MAP_ID || !this.sitAt) return null;
+    const s = this.sitAt;
+    if (s.x < RACE_STANDS.x || s.x >= RACE_STANDS.x + RACE_STANDS.w || s.y < RACE_STANDS.y || s.y >= RACE_STANDS.y + RACE_STANDS.h) return null;
+    const view = this.derbyView();
+    if (!view || view.phase !== 'race') return null;
+    return derbyFocusAt(view);
+  }
+  // 예시장 펜스 옆에서 가장 가까운 출전마 (있는 말만, 5칸 안. 없으면 null)
+  private derbyPaddockGate(): { x: number; y: number; gate: number; name: string } | null {
+    if (this.mapId !== RACE_PARK_MAP_ID || !this.derbyPaddock) return null;
+    const me = this.me;
+    if (!nearZone(this.derbyPaddock, me.x, me.y, 1)) return null;
+    const view = this.derbyView();
+    if (!view) return null;
+    const near = derbyNearestRunner(view, me.x, me.y, 5);
+    if (!near) return null;
+    return { x: me.x, y: me.y - 1, gate: near.gate, name: near.name };
+  }
+  // 마권 판(derbyview.ts)은 공원에 묶여 있다: 공원에 있는 동안 처음 필요할 때 만들고, 맵을 옮기거나 종료하면 판·구독을 거둔다.
+  // 운영 시간은 config/raceHours 를 공원에 있는 동안만 구독하고(첫 값이 오기 전·읽기 실패 때는 로그인 때 읽은 config 값), 값이 없으면 휴장이다
+  private derby: DerbyView | null = null;
+  private raceHoursLive: RaceHours | null | undefined = undefined;
+  private raceHoursUnsub: (() => void) | null = null;
+  private raceParkCap: { v: unknown } | null = null; // config/raceMax/park 구독 값 (null = 아직 안 읽음 → 로그인 때 읽은 config 값). 한도 검사는 derbyParkCap 이 한다
+  private raceParkUnsub: (() => void) | null = null;
+  private derbyCtl(): DerbyView {
+    if (this.derby) return this.derby;
+    const d = new DerbyView({
+      now: () => serverNow(),
+      hours: () => (this.raceHoursLive !== undefined ? this.raceHoursLive : raceHoursOf(this.config)),
+      env: () => ({ holidays: HOLIDAYS, breaks: BREAKS, hoursBlock: this.isAdmin ? this.config.hoursBlock === true : this.hoursBlock }),
+      balance: () => this.wallet.balance,
+      raceCap: () => derbyParkCap(this.raceParkCap ? this.raceParkCap.v : (this.config as unknown as { raceMax?: { park?: unknown } }).raceMax?.park),
+      hasField: (n) => this.derbySnaps.has(n),
+      setField: (s) => this.setDerbySnapshot(s),
+      toast: (m, e) => this.toast(m, e),
+    });
+    this.raceHoursUnsub = onValue(ref(db, 'config/raceHours'), (s) => { this.raceHoursLive = normalizeRaceHours(s.val()); d.changed(); }, () => {});
+    this.raceParkUnsub = onValue(ref(db, 'config/raceMax/park'), (s) => { this.raceParkCap = { v: s.val() }; d.changed(); }, () => {});
+    this.derby = d;
+    return d;
+  }
+  private derbyLeave(): void {
+    if (!this.derby) return;
+    this.derby.dispose();
+    this.derby = null;
+    this.raceHoursUnsub?.(); this.raceHoursUnsub = null;
+    this.raceHoursLive = undefined;
+    this.raceParkUnsub?.(); this.raceParkUnsub = null;
+    this.raceParkCap = null;
+  }
+  private derbyTick(): void {
+    if (this.mapId !== RACE_PARK_MAP_ID) { this.derbyLeave(); return; }
+    this.derbyCtl().sync();
+  }
+  // F 예시장 펜스 옆 → 가장 가까운 출전마 정보 카드 + 그 말로 마권 판 열기 (판은 보기 전용: 구매 단추는 잠겨 있다)
+  openDerbyRunnerCard(): void {
+    const g = this.derbyPaddockGate();
+    const view = this.derbyView();
+    if (!g || !view) return;
+    const n = view.input.n;
+    const derby = this.derbyCtl();
+    const h = derby.horse(n, g.gate);
+    if (!h) return;
+    const style = view.input.runners.find((x) => x.gate === g.gate)?.style;
+    this.input.releaseAll();
+    derby.showRunnerCard(n, g.gate, (pick, closed) => modal(`🐴 ${g.gate}번 ${h.name}`, el('div', { text: describeHorse(h) + (style ? ` · 각질 ${style}` : '') }), [
+      { label: '이 말로 마권 담기', primary: true, onClick: pick },
+      { label: '닫기', onClick: () => {} },
+    ], false, closed));
+  }
+  // F 발매소 창구 옆 → 마권 판 (출마표·배당·다음 경주 시각. 발매가 연결되기 전에는 구매할 수 없다고 판에 적힌다)
+  openDerbyTeller(): void {
+    if (this.mapId !== RACE_PARK_MAP_ID) return;
+    this.input.releaseAll();
+    this.derbyCtl().openTeller();
+  }
+  // 장내 방송 자막(단계가 바뀔 때) + 소리(경계에서 한 번씩) + 경주 중 말발굽
+  // 공원에 늦게 들어오면 지나간 단계 cues 를 반복하지 않는다 (같은 라운드의 진짜 전환만 낸다)
+  private derbyPoll(nowMs: number): void {
+    if (this.mapId !== RACE_PARK_MAP_ID) return;
+    const n = Math.floor(nowMs / DERBY_CYCLE_MS);
+    const ms = nowMs - n * DERBY_CYCLE_MS;
+    const input = this.derbyInput();
+    if (this.derbyFresh || !input) { // 첫 프레임·데이터 없음: 기준만 맞추고 조용히
+      this.derbyFresh = false;
+      this.derbyPrevMs = ms;
+      if (input) this.derbyCaptionShown = derbyCaption(ms, input);
+      return;
+    }
+    for (const s of derbySoundEvents(this.derbyPrevMs, ms, !!input.result)) sfx(s);
+    if (derbyHoofActive(ms) && nowMs - this.derbyHoofAt >= DERBY_HOOF_INTERVAL_MS) { this.derbyHoofAt = nowMs; sfx('hoof', { vol: 0.5 }); }
+    const cap = derbyCaption(ms, input);
+    if (cap !== this.derbyCaptionShown) {
+      this.derbyCaptionShown = cap;
+      const ph = derbyPhaseAt(ms).phase;
+      if (ph === 'ceremony' && input.result) this.banner(`🏇 ${cap}`, '위너스 서클에서 세리머니 중');
+      else this.note(cap);
+    }
+    this.derbyPrevMs = ms;
+  }
   // F 로 일어나기: 가구 칸에서 옆 칸으로 내려선다. 앉기 전에 서 있던 칸 → 가구가 보는 쪽 → 그 밖의 옆 칸 순서로 빈 곳을 찾는다
   private leaveSeat(): void {
     const me = this.me, s = this.sitAt;
@@ -1006,6 +1146,7 @@ export class World implements WorldCtx {
     if (this.mapId === GOLD_MINE_MAP_ID) return 'mine';
     if (this.mapId === WINTER_MAP_ID) return 'winter';
     if (this.mapId === CLUB_MAP_ID) return 'club';
+    if (this.mapId === RACE_PARK_MAP_ID) return 'race'; // 경마공원: 공원 곡 + 경마장 곡
     return 'main';
   }
   // 화면 위 소리 버튼: 켜기·끄기 (누른 그 순간에 불러야 브라우저가 소리를 허락한다)
@@ -1038,7 +1179,7 @@ export class World implements WorldCtx {
     if (src === 'active') return this.mainMap;
     if (src === 'builtin') {
       let m = this.builtinMaps.get(id);
-      if (!m) { m = id === GOLD_MINE_MAP_ID ? buildGoldMine() : id === WINTER_MAP_ID ? buildWinterMap() : id === CLUB_MAP_ID ? buildClubMap() : buildPortalGarden(); this.builtinMaps.set(id, m); }
+      if (!m) { m = id === GOLD_MINE_MAP_ID ? buildGoldMine() : id === WINTER_MAP_ID ? buildWinterMap() : id === CLUB_MAP_ID ? buildClubMap() : id === RACE_PARK_MAP_ID ? buildRaceParkMap() : buildPortalGarden(); this.builtinMaps.set(id, m); }
       return m;
     }
     if (src === 'home') {
@@ -1201,6 +1342,8 @@ export class World implements WorldCtx {
     this.setMap(map);
     this.loadGuestPets();
     this.sitAt = null;
+    this.derbyLeave(); // 마권 판은 공원에 묶여 있다: 맵을 옮기면 거두고, 공원으로 들어오면 다음 프레임에 새로 만든다
+    this.derbyCaptionShown = ''; this.derbyPrevMs = 0; this.derbyFresh = true; // 경마 쇼 자막·소리 기준 초기화 (맵을 옮기면 처음부터. 지나간 단계는 반복하지 않는다)
     if (id === CLUB_MAP_ID) window.setTimeout(() => { if (!this.stopped && this.mapId === CLUB_MAP_ID) this.note('💃 클럽에서는 이모트(1~9)가 전부 춤이 돼요!'); }, 1500);
     Object.assign(me, { x, y, fromX: x, fromY: y, dispX: x, dispY: y, moving: false, pushMore: null, bubble: null, pose: 'none', emoteId: 0 });
     this.waterHoldUntil = 0;
@@ -1228,7 +1371,7 @@ export class World implements WorldCtx {
 
   // ---------- 상호작용 ----------
   // F 로 할 수 있는 것과 그 안내 위치. 우선순위: 게시판 → 낚시 중 → 물가(낚시 시작) → 낚시 표지판
-  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' | 'decoPlace' | 'decoRemove' | 'sit' | 'sitting' | 'dj' | 'link' | 'photo' | 'fire' } | null {
+  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' | 'decoPlace' | 'decoRemove' | 'sit' | 'sitting' | 'dj' | 'link' | 'photo' | 'fire' | 'paddock' | 'teller' } | null {
     const me = this.me;
     if (me.roomId) return null;
     if (this.switching) return { x: me.x, y: me.y - 1, text: '🌀 이동 중…', kind: 'portal' };
@@ -1270,6 +1413,15 @@ export class World implements WorldCtx {
     const yields = portalYields({ fishing: !!fv, autoFishing: !!fv?.auto, bug: !!bug, digging: this.dig.active, digSpot: !!this.dig.spotHere() });
     const portal = yields ? undefined : portalNear(this.map, me.x, me.y);
     if (portal) return { x: portal.x, y: portal.y - 1, text: `F 포탈 이동${portal.label ? `: ${portal.label}` : ''}`, kind: 'portal' };
+    // 경마공원: 발매소 창구 옆에서 마권 구매 판, 예시장 펜스 옆에서 가장 가까운 출전마 카드 (포탈 다음. 포탈 옆에서는 포탈이 먼저다)
+    if (this.mapId === RACE_PARK_MAP_ID) {
+      const teller = this.derbyTellers.find((z) => nearZone(z, me.x, me.y, 1));
+      const pg = this.derbyPaddockGate();
+      // 관람석 앞에서는 앉기가 먼저 (발매소 창구가 앉기를 가리지 않게)
+      if ((teller || pg) && this.seatAhead()) { const st = this.seatAhead()!; return { x: st.x, y: st.y, text: 'F 앉기', kind: 'sit' }; }
+      if (teller) return { x: teller.x, y: teller.y - 1, text: 'F 마권 구매', kind: 'teller' };
+      if (pg) return { x: pg.x, y: pg.y, text: `F ${pg.gate}번 ${pg.name} 정보 보기`, kind: 'paddock' };
+    }
     const room = this.map.zones.find((z) => primaryOnlyRoom(this.mapId, z) && nearZone(z, me.x, me.y, 1));
     if (room) return { x: room.x, y: room.y - 1, text: PRIMARY_ONLY_ROOM_MSG, kind: 'sign' };
     if (fv) { if (fv.auto) return null; return { x: fv.x, y: fv.y, text: fv.bite ? 'F 당겨!' : '찌를 기다리는 중… (이동하면 취소)', kind: 'fishing' }; } // 자동 낚시 중에는 안내를 띄우지 않는다 (2026-11-09, 사용자: 두 군데 뜨는 게 거슬림)
@@ -1356,6 +1508,8 @@ export class World implements WorldCtx {
     else if (ch.kind === 'sign') { this.input.releaseAll(); this.openFishBook(); }
     else if (ch.kind === 'link') this.openGameLink();
     else if (ch.kind === 'photo') this.openPhoto();
+    else if (ch.kind === 'paddock') this.openDerbyRunnerCard(); // 차후 클라이언트 로직이 마권 담기로 잇는다
+    else if (ch.kind === 'teller') this.openDerbyTeller(); // 차후 클라이언트 로직이 구매 판으로 잇는다
   }
   // 바깥 게임 오락기 가운데 가장 가까운 것 (옆 1칸, 대각선 포함)
   private nearLink(): Zone | null {
@@ -1768,6 +1922,7 @@ export class World implements WorldCtx {
     clearInterval(this.bgTimer); document.removeEventListener('click', this.onUiClick, true);
     this.snowfight.reset();
     clearInterval(this.hoursTimer); this.hoursUnsub?.(); this.hoursUnsub = null;
+    this.derbyLeave();
     this.engine.stop();
     this.chat.stop(); this.roomMgr.stop(); this.fishing.stop(); this.home.stop(); this.trees.stop(); this.campfire?.stop(); this.snowmen?.stop(); this.wallet.stop(); this.stock.stop(); this.dj.stop(); this.djPanel?.close(); this.contest.stop(); this.weekTop.stop(); this.snowPenalty.stop(); this.bugs.stop(); this.dig.stop(); this.casino.stop(); this.duel.stop(); this.casinoPanel.hide(); this.slotPanel.hide(); this.pokerPanel.hide(); this.mafia.stop(); this.mafiaHud.clear(); this.rouletteUnsub?.();
     if (this.me.roomId && !replaced) await this.roomMgr.leave(this.me.roomId).catch(() => {});

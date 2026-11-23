@@ -7,6 +7,7 @@ import type { DayTint } from '../shared/daylight';
 import { groundTile, objectSprite, seasonTree } from './tiles';
 import { PARROT_ID, parrotEcho } from '../shared/shop';
 import { goldNugget, drawGoldSparks } from './goldart';
+import { derbyItems, derbyNameTags, type DerbyFrame } from './derbyshow';
 import { getSprite, FRAME_W, FRAME_H, type Pose } from './sprites';
 import type { FishingView } from './fishing';
 import type { BugView } from './bugs';
@@ -82,7 +83,8 @@ export interface RenderState {
   treeLook?: 'autumn' | 'blossom' | null; // 계절 나무: 단풍·벚꽃 (shared/season.ts. 소나무는 그대로)
   xmas?: boolean;     // 크리스마스 철 (12/1~12/25): 소나무에 전구와 꼭대기 별 (shared/season.ts xmasSeason)
   rain?: { level: number; snow: boolean } | null; // 비 (0~1. 겨울 맵에서는 눈으로 그린다. shared/weather.ts)
-  club?: { x: number; y: number; w: number; h: number; bpm: number; dancers: PetView[] } | null; // 클럽: 춤추는 바닥의 자리, 박자, 춤추는 펫 (어둡게 깔고 색 조명을 돌린다)
+  club?: { x: number; y: number; w: number; h: number; bpm: number; dancers: PetView[] } | null;
+  derby?: DerbyFrame | null; // 경마공원 쇼 (derbyshow.ts 가 계산한 말·기수·게이트 그림. 유저 칸을 차지하지 않는다) // 클럽: 춤추는 바닥의 자리, 박자, 춤추는 펫 (어둡게 깔고 색 조명을 돌린다)
 }
 
 const EMOTE_ICON: Record<number, string> = { 1: '👋', 2: '', 3: '😆', 4: '💧', 5: '💤', 6: '🥱', 7: '💢', 8: '❤', 9: '♪', 10: '💥', 11: '🥅', 12: '🧸', 13: '⛏', 14: '🧲', 15: '🐤' }; // 15: 삐약 (예전 병아리 스킬. 이모트 자리는 남겨 둔다)
@@ -349,6 +351,8 @@ export function render(eng: Engine, st: RenderState): void {
       ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🩸', cx + 12, cy - 8);
     } });
   }
+  // 경마공원 쇼: 말·기수·마필관리사·게이트 그림 (플레이어 칸을 차지하지 않는 순수 그림. y 순서로 섞는다)
+  if (st.derby) for (const d of derbyItems(st.derby, st.now)) items.push({ sortY: d.y, order: d.order, draw: () => d.draw(ctx) });
   items.sort((a, b) => a.sortY - b.sortY || a.order - b.order);
   for (const it of items) it.draw();
   drawFx(ctx, st.now); // 이동 이펙트 파티클
@@ -443,6 +447,11 @@ export function render(eng: Engine, st: RenderState): void {
       const [, tileBottom] = eng.worldToScreen(0, (st.hint.y + 1) * TILE);
       drawLabel(ctx, st.hint.text, sx, Math.max(tileBottom - 4, stackBottom(me) + 22), '#ffe9a8', 'rgba(0,0,0,0.65)', 12);
     } else drawLabel(ctx, st.hint.text, sx, sy - 10 * s, '#ffe9a8', 'rgba(0,0,0,0.65)', 12);
+  }
+  // 경마공원 출전마 이름표 ("3번 번개호"): 캐릭터 이름표와 같은 모양·자리(발밑). 바탕은 마번 고유 색(마권 판 번호와 같은 색). 사람 이름표가 위에 오도록 먼저 그린다
+  if (st.derby) for (const t of derbyNameTags(st.derby)) {
+    const [tx, ty] = eng.worldToScreen(t.x, t.y);
+    drawLabel(ctx, t.text, tx, ty + 2 + 18, t.color.fg, t.color.bg, 12, t.color.edge);
   }
   // 이름표/말풍선/이모트 (y 순서대로, 아래 있는 캐릭터가 위에 그려짐)
   const ents = [...st.entities].sort((a, b) => a.y - b.y);

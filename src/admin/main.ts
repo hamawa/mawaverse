@@ -785,8 +785,63 @@ function tabConfig(main: HTMLElement): void {
   const priceInputs = new Map<string, HTMLInputElement>();
   const priceBox = el('div', { class: 'price-grid' });
   for (const it of ALL_ITEMS) { const inp = el('input', { type: 'number', min: '0' }); priceInputs.set(it.id, inp); priceBox.append(el('label', { text: `${it.icon} ${it.name}` }), inp); }
+  // ---- 🏇 경마공원 운영 시간·마권 한도 (config/raceHours·raceMax. 발행·판정·지급은 건드리지 않는다) ----
+  type RaceDayRange = { s: number; e: number };
+  type RaceHoursCfg = { on: boolean; d: Record<string, RaceDayRange> };
+  const RACE_DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
+  const RACE_MAX_DEF = { park: 100000, branch: 50000 };
+  const fmtRaceMin = (m: number): string => (m >= 1440 ? '24:00' : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+  const raceTimeOpts = (isEnd: boolean): string => {
+    let h = '';
+    const lo = isEnd ? 10 : 0, hi = isEnd ? 1440 : 1430;
+    for (let m = lo; m <= hi; m += 10) h += `<option value="${m}">${fmtRaceMin(m)}</option>`;
+    return h;
+  };
+  const raceOn = el('select') as HTMLSelectElement;
+  raceOn.innerHTML = '<option value="0">휴장 (운영 안 함)</option><option value="1">운영</option>';
+  const raceDayRows: { day: number; open: HTMLInputElement; s: HTMLSelectElement; e: HTMLSelectElement }[] = [];
+  const raceTable = el('table', { style: 'width:100%;font-size:13px' });
+  for (let d = 0; d <= 7; d++) {
+    const open = el('input', { type: 'checkbox' }) as HTMLInputElement;
+    const s = el('select') as HTMLSelectElement; s.innerHTML = raceTimeOpts(false); s.value = '1140';
+    const e = el('select') as HTMLSelectElement; e.innerHTML = raceTimeOpts(true); e.value = '1380';
+    const dayLabel = d === 7 ? '공휴일' : `${RACE_DAY_NAMES[d]}요일`;
+    const tr = el('tr');
+    const tdDay = el('td', { text: dayLabel, style: 'white-space:nowrap' });
+    const tdOpen = el('td'); tdOpen.append(open, el('span', { text: ' 열기', style: 'font-size:12px' }));
+    const tdS = el('td'); tdS.append(s);
+    const tdDash = el('td', { text: '~' });
+    const tdE = el('td'); tdE.append(e);
+    tr.append(tdDay, tdOpen, tdS, tdDash, tdE);
+    raceTable.append(tr);
+    const syncDis = (): void => { s.disabled = !open.checked; e.disabled = !open.checked; };
+    open.onchange = syncDis; syncDis();
+    raceDayRows.push({ day: d, open, s, e });
+  }
+  const raceHoursBox = el('div');
+  raceHoursBox.append(
+    el('p', { class: 'muted', text: '발매 4분 전체가 운영 시간 안에 드는 경주만 열립니다. 예: 19:00~23:00이면 첫 경주 19:00, 마지막 경주 22:54입니다.' }),
+    el('p', { class: 'muted', text: '마감·결과·환급은 운영 시간 밖에서도 그대로 진행됩니다. 끊기는 것은 새 경주 열기와 마권 구매뿐입니다.' }),
+    el('p', { class: 'muted', text: '자정을 넘는 구간은 받지 않습니다. 다음 날 00:00부터를 따로 적어 주세요. 체크를 끈 요일·공휴일은 휴장입니다.' }),
+    el('p', { class: 'muted', text: '바꾸면 접속 중인 화면에 바로 적용됩니다.' }),
+    f('임시 휴장·운영', raceOn),
+    raceTable,
+  );
+  const racePark = el('input', { type: 'number', min: '100', step: '100' }) as HTMLInputElement;
+  const raceBranch = el('input', { type: 'number', min: '100', step: '100' }) as HTMLInputElement;
+  const raceMaxBox = el('div');
+  raceMaxBox.append(
+    el('p', { class: 'muted', text: '한 사람·한 경주 합산 구매 한도입니다 (공원+분점 합산). 예: 분점에서 5만 원을 샀으면 공원에서는 5만 원까지만 더 살 수 있습니다 (공원 한도 10만 원 기준).' }),
+    el('p', { class: 'muted', text: '한 경주 최대 100장, 한 장 최소 100코인·100코인 단위는 그대로 적용됩니다.' }),
+    el('p', { class: 'muted', text: '이 한도는 구매 금액에만 걸립니다. 적중금(배당금)에는 상한이 없습니다.' }),
+    el('p', { class: 'muted', text: '분점 한도는 공원 한도를 넘을 수 없습니다.' }),
+    f('공원 한도 (코인, 100 단위)', racePark),
+    f('분점 한도 (코인, 100 단위)', raceBranch),
+  );
+  const raceHoursField = el('div', { class: 'field', style: 'grid-column:1/-1' }, [el('label', { text: '🏇 경마공원 운영 시간 (config/raceHours)' }), raceHoursBox]);
+  const raceMaxField = el('div', { class: 'field', style: 'grid-column:1/-1' }, [el('label', { text: '🎟 경마공원 마권 한도 (config/raceMax)' }), raceMaxBox]);
   form.append(f('최대 동시 접속자 (무료 플랜 연결 한도 100)', maxPlayers), f('운영 상태', maint), f('점검 안내 문구', maintMsg), f('평일 근무시간 이용 차단 (관리자 제외. 주말·공휴일은 종일 허용)', hoursSel), f('공지 (상단 배너)', ann),
-    f('채팅 로그 보존 개수', retChat), f('입퇴장 로그 보존 개수', retConn), f('게시글 보존 개수', boardRet), f(`최소 클라이언트 버전 (지금 배포본은 ${CLIENT_VERSION}. 이보다 낮은 접속자는 자동으로 새로고침)`, minVer), f(`경마 한 번 최대 배팅 (100 단위, 기본 ${BET_MAX_DEFAULT}. 규칙이 서버에서 강제. 슬롯·홀짝·1:1 내기 판돈도 이 한도)`, casinoMax), f('1:1 내기 수수료 % (0~50 정수. 판돈 합계에서 떼고 없앤다: 주사위 대결·포커·낚시 내기)', duelFeeIn), f('활성 맵', activeMap), f('낚시 대회 (점수·코인 2배, 대회 한정 어종)', conOn), el('div', { class: 'row' }, [f('대회 요일', conDay), f('시작 시각 (시)', conHour), f('길이 (분)', conMin)]), f('상점 가격 (코인)', priceBox));
+    f('채팅 로그 보존 개수', retChat), f('입퇴장 로그 보존 개수', retConn), f('게시글 보존 개수', boardRet), f(`최소 클라이언트 버전 (지금 배포본은 ${CLIENT_VERSION}. 이보다 낮은 접속자는 자동으로 새로고침)`, minVer), f(`슬롯·포커·주사위 대결 한 번 최대 배팅 (100 단위, 기본 ${BET_MAX_DEFAULT}. 규칙이 서버에서 강제. 경마공원 마권 한도와는 별개)`, casinoMax), f('1:1 내기 수수료 % (0~50 정수. 판돈 합계에서 떼고 없앤다: 주사위 대결·포커·낚시 내기)', duelFeeIn), f('활성 맵', activeMap), f('낚시 대회 (점수·코인 2배, 대회 한정 어종)', conOn), el('div', { class: 'row' }, [f('대회 요일', conDay), f('시작 시각 (시)', conHour), f('길이 (분)', conMin)]), raceHoursField, raceMaxField, f('상점 가격 (코인)', priceBox));
   const save = el('button', { class: 'btn primary', text: '저장' });
   const reduce = el('button', { class: 'btn', text: '🔻 사용량 절감 모드 적용' });
   const info = el('p', { class: 'muted', text: '사용량 절감 모드: 최대 접속 30명, 로그 보존 500개로 낮추고 로그/오래된 채팅을 즉시 정리합니다.' });
@@ -801,10 +856,46 @@ function tabConfig(main: HTMLElement): void {
     activeMap.value = cfg.activeMap;
     for (const it of ALL_ITEMS) priceInputs.get(it.id)!.value = String(priceOf(it, cfg.prices));
     const cc = cfg.contest || DEFAULT_CONTEST; conOn.value = cc.on ? '1' : '0'; conDay.value = String(cc.weekday); conHour.value = String(cc.hour); conMin.value = String(cc.minutes);
+    // 경마공원: 값이 없으면 휴장 + 전부 닫힘으로 보인다
+    const rh = (cfg as unknown as { raceHours?: RaceHoursCfg }).raceHours;
+    const rm = (cfg as unknown as { raceMax?: { park?: unknown; branch?: unknown } }).raceMax;
+    raceOn.value = rh?.on ? '1' : '0';
+    for (const r of raceDayRows) {
+      const v = rh?.d?.[String(r.day)] as RaceDayRange | undefined;
+      const ok = !!v && Number.isInteger(v.s) && Number.isInteger(v.e) && v.s % 10 === 0 && v.e % 10 === 0 && 0 <= v.s && v.s < v.e && v.e <= 1440;
+      r.open.checked = ok;
+      if (ok) { r.s.value = String(v.s); r.e.value = String(v.e); } else { r.s.value = '1140'; r.e.value = '1380'; }
+      r.s.disabled = !ok; r.e.disabled = !ok;
+    }
+    const parkN = Number(rm?.park), branchN = Number(rm?.branch);
+    racePark.value = String(Number.isInteger(parkN) && parkN >= 100 && parkN % 100 === 0 ? parkN : RACE_MAX_DEF.park);
+    raceBranch.value = String(Number.isInteger(branchN) && branchN >= 100 && branchN % 100 === 0 ? branchN : RACE_MAX_DEF.branch);
   };
   save.onclick = async () => {
     const annText = ann.value.trim();
-    const next: ServerConfig = {
+    // 경마공원 운영 시간 검증: 켠 요일만 저장, 시작 < 종료 (자정 넘김 불가)
+    const raceD: Record<string, RaceDayRange> = {};
+    for (const r of raceDayRows) {
+      if (!r.open.checked) continue;
+      const s = Number(r.s.value), e = Number(r.e.value);
+      const dayLabel = r.day === 7 ? '공휴일' : `${RACE_DAY_NAMES[r.day]}요일`;
+      if (!Number.isInteger(s) || !Number.isInteger(e) || s % 10 !== 0 || e % 10 !== 0 || s < 0 || e > 1440) { toast(`${dayLabel}: 시각은 10분 단위로 입력해 주세요.`, true); return; }
+      if (!(s < e)) { toast(`${dayLabel}: 시작 시각이 종료 시각보다 빨라야 합니다.`, true); return; }
+      raceD[String(r.day)] = { s, e };
+    }
+    // 경마공원 마권 한도 검증: 100 이상·100 단위, 분점 ≤ 공원 (지급 상한이 아님)
+    const parkN = Number(racePark.value), branchN = Number(raceBranch.value);
+    if (!Number.isInteger(parkN) || parkN < 100) { toast('공원 한도는 100코인 이상이어야 합니다.', true); return; }
+    if (parkN % 100 !== 0) { toast('공원 한도는 100코인 단위로 입력해 주세요.', true); return; }
+    if (!Number.isInteger(branchN) || branchN < 100) { toast('분점 한도는 100코인 이상이어야 합니다.', true); return; }
+    if (branchN % 100 !== 0) { toast('분점 한도는 100코인 단위로 입력해 주세요.', true); return; }
+    if (branchN > parkN) { toast('분점 한도는 공원 한도를 넘을 수 없습니다.', true); return; }
+    const raceHours: RaceHoursCfg = { on: raceOn.value === '1', d: raceD };
+    const raceMax = { park: parkN, branch: branchN };
+    // 이 저장은 config 를 통째로 다시 쓴다. 폼에 없는 칸(패치 노트 알림 등)이 지워지지 않게 지금 값을 깔고 실어 보낸다
+    const rawAll = ((await get(ref(db, 'config'))).val() as Record<string, unknown>) || {};
+    const next = {
+      ...rawAll,
       maxPlayers: Number(maxPlayers.value) || 60,
       maintenance: { on: maint.value === '1', message: maintMsg.value },
       hoursBlock: hoursSel.value === '1',
@@ -818,10 +909,9 @@ function tabConfig(main: HTMLElement): void {
       minVersion: Math.max(0, Math.floor(Number(minVer.value) || 0)),
       prices: Object.fromEntries(ALL_ITEMS.map((it) => [it.id, Math.max(0, Math.floor(Number(priceInputs.get(it.id)!.value) || it.price))])),
       contest: { on: conOn.value === '1', weekday: Number(conDay.value) || 0, hour: Math.min(23, Math.max(0, Number(conHour.value) || 0)), minutes: Math.max(5, Number(conMin.value) || 60) },
-    };
-    // 이 저장은 config 를 통째로 다시 쓴다. 폼에 없는 칸(패치 노트 알림)이 지워지지 않게 지금 값을 읽어 실어 보낸다
-    const patchNote = (await get(ref(db, 'config/patchNote'))).val() as ServerConfig['patchNote'];
-    if (patchNote) next.patchNote = patchNote;
+      raceHours,
+      raceMax,
+    } as ServerConfig & { raceHours: RaceHoursCfg; raceMax: { park: number; branch: number } };
     await set(ref(db, 'config'), next);
     adminLog('config', undefined, JSON.stringify(next));
     toast('저장했습니다. 활성 맵 변경은 사용자가 다시 접속할 때 적용됩니다.');

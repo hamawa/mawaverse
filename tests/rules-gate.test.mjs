@@ -184,6 +184,7 @@ await expect('맵: 저장된 맵 ID 허용', 'allow', () => ok.ref('players/OK/m
 await expect('맵: 코드에 든 금광 맵 허용', 'allow', () => ok.ref('players/OK/m').set('gold-mine'));
 await expect('맵: 겨울 맵(winter) 허용', 'allow', () => ok.ref('players/OK/m').set('winter'));
 await expect('맵: 겨울 맵과 비슷한 이름은 저장된 맵이 없으면 거부', 'deny', () => ok.ref('players/OK/m').set('winter2'));
+await expect('맵: 저장본 없이 내 경마공원 위치 갱신 허용', 'allow', () => ok.ref('players/OK/m').set('race-park'));
 await expect('맵: 채광 중 표시는 true 만', 'allow', () => ok.ref('players/OK/mn').set(true));
 await expect('맵: 채광 중 표시에 다른 값', 'deny', () => ok.ref('players/OK/mn').set(1));
 await expect('맵: 채광 중 표시 지우기', 'allow', () => ok.ref('players/OK/mn').remove());
@@ -1372,6 +1373,9 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('펫 꾸미기: 남의 presence 에 쓰기', 'deny', () => other.ref('players/OK/ph').set('ph_crown'));
   await root.ref().update({ players: null, users: null, homes: null, homepic: null, fires: null, wallet: null, 'approved/THIRD': null, 'approved/OTHER': null });
 }
+
+const { derbyEmulatorCases } = await import('./derby-rules.test.mjs');
+await derbyEmulatorCases({ root, as, expect });
 
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
 process.exit(fail ? 1 : 0);

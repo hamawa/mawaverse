@@ -1,13 +1,38 @@
-import { ref, get, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
+import { ref, get, set, query, orderByChild, equalTo, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
 import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
+import { DERBY_BET_TYPES, DERBY_CYCLE_MS, DERBY_SALE_MS, DERBY_TICKETS_PER_RACE, raceNo, raceOdds, ticketRecord, ticketWins, ticketPayout, validTicketAmount, type DerbyBetType, type DerbyRes, type DerbyTicket } from '../shared/derby';
 import type { WorldCtx } from './state';
 
-// 코인 지갑. 모든 쓰기는 wallet/{uid} 노드 전체를 트랜잭션으로 바꾼다. 서버 코드가 없으므로 규칙(database.rules.json)이 노드 단위로 검사한다 (2026-11-06 치팅 방지):
+// ---- 경마공원 지갑 칸 (2026-11-23). shared/shop.ts 의 Wallet 에는 없고, 규칙(tools/gen-rules.cjs)이 결제·환급 쓰기에만 묶는다 ----
+//  결제(b='derby'): kd 경주 번호 · kb 그 경주의 마지막 마권 번호 '00'~'99' · kt 그 경주 누적 구매액 (공원·분점 합산)
+//  환급: kn 경주 번호 · kr 마권 번호 (영수증 race/u/{uid}/{kn}/{kr} 과 같은 쓰기에서)
+type DerbyWallet = Wallet & { kd?: string; kb?: string; kt?: number; kn?: string; kr?: string };
+// 마권 한 장: 인기 순위 0~7 (W·P 는 s2 = −1), 금액 100 단위
+export interface DerbyLine { t: DerbyBetType; s1: number; s2: number; a: number }
+// 장마다의 결과. nn = 마권 번호 '00'~'99', od = 마권에 적은 배당 ×10
+//  line 형식이 틀림 · coins 잔액 부족 · cap 한 경주 한도 · full 한 경주 100장 · closed 그 경주 발매가 아님 · denied 규칙이 거부(발매 중지·하트비트·자리 등)
+export type DerbyBuyResult = { ok: true; n: number; nn: string; a: number; od: number } | { ok: false; why: 'line' | 'coins' | 'cap' | 'full' | 'closed' | 'denied' };
+// 환급 결과: 받은 적중금 · 무효 환불 · 받은 장 수 · 결과를 기다리는 경주 수
+export interface DerbySettle { paid: number; refunded: number; tickets: number; pending: number }
+type DerbyTicketRec = { t: DerbyBetType; s1: string; s2?: string; a: number; od: number };
+const DERBY_VOID_AFTER_MS = 86400000; // 마감 뒤 이만큼 결과가 없으면 무효로 확정할 수 있다 (규칙과 같은 값)
+
+// 규칙이 받는 모양으로: 순위는 0~7 정수, W·P 는 s2 없음(−1), 복승·복연승은 작은 순위가 앞, 같은 말 두 번은 안 됨, 금액은 100 단위
+function derbyCanon(l: DerbyLine): (DerbyTicket & { a: number }) | null {
+  const rank = (x: number) => Number.isInteger(x) && x >= 0 && x < 8;
+  if (!DERBY_BET_TYPES.includes(l.t) || !rank(l.s1) || !validTicketAmount(l.a)) return null;
+  if (l.t === 'W' || l.t === 'P') return l.s2 === -1 ? { t: l.t, s1: l.s1, s2: -1, a: l.a } : null;
+  if (!rank(l.s2) || l.s1 === l.s2) return null;
+  const [s1, s2] = l.t === 'E' || l.s1 < l.s2 ? [l.s1, l.s2] : [l.s2, l.s1];
+  return { t: l.t, s1, s2, a: l.a };
+}
+
+// 코인 지갑. 구매는 트랜잭션 또는 원자적인 다중 경로 update, 빈번한 획득은 increment. 규칙이 노드 단위로 검사한다:
 //  - 잔액 증가 ≤ 획득 − 사용. (획득 속도 상한 — 한 번 200·10분 3000 — 은 2026-11-10 에 없앴다: 정상 플레이에서 지급이 막히는 일이 있어서. 치팅은 감수)
 //  - 사용(sp 증가)은 b 에 산 품목 id 를 적고 금액이 가격표(config/prices)와 정확히 같아야 한다. 자동 버프·미끼·주문서·펫 먹이는 그 쓰기에서만 늘 수 있다
 //  - 보유(users/{uid}/own/{id})는 지갑의 b 가 그 품목일 때만 쓸 수 있다 → 구매는 "지갑 차감(b 기록) → 보유 등록" 두 단계
@@ -25,7 +50,7 @@ export class WalletMgr {
       this.wallet = (s.val() as Wallet | null) || { c: 0, e: 0 };
       const first = !this.loaded;
       this.loaded = true;
-      if (first) { void this.deliverPending(); void this.healStars(); void this.settlePendingInstant(); }
+      if (first) { void this.deliverPending(); void this.healStars(); void this.settlePendingInstant(); void this.settlePendingDerby(); }
       this.checkGift();
       this.listeners.forEach((f) => f());
     });
@@ -219,6 +244,95 @@ export class WalletMgr {
     const upd: Record<string, unknown> = { [`${W}/pc`]: hid, [`pkh/${hid}/x${side}`]: true };
     if (amount > 0) { upd[`${W}/c`] = increment(amount); upd[`${W}/e`] = increment(amount); }
     try { await update(ref(db), upd); return true; } catch (e) { console.warn('포커 정산이 거부됨', e); return false; }
+  }
+  // ---- 경마공원 마권 (2026-11-23. 설계는 SPEC "경마공원", 규칙은 tools/gen-rules.cjs 의 derbyPay · derbyClaim · derbyBlocks) ----
+  // 경주 n 에 지금까지 산 금액 (공원·분점 합산)과 다음 마권 번호 (0~99, 다 썼으면 100)
+  derbySpent(n: number): number { const w = this.wallet as DerbyWallet; return w.kd === String(n) ? w.kt || 0 : 0; }
+  derbyNextIndex(n: number): number { const w = this.wallet as DerbyWallet; return w.kd === String(n) && w.kb ? Number(w.kb) + 1 : 0; }
+  // 마권 구매: 한 장마다 쓰기 한 번 (지갑 결제 + 마권 race/t/{n}/{uid}/{nn} + 경주 표시 race/u/{uid}/{n}/i). 하나라도 규칙에 걸리면 그 장은 통째로 거부되어 코인이 빠지지 않는다.
+  // 장마다 결과를 돌려준다. increment 로 차감하고 영구 합계(s) 위에 kt 를 정한다. 다른 탭이 먼저 샀으면
+  // 합계 변경을 확인한 경우에만 다시 읽어 시도한다(최대 3번). 합계가 그대로면 규칙의 발매·자리·한도 거부다.
+  // cap is advisory; the immutable per-race ledger, not a tab's wallet cache, owns the combined cap.
+  async buyDerby(n: number, lines: readonly DerbyLine[], cap: number): Promise<DerbyBuyResult[]> {
+    const uid = this.w.uid, W = `wallet/${uid}`, ns = String(n);
+    const read = async (): Promise<DerbyWallet> => ((await get(ref(db, W))).val() as DerbyWallet | null) || { c: 0, e: 0 };
+    const out: DerbyBuyResult[] = [];
+    for (const line of lines) {
+      const tk = derbyCanon(line);
+      if (!tk) { out.push({ ok: false, why: 'line' }); continue; }
+      const now = serverNow();
+      if (raceNo(now) !== n || now - n * DERBY_CYCLE_MS >= DERBY_SALE_MS) { out.push({ ok: false, why: 'closed' }); continue; }
+      let res: DerbyBuyResult = { ok: false, why: 'denied' };
+      for (let tries = 0; tries < 3; tries++) {
+        const cur = await read();
+        const ledger = ((await get(ref(db, `race/u/${uid}/${ns}`))).val() || {}) as { s?: number; c?: number };
+        const spent = ledger.s || 0, idx = ledger.c || 0;
+        if (idx >= DERBY_TICKETS_PER_RACE) { res = { ok: false, why: 'full' }; break; }
+        if (spent + tk.a > cap) { res = { ok: false, why: 'cap' }; break; }
+        if ((cur.c || 0) < tk.a) { res = { ok: false, why: 'coins' }; break; }
+        const nn = String(idx).padStart(2, '0'), od = raceOdds(n, tk.t, tk.s1, tk.s2);
+        try {
+          await update(ref(db), {
+            [`${W}/c`]: increment(-tk.a), [`${W}/sp`]: increment(tk.a), [`${W}/b`]: 'derby', [`${W}/gt`]: null,
+            [`${W}/kd`]: ns, [`${W}/kb`]: nn, [`${W}/kt`]: spent + tk.a,
+            [`race/t/${ns}/${uid}/${nn}`]: { ...ticketRecord(tk, tk.a), od }, [`race/u/${uid}/${ns}/i`]: true,
+            [`race/u/${uid}/${ns}/s`]: spent + tk.a, [`race/u/${uid}/${ns}/c`]: idx + 1,
+          });
+          res = { ok: true, n, nn, a: tk.a, od };
+          break;
+        } catch (e) {
+          const total = Number((await get(ref(db, `race/u/${uid}/${ns}/s`))).val()) || 0;
+          const moved = total !== spent;
+          if (!moved) { console.warn('마권 구매가 거부됨 (마감·발매 중지·자리·한도)', e); break; }
+        }
+      }
+      out.push(res);
+    }
+    return out;
+  }
+  // 환급: 결과가 난 경주의 맞힌 마권은 금액 × 배당 / 10, 무효 경주의 마권은 금액을 한 장씩 받는다 (쓰기 한 번 = 지갑 + 영수증 race/u/{uid}/{n}/{nn}).
+  // 영수증은 지울 수 없어 같은 마권을 두 번 받지 못한다. 꽝도 0원 영수증을 남기며, 순서와 상관없이 앞 경주를 받을 수 있다.
+  // 마감 뒤 24시간이 지나도 결과가 없는 경주는 먼저 무효로 확정한다 (race/x/{n} = { v, at }. 그새 결과가 먼저 적혔으면 그 결과로).
+  // The index, tickets, totals and receipts are retained; no high-water cursor can skip an earlier ticket.
+  private settling: Promise<DerbySettle> | null = null;
+  settleDerby(): Promise<DerbySettle> {
+    this.settling ??= this.settleDerbyOnce().finally(() => { this.settling = null; });
+    return this.settling;
+  }
+  private async settleDerbyOnce(): Promise<DerbySettle> {
+    const uid = this.w.uid, W = `wallet/${uid}`, sum: DerbySettle = { paid: 0, refunded: 0, tickets: 0, pending: 0 };
+    const races = ((await get(query(ref(db, `race/u/${uid}`), orderByChild('i'), equalTo(true)))).val() || {}) as Record<string, Record<string, unknown>>;
+    for (const ns of Object.keys(races).sort((p, q) => Number(p) - Number(q))) {
+      const n = Number(ns), X = `race/x/${ns}`;
+      let x = (await get(ref(db, X))).val() as (DerbyRes & { v?: boolean }) | null;
+      if (!x && serverNow() >= n * DERBY_CYCLE_MS + DERBY_SALE_MS + DERBY_VOID_AFTER_MS) {
+        await set(ref(db, X), { v: true, at: serverTimestamp() }).catch(() => {}); // 거부되면 그새 결과·무효가 먼저 적혔다
+        x = (await get(ref(db, X))).val();
+      }
+      if (!x) { sum.pending++; continue; }
+      const tickets = ((await get(ref(db, `race/t/${ns}/${uid}`))).val() || {}) as Record<string, DerbyTicketRec>;
+      let left = 0;
+      for (const nn of Object.keys(tickets).sort()) {
+        if (races[ns][nn] === true) continue; // 이미 받은 마권
+        const tk = tickets[nn];
+        let pay: number;
+        try { pay = x.v === true ? tk.a : ticketWins(tk, x) ? ticketPayout(tk.a, tk.od) : 0; } catch { left++; continue; }
+        try {
+          await update(ref(db), { [`${W}/c`]: increment(pay), [`${W}/e`]: increment(pay), [`${W}/kn`]: ns, [`${W}/kr`]: nn, [`race/u/${uid}/${ns}/${nn}`]: true });
+          if (x.v === true) sum.refunded += pay; else sum.paid += pay;
+          sum.tickets++;
+        } catch (e) {
+          if ((await get(ref(db, `race/u/${uid}/${ns}/${nn}`))).val() !== true) { left++; console.warn('마권 환급이 거부됨', e); } // 영수증이 있으면 다른 탭이 먼저 받았다
+        }
+      }
+      if (left) sum.pending++;
+    }
+    return sum;
+  }
+  // 접속할 때: 접속하지 않은 동안 끝난 경주의 마권을 받는다
+  private async settlePendingDerby(): Promise<void> {
+    const r = await this.settleDerby().catch((e) => { console.warn('마권 정산을 완료하지 못했습니다. 미정산 기록은 유지됩니다.', e); return null; });
+    if (r && r.paid + r.refunded > 0) this.w.toast(`🏇 지난 경마 마권 ${r.tickets}장의 💰 ${(r.paid + r.refunded).toLocaleString('ko-KR')} 을 받았습니다.`);
   }
   // 자동 버프를 더 살 수 있는 최대 시간(ms): 남은 시간을 뺀 것
   autoRoom(kind: 'fish' | 'bug'): number { return Math.max(0, AUTO_MAX_MS - Math.max(0, (this.wallet[kind === 'fish' ? 'ar' : 'ab'] || 0) - serverNow())); }

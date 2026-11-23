@@ -12,3 +12,5 @@ ui-debug.log
 database.rules.deploy.json
 database.rules.test.json
 holidays.deploy.json
+# tools/gen-derby.mjs 가 만드는 경마공원 고정 자료
+raceData.deploy.json

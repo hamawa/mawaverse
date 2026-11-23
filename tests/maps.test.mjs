@@ -308,6 +308,62 @@ test('금광: 24×18, 물·잔디·꽃밭이 없고 가운데 6×5 금덩어리 
   assert.equal(isReservedMapId(GOLD_MINE_MAP_ID), true);
 });
 
+test('경마공원: 84×49 내장 맵, 주로·예시장·지하마도는 못 들어가고 창구·관람석·서클 좌표가 맞는다', async () => {
+  const { buildRaceParkMap, RACE_LOOP, RACE_START_INDEX, RACE_PADDOCK_SLOTS, RACE_STANDS, RACE_TELLERS, isWalkable, isReservedMapId, portalNear, portalDests } = await import('../src/game/map.ts');
+  const { RACE_PARK_MAP_ID, BUILTIN_MAP_IDS, MAIN_MAP_ID } = await import('../src/shared/maps.ts');
+  const m = buildRaceParkMap();
+  assert.equal(m.id, RACE_PARK_MAP_ID);
+  assert.equal(m.w, 84); assert.equal(m.h, 49);
+  assert.ok(BUILTIN_MAP_IDS.includes(RACE_PARK_MAP_ID));
+  assert.equal(isReservedMapId(RACE_PARK_MAP_ID), true);
+  // 낚시·곤충 없음: 물·꽃밭이 없어야 한다
+  for (const g of m.ground) assert.ok(g !== G.WATER && g !== G.FLOWER);
+  // 주로·예시장 안은 말의 그림이 다니는 자리라 유저가 못 들어간다
+  for (const [x, y] of RACE_LOOP) assert.equal(isWalkable(m, x, y), false, `주로 (${x},${y})에 들어갈 수 있으면 안 됨`);
+  for (const [x, y] of RACE_PADDOCK_SLOTS) assert.equal(isWalkable(m, x, y), false, `예시장 (${x},${y})에 들어갈 수 있으면 안 됨`);
+  // 거리별 출발대 4곳이 서로 다른 주로 위치다
+  const starts = new Set(Object.values(RACE_START_INDEX).map((i) => RACE_LOOP[i].join(',')));
+  assert.equal(starts.size, 4);
+  // 관람석 벤치 두 줄은 북쪽 주로를 본다(앉으면 dir 3)
+  for (let x = RACE_STANDS.x; x < RACE_STANDS.x + RACE_STANDS.w; x++) {
+    for (let y = RACE_STANDS.y; y < RACE_STANDS.y + RACE_STANDS.h; y++) assert.equal(m.dirs?.[y * m.w + x], 3, `관람석 (${x},${y})`);
+  }
+  // 발매소 창구 둘 (관람석 뒤·예시장 옆): 옆에 서서 F 를 누를 자리가 있다
+  assert.equal(RACE_TELLERS.length, 2);
+  for (const [tx, ty] of RACE_TELLERS) {
+    assert.ok(m.zones.some((z) => z.kind === 'teller' && z.x === tx && z.y === ty), `창구 (${tx},${ty})`);
+    assert.ok([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isWalkable(m, tx + dx, ty + dy)), `창구 (${tx},${ty}) 옆에 설 자리`);
+  }
+  // 복귀 포탈: 행선지가 하나(메인 광장)라 고르는 창 없이 바로 이동. 스폰·포탈 자리는 걸어갈 수 있다
+  const portal = m.zones.find((z) => z.kind === 'portal');
+  assert.ok(portal);
+  assert.deepEqual(portalDests(portal), [{ map: MAIN_MAP_ID }]);
+  assert.equal(portalNear(m, m.spawn.x, m.spawn.y), undefined);
+  assert.ok(isWalkable(m, m.spawn.x, m.spawn.y));
+  // 스폰에서 창구 앞·예시장 펜스 앞·관람석 앞까지 걸어갈 수 있다
+  const seen = new Set([`${m.spawn.x},${m.spawn.y}`]), q = [m.spawn];
+  while (q.length) { const { x, y } = q.pop(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const k = `${x + dx},${y + dy}`; if (!seen.has(k) && isWalkable(m, x + dx, y + dy)) { seen.add(k); q.push({ x: x + dx, y: y + dy }); } } }
+  for (const [tx, ty] of [[62, 45], [40, 19], [60, 39], [30, 19], [75, 40]]) assert.ok(seen.has(`${tx},${ty}`), `(${tx},${ty}) 에 걸어갈 수 있어야 함`);
+});
+
+test('경마공원: 펜스 밖 관람 자리에서 예시장에 닿고 창구 zone 이 좌표에 있다', async () => {
+  const { buildRaceParkMap, RACE_PADDOCK, RACE_TELLERS, nearZone, isWalkable } = await import('../src/game/map.ts');
+  const m = buildRaceParkMap();
+  const paddock = m.zones.find((z) => z.kind === 'paddock');
+  assert.ok(paddock);
+  assert.deepEqual([paddock.x, paddock.y, paddock.w, paddock.h], [RACE_PADDOCK.x, RACE_PADDOCK.y, RACE_PADDOCK.w, RACE_PADDOCK.h]);
+  // 서쪽·남쪽·북쪽 펜스 밖은 걸어갈 수 있고 예시장에 닿는다 (F 로 출전마를 고르는 자리)
+  for (const [x, y] of [[19, 10], [30, 19], [30, 2]]) {
+    assert.ok(isWalkable(m, x, y), `(${x},${y}) 관람 자리`);
+    assert.ok(nearZone(paddock, x, y, 1), `(${x},${y}) 에서 예시장 F`);
+  }
+  // 발매소 창구 둘은 teller zone 이고 옆에 설 자리가 있다
+  for (const [tx, ty] of RACE_TELLERS) {
+    assert.ok(m.zones.some((z) => z.kind === 'teller' && z.x === tx && z.y === ty), `창구 (${tx},${ty})`);
+    assert.ok([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isWalkable(m, tx + dx, ty + dy)), `창구 (${tx},${ty}) 옆`);
+  }
+});
+
 test('겨울 낚시터: 빙판의 구멍만 낚시 가능하고 구멍에 들어갈 수 없으며 정원과 왕복할 수 있다', async () => {
   const { buildWinterMap, buildPortalGarden, isFishable, G_ICE, G_ICE_HOLE, G_SNOW, isWalkable, portalNear, portalDests, isReservedMapId } = await import('../src/game/map.ts');
   const { WINTER_MAP_ID, BUILTIN_MAP_IDS } = await import('../src/shared/maps.ts');

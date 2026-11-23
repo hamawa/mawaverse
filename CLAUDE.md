@@ -37,6 +37,7 @@
 - `src/game/campfire.ts` 모닥불(상수는 `src/shared/campfire.ts`), `src/game/snowmen.ts` 모두에게 보이는 눈사람, `src/shared/links.ts` 바깥 게임으로 가는 오락기의 주소
 - `src/game/dj.ts`+`djui.ts` 클럽 DJ(유튜브 링크로 노래 틀기. 링크 해석은 `src/shared/youtube.ts`)
 - `src/game/stock.ts`+`stockui.ts` 거래소(가격 굴리기·사고팔기. 식과 설계는 `src/shared/stock.ts`), `tests/stock.test.mjs` 거래소 계산·규칙 숫자 대조
+- 경마공원(`race-park`, 6분 주기): 결정적 코어 `src/shared/derby.ts`+`src/shared/derby/*`(시각·마필·배당·시나리오·마권), 연출 `src/game/derbyshow.ts`(말은 예시장 펜스 안·지하마도·주로만 다닌다. 마번 색은 `derbyGateColor`), 마권 창 `derbyui.ts`, 관람 연결 `derbyview.ts`, 말 그림 `sprites/horse.ts`. 발매 승인·결과 추첨은 운영 PC 의 `tools/derby-operator.mjs`(README 참고), 고정 자료는 `tools/gen-derby.mjs` 가 만드는 `raceData.deploy.json`(git 제외). 규칙 생성 결과(`database.rules.deploy.json`)가 한도 262,144B 에 거의 닿아 있으니 규칙을 늘리면 크기를 꼭 볼 것. 테스트는 `tests/derby*.test.mjs`
 - `src/firebase/*` 초기화/인증 헬퍼(가입·승인 확인·탈퇴), `src/shared/*` 타입/설정/유틸, `src/shared/hours.ts` 이용 시간 판정(순수 함수), `src/shared/schedule.ts` 공휴일·쉬는 시간 설정 읽기, `src/shared/maps.ts` 맵 id·자리 키
 - `database.rules.json` 보안 규칙 원본 (서버 코드 없음: 모든 검증은 여기서). `tools/gen-gate.cjs` 가 여기에 승인·이용 시간 조건을 넣어 `database.rules.deploy.json` 을 만들고, 배포와 에뮬레이터는 그 파일을 쓴다(`firebase.json`). 생성된 파일(`database.rules.deploy.json`, `database.rules.test.json`, `holidays.deploy.json`)은 git 에 올리지 않는다.
 - `tools/admin-cli.mjs` firebase-admin CLI (serviceAccount.json 필요), `tools/gen-rules.cjs` 지갑 규칙 생성기, `tools/usage.mjs` 사용량 점검

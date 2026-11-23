@@ -8,7 +8,8 @@ export type Sfx =
   | 'push' | 'wave' | 'hook' | 'pull' | 'toss' | 'hit' | 'block' | 'bat' | 'snow'
   | 'cast' | 'bite' | 'catch' | 'junk' | 'miss' | 'swing' | 'bug'
   | 'chop' | 'wood' | 'mine' | 'gold' | 'coin' | 'portal' | 'door' | 'ui' | 'on'
-  | 'card' | 'chip' | 'spin' | 'win' | 'lose' | 'horn' | 'alarm' | 'stab';
+  | 'card' | 'chip' | 'spin' | 'win' | 'lose' | 'horn' | 'alarm' | 'stab'
+  | 'hoof' | 'derbyBell' | 'gate' | 'fanfare' | 'cheer'; // 경마공원: 말발굽 · 기승 종 · 게이트 소리 · 팡파르 · 결승 함성
 // 배경음악이 달라지는 상황. main 은 여러 곡이 돌아가며 나오고 밤에는 밤 곡이 나온다
 export type Scene = 'main' | 'home' | 'mine' | 'winter' | 'race' | 'slots' | 'poker' | 'mafia' | 'club';
 
@@ -52,6 +53,7 @@ export const TUNES: Record<string, Tune> = {
   mine2: { name: '깊은 갱도', bpm: 66, beats: 4, root: 48, scale: DORIAN, prog: [0, 3, 0, 6], bars: 28, pad: 0.4, arp: { vol: 0.46, oct: 1, pat: [0, -1, 2, -1, 1, 2, -1, 3], wave: 'marimba' }, lead: { vol: 0.28, oct: 3, dens: 0.12, wave: 'bell' }, bass: { vol: 0.4 }, drone: true, rev: 0.9 },
   winter2: { name: '첫눈', bpm: 96, beats: 3, root: 62, scale: MAJOR, prog: [0, 4, 5, 3], bars: 40, pad: 0.4, arp: { vol: 0.26, oct: 1, pat: [0, 2, 1, 2, 3, 2], wave: 'bell' }, lead: { vol: 0.3, oct: 1, dens: 0.28, wave: 'pluck' }, bass: { vol: 0.3 }, rev: 0.7 },
   race2: { name: '결승선', bpm: 144, beats: 4, root: 62, scale: MAJOR, prog: [0, 3, 0, 4, 5, 3, 4, 0], bars: 32, arp: { vol: 0.2, oct: 0, pat: [0, 1, 2, 1, 0, 1, 2, 3], wave: 'square' }, lead: { vol: 0.3, oct: 1, dens: 0.55, wave: 'brass' }, bass: { vol: 0.42, walk: true }, drums: 'gallop', rev: 0.15 },
+  derbypark: { name: '예시장 산책', bpm: 100, beats: 3, root: 65, scale: MAJOR, prog: [0, 4, 5, 3], bars: 32, pad: 0.4, arp: { vol: 0.3, oct: 0, pat: [0, 1, 2, 1], wave: 'pluck' }, lead: { vol: 0.32, oct: 1, dens: 0.3, wave: 'marimba' }, bass: { vol: 0.3 }, rev: 0.5 },
   slots2: { name: '잭팟 거리', bpm: 126, beats: 4, root: 60, scale: MAJOR, prog: [0, 5, 3, 4], bars: 32, arp: { vol: 0.2, oct: 1, pat: [0, 2, 1, 2, 3, 2, 1, 2], wave: 'square' }, lead: { vol: 0.26, oct: 1, dens: 0.45, wave: 'square' }, bass: { vol: 0.4 }, drums: 'bounce', rev: 0.15 },
   poker2: { name: '늦은 밤 테이블', bpm: 76, beats: 4, root: 45, scale: MINOR, prog: [0, 3, 4, 0], bars: 32, arp: { vol: 0.34, oct: 2, pat: [-1, 0, -1, 2, -1, 1, -1, 2], wave: 'rhodes' }, lead: { vol: 0.3, oct: 2, dens: 0.22, wave: 'rhodes' }, bass: { vol: 0.45, walk: true }, drums: 'swing', swing: 0.3, rev: 0.4 },
   mafia2: { name: '그림자', bpm: 54, beats: 4, root: 43, scale: PHRYG, prog: [0, 5, 1, 0], bars: 24, pad: 0.5, lead: { vol: 0.28, oct: 3, dens: 0.18, wave: 'bell' }, bass: { vol: 0.35 }, drums: 'heart', drone: true, rev: 0.8 },
@@ -182,7 +184,7 @@ const SCENE_TUNES: Record<Scene, { day: string[]; night?: string[]; gap: [number
   home: { day: ['home', 'home2'], gap: [8, 20] },
   mine: { day: ['mine', 'mine2'], gap: [4, 10] },
   winter: { day: ['winter', 'winter2'], gap: [8, 20] },
-  race: { day: ['race', 'race2'], gap: [0.5, 1.5] },
+  race: { day: ['derbypark', 'race', 'race2'], gap: [0.5, 1.5] },
   slots: { day: ['slots', 'slots2'], gap: [0.5, 1.5] },
   poker: { day: ['poker', 'poker2'], gap: [0.5, 1.5] },
   mafia: { day: ['mafia', 'mafia2'], gap: [0.5, 2] },
@@ -255,6 +257,11 @@ export class Synth {
       case 'horn': arp([67, 72, 76, 79], 0, 0.11, 0.16, 0.2, 'sawtooth'); T('sawtooth', midi(84), midi(84), 0.44, 0.45, 0.2); break;
       case 'alarm': for (let i = 0; i < 4; i++) T('square', i % 2 ? 880 : 660, i % 2 ? 880 : 660, i * 0.18, 0.16, 0.2); break;
       case 'stab': T('sawtooth', 140, 50, 0, 0.35, 0.4); Nz(0, 0.2, 0.5, 'lowpass', 600); break;
+      case 'hoof': Nz(0, 0.09, 0.5, 'lowpass', 300); T('sine', 120, 60, 0, 0.09, 0.4); break; // 말발굽 한 걸음 (경주 중에 world.ts 가 간격으로 낸다)
+      case 'derbyBell': T('sine', 1568, 1568, 0, 0.5, 0.3); T('sine', 1568, 1568, 0.35, 0.6, 0.3); break; // 기승 종
+      case 'gate': Nz(0, 0.12, 0.5, 'highpass', 2500); T('square', 300, 90, 0, 0.2, 0.3); break; // 게이트 열리는 쇳소리
+      case 'fanfare': arp([67, 72, 76, 79, 84], 0, 0.13, 0.3, 0.3, 'sawtooth'); break; // 발주 팡파르
+      case 'cheer': Nz(0, 1.2, 0.5, 'bandpass', 1200, 800); Nz(0.1, 1.0, 0.4, 'bandpass', 2400, 1200); break; // 결승 함성
     }
   }
 
