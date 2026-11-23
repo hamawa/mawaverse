@@ -338,6 +338,35 @@ test('노래 예약: 규칙의 숫자가 화면의 숫자와 같고, 넘기는 �
   assert.deepEqual([...Y.DJ_DEAD_CODES], [100, 101, 150], '없는 영상·막힌 영상만 스스로 넘긴다 (기기 탓인 오류로 남의 곡을 넘기지 않는다)');
 });
 
+// ---------- 2026-11-23 건의·제보: 이름표 효과는 닉네임에만 · 별가루는 밤에 빛난다 · 찌를 기다리는 중의 F ----------
+test('이름표: 닉네임 앞뒤의 표시는 따로 넘기고, 이름표 효과는 닉네임에만 입힌다', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const world = read('../src/game/world.ts'), render = read('../src/game/render.ts');
+  // 표시(🏆 · 🐟3 · 💥 …)를 닉네임 글자열에 붙이지 않는다
+  assert.ok(world.includes('nick: this.profile.nick, nickPost:') && world.includes('nick: rp.st.n, nickPost:'), '닉네임만 nick 에');
+  assert.ok(world.includes("nickPre: (iGhost ? '👻 ' : '') + this.nickMarks(this.uid)") && world.includes("nickPre: (ghost ? '👻 ' : '') + this.nickMarks(rp.uid)"), '앞 표시');
+  // 그리는 쪽: 흐르는 빛깔의 폭은 닉네임만큼, 표시는 기본 빛깔
+  assert.ok(render.includes('side?: { pre: string; post: string; color: string }'), 'drawLabel 의 side');
+  assert.ok(render.includes('labelFlow(ctx, color, tx - 4, tx + wText + 4, performance.now())'), '흐르는 빛깔은 닉네임 폭');
+  assert.ok(render.includes("color: e.isMe ? '#ffe9a8' : '#ffffff' } : undefined;"), '표시는 기본 빛깔');
+});
+
+test('별가루: 낮밤 덧칠 뒤에 한 번 더 얹는다 (밤에 어두워지지 않게)', () => {
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
+  const cos = read('../src/game/cosmetics.ts'), render = read('../src/game/render.ts');
+  assert.ok(/export function drawFxGlow\([^)]*lamp: number\): void \{\s*if \(lamp <= 0\.02\) return;/.test(cos), '낮에는 아무것도 하지 않는다');
+  assert.ok(cos.includes("if (p.kind !== 'stardust') continue;"), '별가루만');
+  assert.ok(/drawNight\(eng, map, vis, st\.night, st\.fires, xmasLights\); drawFxGlow\(ctx, st\.now, eng\.cam\.x, eng\.cam\.y, eng\.scale \* eng\.dpr, st\.night\.lamp\);/.test(render), '덧칠 바로 뒤');
+});
+
+test('낚시: 찌를 기다리는 중에 옆에 벌레가 있으면 F 는 벌레를 잡는다 (입질이 오면 당기기)', () => {
+  const world = readFileSync(new URL('../src/game/world.ts', import.meta.url), 'utf8');
+  const i = world.indexOf("if (bug && !fv.bite) return { x: bug.x, y: bug.y, text: 'F 채집', kind: 'bug' };");
+  const j = world.indexOf("text: fv.bite ? 'F 당겨!' : '찌를 기다리는 중… (이동하면 취소)', kind: 'fishing' }");
+  assert.ok(i > 0 && j > i, '벌레가 낚시 안내보다 먼저');
+  assert.ok(world.indexOf('if (fv.auto) return null;') < i, '자동 낚시 중에는 그대로 (안내 없음)');
+});
+
 // ---------- 포커 판: 테이블 상자의 높이 (2026-11-23 제보: 1번 테이블에서 판이 돌면 2번 테이블의 단추가 오르내렸다) ----------
 test('포커 판: 테이블 상자의 높이를 붙박는다 (위 테이블의 상태가 바뀌어도 아래 테이블이 밀리지 않게)', () => {
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
@@ -712,7 +741,7 @@ test('그리는 쪽이 그 판정을 쓴다: 펫 이름·이름표·자동 표�
   const src = readFileSync(new URL('../src/game/render.ts', import.meta.url), 'utf8');
   assert.ok(src.includes('if (st.entities.some((e) => standsBelow(p.x, p.y, e.x, e.y))) {'), '펫 아래 칸에 누가 있으면 이름을 펫 위에');
   assert.ok(src.includes('const fade = ents.some((o) => o !== e && standsBelow(e.x, e.y, o.x, o.y)) ? LABEL_FADE : undefined;'), '아래 칸에 누가 있으면 이름표를 비치게');
-  assert.equal((src.match(/, fade\);/g) || []).length, 3, '벌칙 칭호·칭호·이름 셋 다');
+  assert.equal((src.match(/, fade(, side)?\);/g) || []).length, 3, '벌칙 칭호·칭호·이름 셋 다'); // 이름은 앞뒤 표시(side)를 같이 넘긴다 (2026-11-23)
   assert.ok(src.includes("if (autoBelow(e)) drawLabel(ctx, txt, sx, under + 17,"), '남쪽으로 던진 찌의 자동 표시는 이름표 아래에');
   assert.ok(src.includes('if (me && inRowBelow(me.x, me.y, st.hint.x, st.hint.y)) {') && src.includes('Math.max(tileBottom - 4, stackBottom(me) + 22)'), '아래 줄을 가리키는 안내는 내 이름표 아래로');
 });

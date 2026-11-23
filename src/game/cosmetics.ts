@@ -964,6 +964,26 @@ export function drawFx(ctx: CanvasRenderingContext2D, now: number): void {
   }
   ctx.globalAlpha = 1;
 }
+// 밤에 빛나는 별가루 (2026-11-23 건의): 낮밤 덧칠을 한 뒤에 별가루 알갱이만 한 번 더 얹는다. 어둠에 묻히지 않고 둘레가 옅게 밝다.
+// 화면 좌표(캔버스 px)로 그린다: camX·camY 카메라(월드 px), k 확대 배율, lamp 밤의 세기 0~1 (낮에는 아무것도 하지 않는다)
+export function drawFxGlow(ctx: CanvasRenderingContext2D, now: number, camX: number, camY: number, k: number, lamp: number): void {
+  if (lamp <= 0.02) return;
+  let any = false;
+  for (const p of parts) {
+    if (p.kind !== 'stardust') continue;
+    const t = (now - p.born) / p.life;
+    if (t >= 1) continue;
+    if (!any) { any = true; ctx.globalCompositeOperation = 'lighter'; }
+    const x = (p.x + p.vx * (now - p.born) - camX) * k, y = (p.y + p.vy * (now - p.born) - camY) * k;
+    const r = p.size * (1.6 - t) * k, halo = r * 2.6, a = (1 - t) * lamp;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, halo);
+    g.addColorStop(0, `rgba(255, 224, 130, ${0.4 * a})`); g.addColorStop(1, 'rgba(255, 224, 130, 0)');
+    ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(x - halo, y - halo, halo * 2, halo * 2);
+    ctx.globalAlpha = a; ctx.fillStyle = t < 0.5 ? '#fff6c2' : '#ffd84d';
+    ctx.beginPath(); for (let i = 0; i < 10; i++) { const an = (Math.PI / 5) * i - Math.PI / 2, rr = i % 2 ? r * 0.45 : r; ctx.lineTo(x + Math.cos(an) * rr, y + Math.sin(an) * rr); } ctx.closePath(); ctx.fill();
+  }
+  if (any) { ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
+}
 
 // 펫에게 모자·안경을 입혀 본 그림 (상점 카드)
 export function petLookCanvas(id: string, look: PetLook, zoom = 3): HTMLCanvasElement {

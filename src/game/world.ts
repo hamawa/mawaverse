@@ -530,7 +530,8 @@ export class World implements WorldCtx {
     const mySeat = this.sitAt;
     const myDance = this.danceOf(me.emoteId, me.poseAt, now);
     const list: Entity[] = [{
-      uid: this.uid, nick: (iGhost ? '👻 ' : '') + this.nickMarks(this.uid) + this.profile.nick + (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: mySeat ? this.seatFace(mySeat) : me.dir, moving: me.moving, sit: !!mySeat && !me.moving,
+      // 이름표: 닉네임과 그 앞뒤의 표시를 따로 넘긴다 (이름표 효과는 닉네임에만 입힌다. render.ts drawLabel 의 side)
+      uid: this.uid, nickPre: (iGhost ? '👻 ' : '') + this.nickMarks(this.uid), nick: this.profile.nick, nickPost: (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: mySeat ? this.seatFace(mySeat) : me.dir, moving: me.moving, sit: !!mySeat && !me.moving,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: myDance ? 'dance' : me.pose, poseAt: myDance ? now : me.poseAt, emoteId: myDance ? 0 : me.emoteId, dance: myDance || undefined, bubble: me.bubble,
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
       fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.myFx(now), title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null, bubbleSkin: this.profile.eq?.bb && this.profile.own?.[this.profile.eq.bb] ? this.profile.eq.bb : null,
@@ -548,7 +549,7 @@ export class World implements WorldCtx {
       const seat = !rp.st.si ? null : onSeat ? { x: rp.toX, y: rp.toY } : this.seatOf(rp.toX, rp.toY, rp.st.d ?? 0); // 앉아 있는 사람: 바라보는 쪽 옆 칸의 가구 위에 그린다
       const dance = this.danceOf(rp.emoteId, rp.poseAt, now);
       list.push({
-        uid: rp.uid, nick: (ghost ? '👻 ' : '') + this.nickMarks(rp.uid) + rp.st.n + (this.mafia.isMate(rp.uid) ? ' 🔪' : '') + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat && !onSeat ? seat.x : rp.x, y: seat && !onSeat ? seat.y : rp.y, dir: seat ? this.seatFace(seat) : rp.st.d ?? 0, sit: !!seat && !(onSeat && rp.moveStart > 0), moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
+        uid: rp.uid, nickPre: (ghost ? '👻 ' : '') + this.nickMarks(rp.uid), nick: rp.st.n, nickPost: (this.mafia.isMate(rp.uid) ? ' 🔪' : '') + (rp.st.z ? ' 💤' : '') + (rp.st.hz ? ' 😴' : '') + (rp.st.sd ? ` 🐟${rp.st.sd}` : '') + (guardBrokenOf(rp.st, sNow) || snowActive(rp.st.sn, sNow) ? ' 💥' : ''), avatar: rp.st.a, x: seat && !onSeat ? seat.x : rp.x, y: seat && !onSeat ? seat.y : rp.y, dir: seat ? this.seatFace(seat) : rp.st.d ?? 0, sit: !!seat && !(onSeat && rp.moveStart > 0), moving: rp.moveStart > 0, moveT: rp.moveStart ? Math.min(1, (now - rp.moveStart) / rp.moveDur) : 0,
         pose: dance ? 'dance' : rp.pose, poseAt: dance ? now : rp.poseAt, emoteId: dance ? 0 : rp.emoteId, dance: dance || undefined, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
@@ -1272,7 +1273,12 @@ export class World implements WorldCtx {
     if (portal) return { x: portal.x, y: portal.y - 1, text: `F 포탈 이동${portal.label ? `: ${portal.label}` : ''}`, kind: 'portal' };
     const room = this.map.zones.find((z) => primaryOnlyRoom(this.mapId, z) && nearZone(z, me.x, me.y, 1));
     if (room) return { x: room.x, y: room.y - 1, text: PRIMARY_ONLY_ROOM_MSG, kind: 'sign' };
-    if (fv) { if (fv.auto) return null; return { x: fv.x, y: fv.y, text: fv.bite ? 'F 당겨!' : '찌를 기다리는 중… (이동하면 취소)', kind: 'fishing' }; } // 자동 낚시 중에는 안내를 띄우지 않는다 (2026-11-09, 사용자: 두 군데 뜨는 게 거슬림)
+    if (fv) {
+      if (fv.auto) return null; // 자동 낚시 중에는 안내를 띄우지 않는다 (2026-11-09, 사용자: 두 군데 뜨는 게 거슬림)
+      // 찌를 기다리는 중(입질 전)에 옆에 벌레가 있으면 F 는 벌레를 잡는다 (2026-11-23 제보). 전에는 그 F 가 "너무 일찍 당김"이 되어 던져 둔 낚시가 취소되고 단 미끼도 사라졌다. 입질('!')이 오면 F 는 당기기다
+      if (bug && !fv.bite) return { x: bug.x, y: bug.y, text: 'F 채집', kind: 'bug' };
+      return { x: fv.x, y: fv.y, text: fv.bite ? 'F 당겨!' : '찌를 기다리는 중… (이동하면 취소)', kind: 'fishing' };
+    }
     if (bug) return { x: bug.x, y: bug.y, text: 'F 채집', kind: 'bug' };
     // 겨울 맵: 바로 앞 눈덩이 굴리기. 포탈·하던 낚시·벌레 다음, 새로 던지는 낚시보다 먼저
     const man = me.moving ? null : this.winter.manAhead(me.x, me.y, me.dir);
