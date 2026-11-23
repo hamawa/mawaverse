@@ -21,6 +21,8 @@ interface YTPlayer {
   playVideo(): void; pauseVideo(): void; stopVideo(): void; mute(): void; unMute(): void; setVolume(v: number): void;
   seekTo(sec: number, allowSeekAhead: boolean): void; getCurrentTime(): number; getDuration(): number; getPlayerState(): number;
   loadVideoById(o: { videoId: string; startSeconds?: number }): void; destroy(): void;
+  // 문서에 없는 기능이라 없을 수도 있다 (자막 끄기에만 쓴다: captionsOff)
+  getOptions?(): string[] | undefined; setOption?(module: string, key: string, value: unknown): void;
 }
 interface YTApi { Player: new (el: HTMLElement, opt: Record<string, unknown>) => YTPlayer }
 const yt = (): YTApi | undefined => (window as unknown as { YT?: YTApi }).YT;
@@ -196,16 +198,25 @@ export class DjPanel {
         playerVars: { autoplay: this.folded ? 0 : 1, controls: 0, disablekb: 1, playsinline: 1, rel: 0, fs: 0, start: Math.floor(this.offset()), origin: location.origin },
         events: {
           onReady: () => {
-            this.ready = true; this.volume();
+            this.ready = true; this.volume(); this.captionsOff();
             if (this.state && this.state.v !== this.loadedId) this.load(); // 만드는 사이에 노래가 바뀌었다
             else if (this.state && !this.folded) this.sync(true);
             this.paint();
           },
-          onStateChange: (e: { data: number }) => { if (e.data === 0) this.ended(); else this.paint(); },
+          onStateChange: (e: { data: number }) => { if (e.data === 0) this.ended(); else { if (e.data === 1) this.captionsOff(); this.paint(); } },
+          onApiChange: () => this.captionsOff(), // 자막 모듈이 실렸다 (영상이 바뀔 때마다 다시 온다)
           onError: (e: { data: number }) => { this.error = ERR[e.data] || '재생하지 못했어요.'; this.host.onError(this.error, this.state?.u === this.host.myUid, e.data); this.paint(); },
         },
       });
     }).catch(() => { this.creating = false; this.error = '유튜브를 불러오지 못했어요.'; this.paint(); });
+  }
+  // 자막은 꺼 둔다 (2026-11-23, 사용자 요청). 조작 줄을 숨겨 둬서(controls: 0) 보는 사람이 자막을 끌 방법이 없는데, 유튜브는 자막을 켰던 것을 브라우저마다 기억해 켜진 채로 굳는다.
+  // 끄는 공식 설정이 없어서(cc_load_policy 는 켜는 쪽만 있다) 플레이어의 자막 모듈에 "트랙 없음"을 넣는다. 문서에 없는 기능이라 사라지면 아무 일도 하지 않는다 (그때는 자막이 전처럼 나온다).
+  // 부르는 때: 준비됐을 때 · 자막 모듈이 실렸을 때(onApiChange) · 재생이 시작됐을 때. 여러 번 불러도 같은 일이다
+  private captionsOff(): void {
+    const p = this.player;
+    if (!p || !this.ready) return;
+    try { if (typeof p.setOption === 'function' && (p.getOptions?.() || []).includes('captions')) p.setOption('captions', 'track', {}); } catch { /* ignore */ }
   }
   private volume(): void {
     const p = this.player;

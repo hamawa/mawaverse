@@ -338,6 +338,17 @@ test('노래 예약: 규칙의 숫자가 화면의 숫자와 같고, 넘기는 �
   assert.deepEqual([...Y.DJ_DEAD_CODES], [100, 101, 150], '없는 영상·막힌 영상만 스스로 넘긴다 (기기 탓인 오류로 남의 곡을 넘기지 않는다)');
 });
 
+// ---------- 클럽 영상의 자막 (2026-11-23, 사용자 요청: 자막은 꺼진 채로 나오게) ----------
+test('클럽 영상: 자막은 꺼 둔다 (준비됐을 때·자막 모듈이 실렸을 때·재생이 시작됐을 때)', () => {
+  const ui = readFileSync(new URL('../src/game/djui.ts', import.meta.url), 'utf8');
+  assert.ok(ui.includes("p.setOption('captions', 'track', {})"), '자막 모듈에 트랙 없음을 넣는다');
+  assert.ok(ui.includes('this.ready = true; this.volume(); this.captionsOff();'), '준비됐을 때');
+  assert.ok(ui.includes('onApiChange: () => this.captionsOff()'), '자막 모듈이 실렸을 때 (영상이 바뀔 때마다)');
+  assert.ok(ui.includes('if (e.data === 1) this.captionsOff();'), '재생이 시작됐을 때');
+  assert.ok(ui.includes('controls: 0'), '조작 줄은 숨긴 채다 (그래서 보는 사람이 자막을 끌 수 없다)');
+  assert.ok(!ui.includes('cc_load_policy'), '자막을 켜는 설정은 넣지 않는다');
+});
+
 // ---------- 소모품 한도 안내 (2026-11-23 제보: 미끼 999개에서 더 사려 하면 "코인이 모자랍니다"가 떴다) ----------
 test('상점: 999개 한도에 걸린 구매는 코인 부족이 아니라 한도라고 알린다 (미끼·강화 주문서)', () => {
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
