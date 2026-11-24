@@ -140,10 +140,15 @@ function drawSide(b: ScaledBuf, L: HorseLook): void {
   // 몸통 (동글)
   b.ellipse(20, 29 + bob, 10, 6.5, c);
   b.hline(15, 23 + bob, 9, shade(c, 0.14)); // 등 윤기
-  // 목 (짧게)
-  for (let j = 0; j < 7; j++) b.hline(9 + Math.floor(j * 0.3), 26 + bob - j + Math.round(hy * j / 7), 7, c);
-  // 갈기 (목덜미를 따라 몽글)
-  tuft(b, [[14, 14 + hy, 1.6], [15, 17 + Math.round(hy * 0.6), 1.6], [16, 20 + Math.round(hy * 0.3), 1.4]], mane);
+  // 턱 뒤에서 어깨까지 갈수록 넓어진다. 머리 높이가 바뀌어도 매 행을 채워 빈 틈이 생기지 않는다.
+  const poll = 13 + hy, shoulder = 29 + bob;
+  for (let y = poll; y <= shoulder; y++) {
+    const t = (y - poll) / (shoulder - poll);
+    const left = Math.round(10 + 2 * t * t);
+    const right = Math.round(13 + 8 * t * t);
+    b.hline(left, y, right - left + 1, c);
+    if (t < 0.72) b.hline(right - 1, y, 2, mane);
+  }
   // 머리 (크고 둥글게)
   b.circle(8, 13 + hy, 6, c);
   b.ellipse(3.5, 16.5 + hy, 3.5, 2.8, muzzle); // 짧은 주둥이
@@ -191,6 +196,10 @@ function drawFront(b: ScaledBuf, L: HorseLook): void {
   b.rrect(9, 25 + bob, 3, 5, 1, L.silkA); b.rrect(24, 25 + bob, 3, 5, 1, L.silkA);
   // 기수: 말 머리 너머로 얼굴과 어깨가 보인다 (몸통은 머리에 가린다)
   if (L.rider) rider(b, L, 0, f(18) - 12, f(bob));
+  for (let y = 18 + hy; y <= 28 + bob; y++) {
+    const width = 4 + Math.round(2 * (y - 18 - hy) / (10 + bob - hy));
+    b.hline(18 - width, y, width * 2 + 1, c);
+  }
   // 귀 (동글, 안쪽 분홍)
   b.rrect(11, 7 + hy, 3, 5, 1, c); b.px(12, 9 + hy, EAR_IN); b.px(12, 10 + hy, EAR_IN);
   b.rrect(22, 7 + hy, 3, 5, 1, c); b.px(23, 9 + hy, EAR_IN); b.px(23, 10 + hy, EAR_IN);
@@ -211,6 +220,10 @@ function drawBack(b: ScaledBuf, L: HorseLook): void {
   const bob = L.gait === 'stand' ? 0 : (L.frame & 1) ? -1 : 0;
   const hy = (L.head === 1 ? 2 : L.head === -1 ? -2 : 0) + (L.rear ? -3 : 0) + bob;
   const lift = (i: number) => (L.gait === 'stand' ? 0 : ((L.frame + i * 2) & 3) === 1 ? 2 : 0);
+  for (let y = 16 + hy; y <= 26 + bob; y++) {
+    const width = 3 + Math.round(3 * (y - 16 - hy) / (10 + bob - hy));
+    b.hline(18 - width, y, width * 2 + 1, c);
+  }
   // 머리 (뒤통수·귀, 기수 너머로)
   b.rrect(11, 7 + hy, 3, 5, 1, c); b.rrect(22, 7 + hy, 3, 5, 1, c);
   b.circle(18, 15 + hy, 6, c);

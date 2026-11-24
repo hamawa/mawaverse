@@ -88,11 +88,10 @@
   color: #e6f2e9;
   word-break: keep-all;
 }
-/* 승식·방식 탭 */
+/* 승식 탭 */
 #derby .d-tabs { display: flex; gap: 4px; margin: 6px 0; flex-wrap: wrap; }
 #derby .d-tabs .btn { flex: 1; white-space: nowrap; }
 #derby .d-tabs .btn.on { border-color: #7ac88f; background: #14301c; color: #ffe9a8; }
-#derby .d-tabs.sub .btn { font-size: 11px; }
 /* 마번 고르기 */
 #derby .d-pick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0; }
 #derby .d-picklab { font-size: 11px; color: #bfe8c8; margin-right: 2px; }
@@ -107,26 +106,7 @@
   cursor: pointer;
 }
 #derby .d-num.on { border-color: #ffd84d; box-shadow: 0 0 0 2px #ffd84d; }
-#derby .d-picked { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
-#derby .d-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 8px;
-  border-radius: 999px;
-  background: rgba(255, 216, 77, 0.16);
-  border: 1px solid rgba(255, 216, 77, 0.5);
-  font-size: 11px;
-}
-#derby .d-x {
-  border: none;
-  background: transparent;
-  color: #ffd84d;
-  cursor: pointer;
-  font-size: 13px;
-  padding: 0 4px;
-}
-/* 조합당 금액 */
+/* 구매 금액 */
 #derby .d-stake { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
 #derby .d-stakein {
   width: 90px;
@@ -138,18 +118,17 @@
   font-size: 12px;
 }
 #derby .d-coin { color: #cfe3d4; font-size: 11px; }
-/* 견적·바구니 */
+/* 선택한 조합과 즉시 구매 */
 #derby .d-quote { margin-top: 4px; }
-#derby .d-combos { display: flex; flex-direction: column; gap: 3px; max-height: 180px; overflow-y: auto; }
 #derby .d-combo {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: baseline;
-  padding: 3px 6px;
+  padding: 6px 8px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.05);
 }
-#derby .d-combo.err { outline: 1px solid #ff8a8a; }
 #derby .d-cb { font-weight: bold; }
 #derby .d-odd { color: #ffd84d; margin-left: auto; white-space: nowrap; }
 #derby .d-est { color: #9be7ff; font-size: 11px; white-space: nowrap; }

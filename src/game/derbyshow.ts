@@ -31,7 +31,7 @@ const PHASES: DerbyPhaseInfo[] = [
   { phase: 'warmup', startMs: 160000, endMs: 200000 }, // 2:40~3:20 반대 방향 준비운동 → 출발대 쪽으로 (거리마다 출발대 다름)
   { phase: 'gate', startMs: 200000, endMs: 240000 }, // 3:20~3:55 출발대 뒤 원형돌기, 깃발, 차례로 게이트
   { phase: 'race', startMs: 240000, endMs: 280000 }, // 4:00 마감·게이트 열림·팡파르 → 4:40 경주
-  { phase: 'ceremony', startMs: 280000, endMs: 320000 }, // 4:40~5:20 감속, 위너스 서클 세리머니
+  { phase: 'ceremony', startMs: 280000, endMs: 320000 }, // 4:40~5:20 주로에서 감속·세리머니
   { phase: 'payout', startMs: 320000, endMs: 360000 }, // 5:20~6:00 확정 배당, 퇴장, 다음 경주 출전마가 예시장에
 ];
 export function derbyPhaseAt(ms: number): DerbyPhaseInfo {

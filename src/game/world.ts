@@ -16,7 +16,7 @@ import { O, objectAt, faceChairs, buildDefaultMap, buildPortalGarden, buildGoldM
 import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, RACE_PARK_MAP_ID, playerMapId, isHomeMapId, homeMapId, homeOwnerOf } from '../shared/maps';
 import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, whereLabel, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { openPortalPicker } from './portalui';
-import { derbyFrame, derbyPhaseAt, derbyCaption, derbySoundEvents, derbyHoofActive, derbyFocusAt, derbyNearestRunner, snapshotInput, DERBY_CYCLE_MS, DERBY_HOOF_INTERVAL_MS, type DerbyShowInput, type DerbyFrame, type DerbyFieldSnapshot } from './derbyshow';
+import { derbyFrame, derbyCaption, derbySoundEvents, derbyHoofActive, derbyFocusAt, derbyNearestRunner, snapshotInput, DERBY_CYCLE_MS, DERBY_HOOF_INTERVAL_MS, type DerbyShowInput, type DerbyFrame, type DerbyFieldSnapshot } from './derbyshow';
 import { DerbyView, DerbyLive, derbyRaceCap } from './derbyview';
 import type { DerbyWhere } from './derbyui';
 import { describeHorse } from './derbyui';
@@ -1103,7 +1103,7 @@ export class World implements WorldCtx {
     const style = view.input.runners.find((x) => x.gate === g.gate)?.style;
     this.input.releaseAll();
     derby.showRunnerCard(n, g.gate, (pick, closed) => modal(`🐴 ${g.gate}번 ${h.name}`, el('div', { text: describeHorse(h) + (style ? ` · 각질 ${style}` : '') }), [
-      { label: '이 말로 마권 담기', primary: true, onClick: pick },
+      { label: '이 말로 마권 고르기', primary: true, onClick: pick },
       { label: '닫기', onClick: () => {} },
     ], false, closed));
   }
@@ -1131,9 +1131,7 @@ export class World implements WorldCtx {
     const cap = derbyCaption(ms, input);
     if (cap !== this.derbyCaptionShown) {
       this.derbyCaptionShown = cap;
-      const ph = derbyPhaseAt(ms).phase;
-      if (ph === 'ceremony' && input.result) this.banner(`🏇 ${cap}`, '위너스 서클에서 세리머니 중');
-      else this.note(cap);
+      this.note(cap);
     }
     this.derbyPrevMs = ms;
   }
@@ -1557,7 +1555,7 @@ export class World implements WorldCtx {
     else if (ch.kind === 'sign') { this.input.releaseAll(); this.openFishBook(); }
     else if (ch.kind === 'link') this.openGameLink();
     else if (ch.kind === 'photo') this.openPhoto();
-    else if (ch.kind === 'paddock') this.openDerbyRunnerCard(); // 차후 클라이언트 로직이 마권 담기로 잇는다
+    else if (ch.kind === 'paddock') this.openDerbyRunnerCard();
     else if (ch.kind === 'teller') this.openDerbyTeller(); // 차후 클라이언트 로직이 구매 판으로 잇는다
   }
   // 바깥 게임 오락기 가운데 가장 가까운 것 (옆 1칸, 대각선 포함)

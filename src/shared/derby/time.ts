@@ -18,7 +18,7 @@ export const DERBY_PHASES = [
   { id: 'gate', at: 200000, label: '게이트 입장' },
   { id: 'ready', at: 235000, label: '발주 대기' },
   { id: 'race', at: 240000, label: '경주' },
-  { id: 'ceremony', at: 280000, label: '위너스 서클' },
+  { id: 'ceremony', at: 280000, label: '결승 직후' },
   { id: 'payout', at: 320000, label: '확정 배당' },
 ] as const;
 export type DerbyPhase = (typeof DERBY_PHASES)[number]['id'];
