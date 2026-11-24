@@ -54,6 +54,8 @@ export const DERBY_HOLIDAY_SLOT = 7;
 
 const DOW_KO = ['일', '월', '화', '수', '목', '금', '토'];
 const hm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+// 경주를 부르는 이름: 시작 시각(한국 시간) "19:06". 경주 번호(서버 시각 ÷ 6분)는 일곱 자리라 화면·자막·알림에 쓰지 않는다 (2026-11-24, 검토 반영)
+export function raceClock(n: number): string { return hm(kstParts(cycleStart(n)).min); }
 
 // 그 칸의 운영 구간. 형식이 틀리면 그날은 휴장으로 본다
 export function raceSlot(cfg: RaceHours | null | undefined, k: number): { s: number; e: number } | null {

@@ -790,7 +790,7 @@ function tabConfig(main: HTMLElement): void {
   type RaceDayRange = { s: number; e: number };
   type RaceHoursCfg = { on: boolean; d: Record<string, RaceDayRange> };
   const RACE_DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
-  const RACE_MAX_DEF = { park: 100000, branch: 50000 };
+  const RACE_MAX_DEF = { park: 10000, branch: 5000 }; // shared/derby/tickets.ts 의 기본 한도와 같다
   const fmtRaceMin = (m: number): string => (m >= 1440 ? '24:00' : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
   const raceTimeOpts = (isEnd: boolean): string => {
     let h = '';
@@ -832,7 +832,7 @@ function tabConfig(main: HTMLElement): void {
   const raceBranch = el('input', { type: 'number', min: '100', step: '100' }) as HTMLInputElement;
   const raceMaxBox = el('div');
   raceMaxBox.append(
-    el('p', { class: 'muted', text: '한 사람·한 경주 합산 구매 한도입니다 (공원+분점 합산). 예: 분점에서 5만 원을 샀으면 공원에서는 5만 원까지만 더 살 수 있습니다 (공원 한도 10만 원 기준).' }),
+    el('p', { class: 'muted', text: '한 사람·한 경주 합산 구매 한도입니다 (공원+분점 합산). 예: 분점에서 5,000코인을 샀으면 공원에서는 5,000코인까지만 더 살 수 있습니다 (공원 한도 10,000코인 기준).' }),
     el('p', { class: 'muted', text: '한 경주 최대 100장, 한 장 최소 100코인·100코인 단위는 그대로 적용됩니다.' }),
     el('p', { class: 'muted', text: '이 한도는 구매 금액에만 걸립니다. 적중금(배당금)에는 상한이 없습니다.' }),
     el('p', { class: 'muted', text: '분점 한도는 공원 한도를 넘을 수 없습니다.' }),

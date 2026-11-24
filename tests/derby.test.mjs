@@ -82,18 +82,20 @@ test('7종 몸짓이 목 출전표에 빠짐없이 드러난다', () => {
   for (const k of ['dash', 'wild', 'gallopIn', 'side', 'lazy', 'unseat', 'calm', null]) assert.ok(kinds.has(k), `몸짓 ${k}`);
 });
 
+// 자막은 경주를 번호(일곱 자리)가 아니라 시작 시각(한국 시간)으로 부른다: 경주 n 은 n × 6분 (UTC) = 09:00 + n × 6분 (KST)
+const clock = (n) => { const m = (n * 6 + 540) % 1440; return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
 test('장내 방송 자막이 SPEC 시간표 문구다', () => {
   const n = 3, runners = mockDerbyField(n), result = mockDerbyResult(n);
   const info = { n, distance: derbyDistanceFor(n), runners, result };
-  assert.equal(derbyCaption(50000, info), '제3경주 출전마 예시 중입니다');
+  assert.equal(derbyCaption(50000, info), '09:18 경주 출전마 예시 중입니다');
   assert.equal(derbyCaption(110000, info), '기수 기승');
   assert.ok(derbyCaption(140000, info).includes('번') && derbyCaption(140000, info).includes('기수'));
   assert.ok(!derbyCaption(140000, info).includes('단승'), '실제 배당 없으면 숫자를 지어내지 않는다');
   assert.equal(derbyCaption(210000, info), '마권 발매 마감 30초 전');
-  assert.equal(derbyCaption(241000, info), '제3경주 출발!');
+  assert.equal(derbyCaption(241000, info), '09:18 경주 출발!');
   assert.ok(derbyCaption(270000, info).includes('코너 돌아 선두는'));
   assert.equal(derbyCaption(290000, info), `1착 ${result.order[0]}번, 2착 ${result.order[1]}번, 3착 ${result.order[2]}번`);
-  assert.equal(derbyCaption(330000, info), '제3경주 승식별 확정 배당');
+  assert.equal(derbyCaption(330000, info), '09:18 경주 승식별 확정 배당');
 });
 
 test('소리가 경계에서 한 번씩 나고 말발굽은 경주 중에만 난다', () => {
@@ -276,8 +278,8 @@ test('결과 없으면 결승 선언·세리머니 없이 서성이다 마방에
   assert.equal(c.leaderGate, 0);
   const p = derbyFrame({ n, ms: 350000, distance: dist, runners, result: null });
   assert.ok(p.horses.every((h) => h.hidden), '확정 단계에는 마방에서 대기해야 함');
-  assert.equal(derbyCaption(290000, info), `제${n}경주 결과 확인 중입니다`);
-  assert.equal(derbyCaption(330000, info), `제${n}경주 결과 확인 중입니다`);
+  assert.equal(derbyCaption(290000, info), `${clock(n)} 경주 결과 확인 중입니다`);
+  assert.equal(derbyCaption(330000, info), `${clock(n)} 경주 결과 확인 중입니다`);
   assert.deepEqual(derbySoundEvents(278000, 279500, false), []);
 });
 
@@ -286,8 +288,8 @@ test('빈 출전표·일부 출전표에도 그림·자막·미니가 버틴다'
   const empty = derbyFrame({ n, ms: 50000, distance: dist, runners: [], result: null });
   assert.deepEqual(empty.horses, []);
   assert.equal(empty.leaderGate, 0);
-  assert.equal(derbyCaption(50000, { n, distance: dist, runners: [], result: null }), `제${n}경주 출전마 예시 중입니다`);
-  assert.equal(derbyCaption(140000, { n, distance: dist, runners: [], result: null }), `제${n}경주 출전마 입장 중입니다`);
+  assert.equal(derbyCaption(50000, { n, distance: dist, runners: [], result: null }), `${clock(n)} 경주 출전마 예시 중입니다`);
+  assert.equal(derbyCaption(140000, { n, distance: dist, runners: [], result: null }), `${clock(n)} 경주 출전마 입장 중입니다`);
   const fin = derbyFocusAt(empty);
   assert.deepEqual([fin.x, fin.y], [...RACE_LOOP[0]]); // 결승선 (빈 들판 기본값)
   assert.equal(derbyNearestRunner(empty, ...RACE_PADDOCK_SLOTS[0]), null);

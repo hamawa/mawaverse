@@ -8,8 +8,10 @@ import { derbyScenarioFor } from './scenario';
 
 export const DERBY_TICKET_MIN = 100;       // 마권 한 장 최소
 export const DERBY_TICKET_STEP = 100;      // 100 단위
-export const DERBY_MAX_PARK = 100000;      // 한 사람 한 경주 합계 (공원) 기본값 config/raceMax/park
-export const DERBY_MAX_BRANCH = 50000;     // 분점 기본값 config/raceMax/branch
+// 기본 한도는 낮게 시작한다 (2026-11-24 저장소 주인 결정): 지갑 가운데 값이 2만이고 쌍승 최고 배당이 930배다. 한도 10만이면 한 장으로 9,300만 코인이 나온다.
+//  올릴 때는 코드가 아니라 관리자 설정(config/raceMax)으로. 이 두 값은 tools/gen-rules.cjs 와 같아야 한다 (tests/derby-rules.test.mjs 가 대조)
+export const DERBY_MAX_PARK = 10000;       // 한 사람 한 경주 합계 (공원) 기본값 config/raceMax/park
+export const DERBY_MAX_BRANCH = 5000;      // 분점 기본값 config/raceMax/branch
 export const DERBY_TICKETS_PER_RACE = 100; // 한 경주 최대 장 수 (키 00~99)
 
 export type DerbyMethod = 'single' | 'box' | 'axis' | 'formation';

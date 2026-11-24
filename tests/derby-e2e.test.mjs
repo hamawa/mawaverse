@@ -74,6 +74,7 @@ test('경마공원: 에뮬레이터에서 코인으로 마권을 사고, 마감 
     const toasts = [];
     const profile = (await get(ref(db, `users/${uid}`))).val(); // world.ts 처럼 로그인 때 읽은 내 프로필 (지갑이 보유 품목을 본다)
     wallet = new WalletMgr({ uid, profile, toast: (m) => { toasts.push(m); console.log(`[toast] ${m}`); }, events: { emit() {} } });
+    wallet.watchDerby = () => {}; // 이 시험은 판 쪽(DerbyLive)의 환급을 본다: 지갑이 경주가 끝나면 스스로 환급하는 타이머는 끈다 (아래 '공개 뒤 · 환급 전' 확인과 겹치지 않게)
     wallet.start();
     await until('지갑 읽기', () => wallet.loaded, 20000);
     const hours = normalizeRaceHours((await get(ref(db, 'config/raceHours'))).val());
@@ -169,7 +170,7 @@ test('경마공원: 에뮬레이터에서 코인으로 마권을 사고, 마감 
     console.log(`[e2e] 분점(광장 카지노 방)에서 ${stakeB} 코인 구매 · 이 경주 합계 ${ledgerB.s} = 분점 한도 ${capB}, 잔액 ${wallet.balance}`);
     const paidIn = total + stakeB;
 
-    // 마감 → 이 화면(DerbyLive)이 추첨을 쓰고 바로 공개한다 (운영 PC 없음)
+    // 마감 → 이 화면(DerbyLive)이 추첨을 쓰고 바로 공개한다 (운영 PC 없음). 판의 '결과 확정'과 환급은 결승(4:40) 뒤다
     const closeAt = D.cycleStart(n) + D.DERBY_SALE_MS;
     const W = `wallet/${uid}`;
     await until('마감', () => serverNow() >= closeAt, closeAt - serverNow() + 10000);
@@ -226,7 +227,7 @@ test('경마공원: 에뮬레이터에서 코인으로 마권을 사고, 마감 
     assert.equal(after.tickets.filter((t) => t.kind === 'P' && t.status === 'won').length, 3);
     assert.equal(after.tickets.reduce((s, t) => s + t.payout, 0), want);
     assert.deepEqual(after.standings, live.result(n).order.slice(0, 3));
-    assert.ok(toasts.some((m) => m.includes(`제${n}경주 적중`)));
+    assert.ok(toasts.some((m) => m.includes(`${D.raceClock(n)} 경주 적중`)));
     await denied('이미 받은 마권 다시 받기', () => update(ref(db), claimOf(winNn, winPay)));
     assert.equal(wallet.balance, start - paidIn + want);
     console.log(`[e2e] 적중금 ${want} (고정 배당 그대로), 잔액 ${start} → ${wallet.balance}, 영수증 ${Object.keys(rows).length}장`);

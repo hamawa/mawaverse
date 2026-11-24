@@ -4,6 +4,7 @@
 // 결과(res)가 마감(4:00) 몇 초 뒤에 오면 그때까지 출발 대열 구간을 늘렸다가 이어 붙인다(각질 반영: 선행은 앞에서 버티고 추입은 막판에).
 import { TILE } from '../shared/config';
 import { mulberry32 } from '../shared/hash';
+import { raceClock } from '../shared/derby/time';
 import { horseSprite, fallenJockeySprite, groomSprite, HORSE_W, HORSE_FOOT, HORSE_SCALE, FALLEN_W, FALLEN_H } from './sprites/horse';
 import { FRAME_W, FRAME_H } from './sprites/types';
 import {
@@ -596,32 +597,32 @@ export function derbyCaption(ms: number, info: DerbyCaptionInfo): string {
   const { n, runners, result } = info;
   const distance = info.distance ?? derbyDistanceFor(n); // 호출 쪽이 스냅샷 거리를 안 주면 추정 (티켓 판 호환. world/dev 는 실제 값을 준다)
   const arrived = !!result && ms >= result.spliceMs; // 이 시각에 결과가 와 있는가
-  if (t < 100000) return `제${n}경주 출전마 예시 중입니다`;
+  if (t < 100000) return `${raceClock(n)} 경주 출전마 예시 중입니다`;
   if (t < 130000) return '기수 기승';
   if (t < 160000) {
     const ordered = [...runners].sort((a, b) => a.gate - b.gate);
-    if (!ordered.length) return `제${n}경주 출전마 입장 중입니다`;
+    if (!ordered.length) return `${raceClock(n)} 경주 출전마 입장 중입니다`;
     const r = ordered[Math.min(ordered.length - 1, Math.floor((t - 130000) / 30000 * 8))];
     const odd = info.winOdds?.[r.gate];
     const oddText = typeof odd === 'number' && isFinite(odd) ? `, 단승 ${odd.toFixed(1)}배` : ''; // 실제 값 없으면 숫자를 지어내지 않는다
     return `${r.gate}번 ${r.name}, 기수 ${r.jockey}${oddText}`;
   }
-  if (t < 200000) return `제${n}경주 준비운동 중입니다`;
+  if (t < 200000) return `${raceClock(n)} 경주 준비운동 중입니다`;
   if (t < 240000) return '마권 발매 마감 30초 전';
   if (t < 280000) {
     const u = (t - 240000) / 40000;
-    if (u < 0.55) return `제${n}경주 출발!`;
+    if (u < 0.55) return `${raceClock(n)} 경주 출발!`;
     const fr = derbyFrame({ n, ms: t, distance, runners, result });
-    if (!fr.leaderGate) return `제${n}경주 경주 중입니다`;
+    if (!fr.leaderGate) return `${raceClock(n)} 경주 진행 중입니다`;
     return `${u < 0.8 ? 3 : 4}코너 돌아 선두는 ${fr.leaderGate}번`;
   }
   if (t < 320000) {
     const order = arrived && result?.order.length === 8 ? result.order : null;
     if (order) return `1착 ${order[0]}번, 2착 ${order[1]}번, 3착 ${order[2]}번`;
-    return `제${n}경주 결과 확인 중입니다`; // 결과 없으면 결승 선언 없음
+    return `${raceClock(n)} 경주 결과 확인 중입니다`; // 결과 없으면 결승 선언 없음
   }
-  if (arrived && result?.order.length === 8) return `제${n}경주 승식별 확정 배당`;
-  return `제${n}경주 결과 확인 중입니다`;
+  if (arrived && result?.order.length === 8) return `${raceClock(n)} 경주 승식별 확정 배당`;
+  return `${raceClock(n)} 경주 결과 확인 중입니다`;
 }
 
 // ---- 소리 (경계에서 한 번씩. 호출 쪽이 serverNow 기준으로 부른다) ----

@@ -21,16 +21,21 @@
   z-index: 24; /* #hud(23) 위 */
   box-sizing: border-box;
 }
+/* 제목 줄은 두 줄이다: 윗줄 = 이름 + 단추, 아랫줄 = 경주 + 마감 시계.
+   한 줄에 넷을 다 넣으면 340px 창과 폰에서 넘쳐, 단추(접기·펼치기)가 창 밖으로 밀려나 누를 수 없었다 (2026-11-24, 검토 반영) */
 #derby .d-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  column-gap: 8px;
+  row-gap: 2px;
   font-size: 14px;
   flex: none;
 }
-#derby .d-title { white-space: nowrap; }
-#derby .d-race { color: #ffe9a8; font-weight: bold; white-space: nowrap; }
-#derby .d-count { flex: 1; text-align: right; color: #ffd84d; font-weight: bold; white-space: nowrap; }
+#derby .d-title { grid-column: 1; grid-row: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#derby .d-btns { grid-column: 2; grid-row: 1; display: flex; gap: 4px; }
+#derby .d-race { grid-column: 1; grid-row: 2; color: #ffe9a8; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#derby .d-count { grid-column: 2; grid-row: 2; text-align: right; color: #ffd84d; font-weight: bold; white-space: nowrap; }
 #derby .d-body { overflow-y: auto; min-height: 0; padding-right: 2px; }
 #derby .d-sec { margin: 8px 0 4px; font-weight: bold; color: #bfe8c8; }
 #derby .d-banner, #derby .d-hint {
@@ -165,15 +170,19 @@
 #derby .d-grid th { background: rgba(255, 255, 255, 0.08); color: #ffe9a8; }
 /* 접힘 상태 */
 #derby.fold .d-body { display: none; }
-/* 모바일: 공원은 접을 수 있는 아래 시트라 맵이 보인다 */
+/* 모바일: 공원 판은 접을 수 있고, 위쪽 버튼 줄 바로 아래에 붙인다.
+   화면 아래에는 채팅 입력칸과 조이스틱이 있다: 거기 두었더니 접힌 판이 채팅 입력칸을 덮었다 (2026-11-24, 검토 반영).
+   위쪽 버튼 줄과의 사이(48~88px)는 내 소식 한 줄(장내 방송 자막)이 뜨는 자리라 비워 둔다: 붙여 두었더니 자막이 판의 제목을 가렸다.
+   펼쳐도 채팅 기록 위에서 끝난다 (264px = 위 88px + 아래 채팅 기록·입력칸 176px) */
 @media (max-width: 760px) {
   #derby.park {
-    top: auto;
-    bottom: 12px;
+    top: 88px;
+    bottom: auto;
     right: 8px;
     left: 8px;
     width: auto;
-    max-height: 62vh;
+    max-height: calc(100vh - 264px);
+    max-height: calc(100dvh - 264px);
   }
   #derby.park.fold { max-height: none; }
   #derby.park.fold .d-body { display: none; }
@@ -190,7 +199,7 @@
     max-height: none;
     border: none;
     border-radius: 0;
-    padding: 52px 12px 120px;
+    padding: 52px 12px 166px; /* 아래 166px = 채팅 기록·입력칸 자리 (120px 일 때는 판의 맨 아래 40px 이 채팅 기록 밑에 깔렸다. 402×714 에서 확인) */
     font-size: 14px;
     z-index: 21;
   }

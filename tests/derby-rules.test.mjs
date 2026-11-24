@@ -31,6 +31,7 @@ const U = 'DERBY_USER', OTHER = 'DERBY_OTHER';
 const START = Date.parse('2026-11-14T19:00:00+09:00');
 const N = String(START / 360000);
 const CLOSE = START + 240000;
+const FIN = START + 280000; // 결승 (DERBY_FINISH_MS): 환급은 결승 뒤에 한다
 const HOURS = { on: true, d: Object.fromEntries(Array.from({ length: 8 }, (_, i) => [i, { s: 0, e: 1440 }])) };
 // 숨은 결과표 칸 4개 (칸 = 추첨 시각 % 4)
 const DIGITS = ['0000000', '4071935', '9999999', '1234567'];
@@ -190,7 +191,11 @@ async function contract(store, expect) {
   await deny('ticket cannot be replaced', U, purchase(N, '00', 100, 'W', '0', undefined, 100));
   await deny('ticket cannot be deleted', U, { [`race/t/${N}/${U}/00`]: null });
   await deny('purchase total cannot be reset', U, { [`race/u/${U}/${N}/s`]: null });
-  await deny('private index cannot be removed', U, { [`race/u/${U}/${N}/i`]: null });
+  await deny('ticket count cannot be reset', U, { [`race/u/${U}/${N}/c`]: null });
+  // 내 경주 색인(i)은 본인이 내릴 수 있다 (다 받은 경주가 로그인 때의 환급 확인에 다시 내려오지 않게. 2026-11-24). 내려도 합계·장수는 그대로라 한도를 비켜 가지 못한다
+  await deny('another player cannot drop my race index', OTHER, { [`race/u/${U}/${N}/i`]: null });
+  await allow('owner may drop the race index', U, { [`race/u/${U}/${N}/i`]: null });
+  await deny('dropping the index does not reset the purchase total', U, purchase(N, '01', 100, 'W', '1', undefined, 0));
   await deny('used marker cannot issue another ticket', U, { [`race/t/${N}/${U}/01`]: p[`race/t/${N}/${U}/00`] });
   await allow('next line preserves balance and cumulative spend', U, purchase(N, '01', 200, 'W', '1', undefined, 100));
   await deny('stale-tab total cannot overwrite a newer purchase', U, purchase(N, '02', 100, 'W', '0', undefined, 0));
@@ -226,13 +231,13 @@ async function contract(store, expect) {
   const br = fixture();
   br.players[U] = { ...br.players[U], x: 35, y: 6, r: 'casino' }; delete br.players[U].m;
   br.occ = { '35_6': U }; br.rooms = { casino: { cap: 10, round: 1, state: 'open', members: { [U]: { n: '닉', ready: false, losses: 0, at: START } } } };
-  await reset(br); await allow('actual branch membership and placement', U, purchase(N, '00', 50000));
-  await deny('branch cumulative cap', U, purchase(N, '01', 100, 'W', '0', undefined, 50000));
+  await reset(br); await allow('actual branch membership and placement', U, purchase(N, '00', 5000));
+  await deny('branch cumulative cap', U, purchase(N, '01', 100, 'W', '0', undefined, 5000));
   const off = clone(br); off.players[U].x = 1; off.occ = { '1_6': U }; await reset(off);
   await deny('room label alone outside actual branch does not qualify', U, purchase());
   const nomember = clone(br); delete nomember.rooms; await reset(nomember);
   await deny('branch placement without membership does not qualify', U, purchase());
-  await reset(); await allow('park default combined cap', U, purchase(N, '00', 100000));
+  await reset(); await allow('park default combined cap', U, purchase(N, '00', 10000));
   await allow('legacy wallet deletion does not erase the race ledger', U, { [`wallet/${U}`]: null });
   await allow('generic wallet reinitialization stays available', U, { [`wallet/${U}`]: { c: 200000, e: 200000 } });
   await deny('wallet reset cannot bypass a race cap', U, purchase(N, '01', 100));
@@ -467,10 +472,13 @@ test('WalletMgr settleDerby keeps an open race pending, then draws, reveals and 
   assert.equal((await a.buyDerby(Number(N), lines, 100000)).filter((r) => r.ok).length, 8);
   assert.deepEqual(await a.settleDerby(), { paid: 0, tickets: 0, pending: 1 });
   assert.equal(log.draws, 0, 'no draw before close');
-  clientStore.force('_test/now', CLOSE + 7);
+  clientStore.force('_test/now', CLOSE + 7); // 경주 중 (결승 전): 받지 않는다
+  assert.deepEqual(await a.settleDerby(), { paid: 0, tickets: 0, pending: 1 });
+  assert.equal(getAt(clientStore.data, `wallet/${U}/c`), 200000 - 800, 'no payout while the race is still running');
+  clientStore.force('_test/now', FIN + 7);
   const both = await Promise.all([a.settleDerby(), b.settleDerby()]);
   const x = getAt(clientStore.data, `race/x/${N}`);
-  assert.equal(x.at, CLOSE + 7);
+  assert.equal(x.at, FIN + 7);
   const res = D.derbyResolve(Number(N), DIGITS[x.at % 4]).res;
   assert.deepEqual({ a: x.a, b: x.b, c: x.c, e: x.e }, res);
   const want = D.ticketPayout(100, D.raceOdds(Number(N), 'W', Number(res.a)));
@@ -479,6 +487,8 @@ test('WalletMgr settleDerby keeps an open race pending, then draws, reveals and 
   assert.equal(getAt(clientStore.data, `wallet/${U}/c`), 200000 - 800 + want);
   assert.ok(log.probes <= 2 * 24, `${log.probes} probes`);
   assert.deepEqual(await a.settleDerby(), { paid: 0, tickets: 0, pending: 0 });
+  assert.equal(getAt(clientStore.data, `race/u/${U}/${N}/i`), null, 'a fully settled race leaves the login scan (index dropped)');
+  assert.deepEqual([getAt(clientStore.data, `race/u/${U}/${N}/s`), getAt(clientStore.data, `race/u/${U}/${N}/c`)], [800, 8], 'the ledger stays');
   delete globalThis.__derbyRuleClient;
 });
 test('WalletMgr settleDerby(n) settles only that race and pays an already revealed result once', async () => {
@@ -487,7 +497,7 @@ test('WalletMgr settleDerby(n) settles only that race and pays an already reveal
   assert.equal((await a.buyDerby(Number(N), lines, 100000)).filter((r) => r.ok).length, 8);
   assert.deepEqual(await a.settleDerby(Number(N) + 1), { paid: 0, tickets: 0, pending: 0 });
   const at = CLOSE + 1, digits = DIGITS[at % 4], res = D.derbyResolve(Number(N), digits).res;
-  clientStore.force('_test/now', CLOSE + 1000);
+  clientStore.force('_test/now', FIN + 1000);
   clientStore.force(`race/x/${N}`, { at, o: D.derbySecretEntry(Number(N), digits), ...res });
   const want = D.ticketPayout(100, D.raceOdds(Number(N), 'W', Number(res.a)));
   assert.deepEqual(await a.settleDerby(Number(N)), { paid: want, tickets: 8, pending: 0 });
@@ -503,7 +513,7 @@ test('WalletMgr reveals and pays the stored entry when the current resolver woul
   f.raceSecret[N] = DIGITS.map((d, i) => Number(d).toString(2).padStart(24, '0') + cur[i].b + cur[i].a + cur[i].c + cur[i].e);
   const [a, , log] = clients(f);
   assert.equal((await a.buyDerby(Number(N), W8, 100000)).filter((r) => r.ok).length, 8);
-  clientStore.force('_test/now', CLOSE + 9);
+  clientStore.force('_test/now', FIN + 9);
   const r = await a.settleDerby(Number(N));
   const x = getAt(clientStore.data, `race/x/${N}`), slot = x.at % 4;
   assert.equal(x.o, f.raceSecret[N][slot], 'the stored entry is revealed as is');
@@ -534,6 +544,7 @@ test('a reveal interrupted mid-probe is completed from scratch by another client
   let bits = ''; // 다른 화면이 10번 묻고 끊겼다
   for (let i = 0; i < 10; i++) bits += clientStore.update(OTHER, { [`race/q/${N}/${bits}1`]: null }) ? '1' : '0';
   assert.equal(getAt(clientStore.data, `race/x/${N}/o`), null);
+  clientStore.force('_test/now', FIN + 1); // 환급(과 그에 앞선 공개)은 결승 뒤에
   const r = await b.settleDerby(Number(N));
   const x = getAt(clientStore.data, `race/x/${N}`), res = D.derbyResolve(Number(N), DIGITS[at % 4]).res;
   assert.equal(x.o, secretOf(N)[at % 4]);

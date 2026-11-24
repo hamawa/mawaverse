@@ -7,7 +7,7 @@
 //   const panel = new DerbyPanel(host);
 //   panel.show({ prefillGate: 3 }); // 예시장 말 카드에서 마번을 골라 연다
 //
-// 위치·레이아웃 참고는 casinoui.ts(#casino 옆 판, 모바일 덮개)지만, 코드는 공유하지 않고
+// 위치·레이아웃 참고는 옛 5마리 경마 판(casinoui.ts. 2026-11-24 에 지웠다: #casino 옆 판, 모바일 덮개)이지만, 코드는 공유하지 않고
 // 이 판 전용 id·클래스(#derby .d-*)와 src/game/derbyui.css만 쓴다. derbyshow.ts는
 // 분점 미니 중계(drawDerbyMini)와 타입만 쓰고, 그리기 상태는 호스트가 쥔다.
 // world.ts·admin·렌더러·shared 계산·규칙·지갑은 이 파일 밖이다.
@@ -82,6 +82,7 @@ export interface DerbyRaceHead {
   sellable: boolean; // 지금 사도 되는가 (경주표·결과표 범위·시간 판정은 호스트·규칙 몫)
   authEpoch: number; // 발매 epoch (공원 연결은 그 경주의 시작 시각). 제출 때 seenAuth로 같이 보내고, 바뀌면 버튼이 잠긴다
   closesInMs: number; // 마감까지 남은 시간 (표시용. 0 이하면 발매 불가)
+  closesAt?: number; // 마감 서버 시각 (ms. 발매 중이 아니면 0). 있으면 창이 host.now() 와의 차이로 남은 시간을 매 프레임 계산한다 (스냅샷은 30초 단계로만 새로 만들어져서 closesInMs 만 쓰면 시계가 30초씩 멈춘다)
   label: string; // "제7경주 1800m" 같은 머리말 (호스트 문구)
 }
 // 예정표 한 줄. timeLabel은 KST 표시 문자열(예: "19:00")을 호스트가 그대로 준다.
@@ -128,6 +129,7 @@ export interface DerbyHost {
   submit(req: DerbySubmitReq): Promise<DerbySubmitLine[]>;
   selectRace(n: number): void; // 예정표에서 경주를 고른다. 호스트가 그 경주의 스냅샷을 민다
   toast(msg: string, err?: boolean): void;
+  now?(): number; // 서버 시각 (ms). 마감 시계를 매 프레임 그리는 데 쓴다 (없으면 스냅샷의 closesInMs 그대로)
   leaveBranch?(): Promise<void>; // 분점 전용 나가기. 공원은 없음
 }
 
@@ -163,9 +165,9 @@ function validStake(stake: number): boolean {
   return Number.isSafeInteger(stake) && stake >= STAKE_MIN && stake % STAKE_STEP === 0;
 }
 
-function purchaseBlock(snap: DerbySnapshot, stake: number): string {
+function purchaseBlock(snap: DerbySnapshot, stake: number, left: number = snap.head.closesInMs): string {
   const head = snap.head;
-  if (head.status !== 'selling' || !head.sellable || !Number.isFinite(head.closesInMs) || head.closesInMs <= 0) return '지금은 발매 중이 아니에요.';
+  if (head.status !== 'selling' || !head.sellable || !Number.isFinite(left) || left <= 0) return '지금은 발매 중이 아니에요.';
   if (!validStake(stake)) return '100코인 이상, 100코인 단위로 입력해 주세요.';
   if (!Number.isFinite(snap.balance) || snap.balance < stake) return '코인이 모자라요.';
   if (!Number.isFinite(snap.raceRemain) || snap.raceRemain < stake) return '남은 경주 한도를 넘어요.';
@@ -274,6 +276,12 @@ export class DerbyPanel {
     return null;
   }
 
+  // 마감까지 남은 ms: 마감 시각과 지금 서버 시각의 차이 (호스트가 둘을 주지 않으면 스냅샷에 든 값)
+  private left(snap: DerbySnapshot): number {
+    const h = snap.head;
+    return h.closesAt && this.h.now ? h.closesAt - this.h.now() : h.closesInMs;
+  }
+
   private tick(): void {
     const snap = this.snap;
     if (!snap || !this.root) return;
@@ -281,7 +289,7 @@ export class DerbyPanel {
     if (c) {
       c.textContent =
         snap.head.status === 'selling'
-          ? `마감까지 ${mmss(snap.head.closesInMs)}`
+          ? `마감까지 ${mmss(this.left(snap))}`
           : snap.head.status === 'settling'
             ? snap.head.statusLabel || '결과 집계 중'
             : statusText(snap.head.status);
@@ -349,7 +357,9 @@ export class DerbyPanel {
     head.append(el('span', { class: 'd-count', text: '' }));
     const c = head.lastChild as HTMLElement;
     c.setAttribute('data-d', 'count');
-    // 공원 판은 접었다 폈다 (모바일은 접힘 시작). 분점은 나가기로 닫는다.
+    // 단추는 한 상자에 모아 제목 줄의 오른쪽 위에 둔다 (derbyui.css: 제목 줄은 두 줄이다. 한 줄에 다 넣으면 넘쳐서 단추가 창 밖으로 밀려났다)
+    const btns = el('span', { class: 'd-btns' });
+    // 공원 판은 접었다 폈다 (모바일은 접힘 시작) 하고 ✕ 로 닫는다. 분점은 나가기로 닫는다.
     if (this.h.where === 'park') {
       const f = el('button', {
         class: 'btn small',
@@ -361,7 +371,11 @@ export class DerbyPanel {
         this.collapsed = !this.collapsed;
         this.render(true);
       };
-      head.append(f);
+      btns.append(f);
+      const x = el('button', { class: 'btn small', text: '✕', title: '마권 판 닫기 (창구 옆에서 F 로 다시 연다)' });
+      x.setAttribute('data-dk', 'close');
+      x.onclick = () => this.hide();
+      btns.append(x);
     } else {
       const out = el('button', { class: 'btn small out', text: '🚪 나가기', title: '분점에서 나가기' });
       out.setAttribute('data-dk', 'leave');
@@ -371,8 +385,9 @@ export class DerbyPanel {
           out.disabled = false;
         });
       };
-      head.append(out);
+      btns.append(out);
     }
+    head.append(btns);
     root.append(head);
     const body = el('div', { class: 'd-body' });
     body.setAttribute('data-d', 'body');
@@ -404,7 +419,7 @@ export class DerbyPanel {
       const time = s.timeLabel ? `${s.timeLabel} ` : '';
       const b = el('button', {
         class: 'btn small' + (cur ? ' on' : ''),
-        text: `${time}${s.n}R·${statusText(s.status)}`,
+        text: s.timeLabel ? `${s.timeLabel} · ${statusText(s.status)}` : `${time}${s.n}R·${statusText(s.status)}`,
         title: s.label || `제${s.n}경주 보기`,
       });
       b.setAttribute('data-dk', `sched-${s.n}`);
@@ -423,8 +438,7 @@ export class DerbyPanel {
     }
     const next = snap.schedule.find((s) => s.n === snap.nextN);
     if (next && next.n !== snap.head.n) {
-      const time = next.timeLabel ? `${next.timeLabel} ` : '';
-      bar.append(el('span', { class: 'd-next', text: `다음 ${time}${next.n}R` }));
+      bar.append(el('span', { class: 'd-next', text: `다음 ${next.timeLabel || `${next.n}R`}` }));
     }
     body.append(bar);
   }
@@ -602,7 +616,7 @@ export class DerbyPanel {
     if (quote && validStake(stake)) summary.append(el('span', { class: 'd-est', text: `예상 적중금 ${ko(quote.est)}코인` }));
     box.append(summary);
     box.append(el('div', { class: 'd-total', text: `잔액 ${ko(snap.balance)} · 남은 한도 ${ko(snap.raceRemain)} · ${snap.ticketUsed}/${snap.ticketMax}장` }));
-    const blocked = purchaseBlock(snap, stake);
+    const blocked = purchaseBlock(snap, stake, this.left(snap));
     if (ready && blocked) box.append(el('div', { class: 'd-warn', text: blocked }));
     const go = el('button', { class: 'btn primary d-go', text: this.submitting ? '사는 중…' : validStake(stake) ? `즉시 구매 · ${ko(stake)}코인` : '즉시 구매' });
     go.setAttribute('data-dk', 'submit');
@@ -621,7 +635,7 @@ export class DerbyPanel {
     const fresh = this.quote(pick.kind, pick.legs, pick.stake);
     const blocked = snap.head.n !== pick.n || snap.head.authEpoch !== pick.auth
       ? '경주나 발매 상태가 바뀌었어요. 다시 확인해 주세요.'
-      : purchaseBlock(snap, pick.stake) || (
+      : purchaseBlock(snap, pick.stake, this.left(snap)) || (
         fresh?.odds !== pick.odds || fresh?.est !== pick.est ? '배율이나 예상 적중금이 바뀌었어요. 다시 확인해 주세요.' : ''
       );
     if (blocked) {

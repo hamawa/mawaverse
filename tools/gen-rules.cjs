@@ -69,7 +69,7 @@ const oePay = `(${SLOT_H} % 2 == data.child('ip').val() ? ${IB} * ${ODD_EVEN_NUM
 const instantPay = `(${isJackpot} ? ${SLOT_JP} : (data.child('ik').val() == 's' ? ${slotPay} : ${oePay}))`;
 // 경마공원 (2026-11-23). 아래 숫자는 shared/derby (time.ts · tickets.ts · scenario.ts · secret.ts) 와 같아야 한다 (tests/derby-rules.test.mjs 가 대조)
 const DERBY_CYCLE_MS = 360000, DERBY_SALE_MS = 240000;
-const DERBY_TICKET_MIN = 100, DERBY_TICKET_STEP = 100, DERBY_MAX_PARK = 100000, DERBY_MAX_BRANCH = 50000;
+const DERBY_TICKET_MIN = 100, DERBY_TICKET_STEP = 100, DERBY_MAX_PARK = 10000, DERBY_MAX_BRANCH = 5000; // 기본 한도 (2026-11-24 저장소 주인 결정: 지갑 가운데 값이 2만이라 낮게 시작한다. 올릴 때는 관리자 설정 config/raceMax)
 const DERBY_SCENARIOS = 10000, DERBY_DRAW_SLOTS = 4;
 const DERBY_RACE_KEY = 'newData.isString() && newData.val().matches(/^[1-9][0-9]{0,11}$/)'; // 지갑 kd·kn: 경주 번호 (경로에 쓰므로 숫자 글자만)
 const DERBY_TICKET_KEY = 'newData.isString() && newData.val().matches(/^[0-9][0-9]$/)';     // 지갑 kb·kr: 마권 번호 '00'~'99'
@@ -361,7 +361,9 @@ function pokerBlocks(ind) {
 //  race/x/{n}/{o,a,b,c,e} 공개: o 가 그 칸과 같고 a+b+c+e 로 끝날 때만, 한 번
 //  race/q/{n}/{앞자리}     공개용 묻기: null 쓰기만, 추첨된 칸이 그 앞자리로 시작할 때만 허용 (저장되는 것은 없다)
 //  race/t/{n}/{uid}/{nn}  마권 { t, s1, s2?, a, od } (지갑 결제와 같은 쓰기에서만. 지갑 규칙의 derbyPay 가 반대쪽에서 같은 것을 본다)
-//  race/u/{uid}/{n}/i     영구적인 내 경주 색인 (읽을 때 i 로 거른다. 미정산 경주를 건너뛰지 않도록 지우지 않는다)
+//  race/u/{uid}/{n}/i     내 경주 색인 (접속할 때의 환급 확인이 i 가 켜진 경주만 읽는다). 살 때 켜고, 그 경주의 마권을 다 받으면 화면이 내린다 (2026-11-24:
+//                         내릴 수 없게 두었더니 지난 경주가 전부 로그인마다 다시 내려왔다). 본인만 내릴 수 있고, 내려도 마권·합계·장수·영수증은 그대로라
+//                         한도나 환급을 비켜 가지 못한다 (미리 내리면 자기 화면이 그 경주를 못 찾을 뿐이다. 환급 규칙은 색인을 보지 않는다)
 //  race/u/{uid}/{n}/s     영구적인 구매 합계 (결제와 원자적으로 증가; 지갑을 지워도 한도가 초기화되지 않는다)
 //  race/u/{uid}/{n}/c     영구적인 발권 장수 (1~100). s 와 한 번에 읽어 탭 사이의 발권 번호 경쟁을 판별한다.
 //  race/u/{uid}/{n}/{nn}  환급 영수증 (지갑 환급과 같은 쓰기에서 한 번. 지우지도 바꾸지도 못한다)
@@ -453,7 +455,7 @@ function derbyBlocks(ind) {
     `${L}".read": ${own},`,
     `${L}".indexOn": ["i"],`,
     `${L}"$n": {`,
-    `${M}"i": { ".write": "auth != null && auth.uid == $uid && newData.exists()", ".validate": "newData.val() === true && newData.parent().child('s').isNumber()" },`,
+    `${M}"i": { ".write": "auth != null && auth.uid == $uid", ".validate": "newData.val() === true && newData.parent().child('s').isNumber()" },`,
     `${M}"s": { ".write": "auth != null && auth.uid == $uid && newData.exists()", ".validate": ${q(ledger)} },`,
     `${M}"c": { ".write": "auth != null && auth.uid == $uid && newData.exists()", ".validate": ${q(`newData.isNumber() && newData.val() == (data.exists() ? data.val() : 0) + 1 && newData.val() <= 100 && ${ledgerW}.child('kd').val() == $n && ${ledgerW}.child('kb').val() == (newData.val() <= 10 ? '0' : '') + (newData.val() - 1)`)} },`,
     `${M}"$k": { ".write": "auth != null && auth.uid == $uid && !data.exists() && newData.exists()", ".validate": ${q(`newData.val() === true && (${receipt})`)} }`,

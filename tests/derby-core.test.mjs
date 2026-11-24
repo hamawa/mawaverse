@@ -360,7 +360,7 @@ test('마권: 방식 펼치기·적중·적중금·열쇠·한도', () => {
   assert.equal(D.raceOdds(4_900_001, 'E', 1, 0), D.derbyOdds(D.derbyScenarioFor(4_900_001).p, 'E', 1, 0));
   assert.equal(D.ticketKey(4_912_345, 3), '4912345_03');
   assert.equal(D.ticketKey(4_912_345, 99), '4912345_99');
-  assert.deepEqual([D.DERBY_TICKET_MIN, D.DERBY_TICKET_STEP, D.DERBY_MAX_PARK, D.DERBY_MAX_BRANCH, D.DERBY_TICKETS_PER_RACE], [100, 100, 100000, 50000, 100]);
+  assert.deepEqual([D.DERBY_TICKET_MIN, D.DERBY_TICKET_STEP, D.DERBY_MAX_PARK, D.DERBY_MAX_BRANCH, D.DERBY_TICKETS_PER_RACE], [100, 100, 10000, 5000, 100]); // 기본 한도는 낮게 시작한다 (2026-11-24): 공원 1만 · 분점 5천
   assert.equal(D.validTicketAmount(100), true); assert.equal(D.validTicketAmount(150), false); assert.equal(D.validTicketAmount(0), false);
 });
 

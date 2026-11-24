@@ -175,6 +175,25 @@ test('구매 직전 배율·경주·발매 상태·잔액·한도·남은 장수
   assert.equal(requests.length, 0);
 });
 
+// ---- 마감 시계 (2026-11-24 검토: 스냅숏은 30초 단계로만 새로 만들어져서, 스냅숏에 든 남은 시간만 그리면 시계가 30초씩 멈췄다. 2분 32초 남았는데 3:00 으로 보였다) ----
+test('마감 시계는 스냅숏이 그대로여도 서버 시각을 따라 줄고, 마감 시각이 지나면 구매를 막는다', (t) => {
+  const { panel, host, quote } = fixture(t);
+  let now = 1000000;
+  host.now = () => now;
+  host.snap = snap({ head: { ...snap().head, closesInMs: 180000, closesAt: now + 180000 } });
+  panel.update(host.snap);
+  assert.equal(panel.left(host.snap), 180000);
+  now += 28000; // 스냅숏은 그대로 (closesInMs 180000)
+  assert.equal(panel.left(host.snap), 152000);
+  panel.prefill(3);
+  assert.equal(quote().go.disabled, false);
+  now += 152000; // 마감 시각
+  assert.equal(panel.left(host.snap), 0);
+  assert.equal(quote().go.disabled, true, '스냅숏이 아직 발매 중이어도 마감 시각이 지나면 살 수 없다');
+  delete host.now; // 시각을 주지 않는 호스트: 스냅숏의 값 그대로
+  assert.equal(panel.left(host.snap), 180000);
+});
+
 test('명시적으로 발매된 마권이 없으면 성공으로 표시하지 않는다', async (t) => {
   const { panel, quote, host, toasts } = fixture(t, 'Q');
   panel.prefill(3);

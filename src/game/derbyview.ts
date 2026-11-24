@@ -2,10 +2,10 @@
 // 발매 연결(DerbyLiveSeam)이 없으면 판은 늘 발매 중이 아니고(sellable=false, 구매 단추 잠김) 쇼에는 결과가 없다(result=null).
 // world 는 공원에 들어오면 attachLive(new DerbyLive(...)) 로 발매 연결을 꽂는다 (아래 DerbyLive: 발매 여부·결과·내 마권 읽기와 추첨·공개 순서, 쓰기는 WalletMgr).
 import {
-  derbyCard, raceNo, cycleStart, saleProgress, nextScheduledRace, raceScheduled, derbyStatusText, raceOdds, derbyPools, comboKey,
+  derbyCard, raceNo, raceClock, cycleStart, saleProgress, nextScheduledRace, raceScheduled, derbyStatusText, raceOdds, derbyPools, comboKey,
   ticketPayout, ticketWins, ticketKey, validTicketAmount, derbyResolve, parseDerbyDraw, DERBY_SALE_MS, DERBY_FINISH_MS, DERBY_MAX_PARK, DERBY_MAX_BRANCH, DERBY_TICKETS_PER_RACE,
   DERBY_BET_TYPES, DERBY_CYCLE_MS,
-  type DerbyCard, type DerbyBetType, type DerbyDraw, type RaceHours, type RaceHoursEnv,
+  type DerbyCard, type DerbyBetType, type DerbyDraw, type DerbyRes, type RaceHours, type RaceHoursEnv,
 } from '../shared/derby';
 import { kstParts } from '../shared/hours';
 import {
@@ -110,7 +110,7 @@ export function derbyViewRace(nowMs: number, hours: RaceHours | null, env: RaceH
 }
 
 // 주로 값 파라미터 묶음 (발매 연결을 꽂으면 live 가 채운다)
-export interface DerbyLiveSale { status: DerbyRaceStatus; statusLabel: string; sellable: boolean; authEpoch: number; closesInMs: number }
+export interface DerbyLiveSale { status: DerbyRaceStatus; statusLabel: string; sellable: boolean; authEpoch: number; closesInMs: number; closesAt?: number } // closesAt = 마감 서버 시각 (발매 중일 때만. 창이 마감 시계를 매 프레임 그린다)
 export interface DerbyLiveAccount { spent: number; ticketUsed: number; tickets: DerbyTicketView[]; standings: number[] | null }
 export interface DerbyLiveSeam {
   sale(n: number): DerbyLiveSale | null;
@@ -157,6 +157,7 @@ const REVEAL_RETRY_MS = 5000;          // 추첨·공개가 안 됐으면 다시
 const REVEAL_RETRY_MAX_MS = 120000;
 export const REVEAL_MAX_TRIES = 5;     // 이 화면에서 한 경주를 추첨·공개해 보는 최대 횟수 (그 뒤에는 멈추고 판에 알린다. 다음 접속 때 환급이 다시 해 본다)
 const DRAW_JITTER_MS = 1500;           // 마감 뒤 추첨을 늦추는 폭 (여러 화면이 한꺼번에 쓰지 않게)
+const SETTLE_RETRY_MS = 15000;         // 환급이 덜 끝났으면 이만큼 뒤에 다시 해 본다
 type LiveTicket = { t: DerbyBetType; s1: string; s2?: string; a: number; od: number };
 interface LiveMine { tk: Record<string, LiveTicket>; paid: Record<string, true>; s: number; c: number }
 type Cover = { s: number; e: number };
@@ -213,6 +214,7 @@ export class DerbyLive implements DerbyLiveSeam {
   private settling = new Set<number>();
   private drawing = new Set<number>();                     // 추첨·공개 중인 경주
   private retryAt = new Map<number, number>();
+  private settleAt = new Map<number, number>();            // 경주 → 다음에 환급을 해 볼 시각
   private fails = new Map<number, number>();               // 경주 → 공개하지 못한 횟수
   private readonly jitter = Math.floor(Math.random() * DRAW_JITTER_MS);
   private closed = false;
@@ -254,23 +256,31 @@ export class DerbyLive implements DerbyLiveSeam {
   private unwatch(path: string): void { this.offs.get(path)?.(); this.offs.delete(path); }
   private forget(n: number): void {
     this.unwatch(`race/x/${n}`);
-    this.results.delete(n); this.seenAt.delete(n); this.shows.delete(n); this.mine.delete(n); this.retryAt.delete(n); this.fails.delete(n);
+    this.results.delete(n); this.seenAt.delete(n); this.shows.delete(n); this.mine.delete(n); this.retryAt.delete(n); this.fails.delete(n); this.settleAt.delete(n);
   }
   private stuck(n: number): boolean { return (this.fails.get(n) ?? 0) >= REVEAL_MAX_TRIES; }
   private covered(n: number): boolean { return !!this.cover && this.cover.s <= n && n < this.cover.e; }
+  // 결승(4:40)이 지났나. 공개값은 마감 1~2초 뒤에 온다(쇼가 그 착순대로 달리게 하려고 일찍 받는다). 하지만 판의 '결과 확정'·착순·적중 표시와 환급은
+  //  결승 뒤에 한다: 말이 달리는 40초 동안 결과와 적중금이 먼저 보이지 않게 (2026-11-24, 검토 반영)
+  private finished(n: number, now = this.d.now()): boolean { return now >= cycleStart(n) + DERBY_FINISH_MS; }
+  private shownRes(n: number): DerbyRes | null { const x = this.results.get(n); return x?.res && this.finished(n) ? x.res : null; }
 
   private onResult(n: number, v: unknown): void {
     const x = parseDerbyDraw(v);
     this.results.set(n, x);
     if (x?.res && !this.seenAt.has(n)) this.seenAt.set(n, Math.min(DERBY_CYCLE_MS, Math.max(DERBY_SALE_MS, this.d.now() - cycleStart(n))));
     this.emit();
-    if (x?.res) void this.settle(n);
+    // 환급은 여기서 바로 하지 않는다: 결승 뒤에 drive 가 한다 (경주 중에 적중금이 먼저 들어오지 않게)
   }
 
   // 매 프레임: 구독 중인 경주 가운데 마감했는데 공개되지 않은 경주를 추첨·공개한다 (지금 경주는 발매한 경주일 때, 지난 경주는 내 마권이 남아 있을 때)
   private drive(cur: number, now: number): void {
     for (const [n, x] of this.results) {
-      if (x?.res || this.drawing.has(n) || this.stuck(n) || now < (this.retryAt.get(n) ?? 0) || now < cycleStart(n) + DERBY_SALE_MS + this.jitter) continue;
+      if (x?.res) { // 공개됐다: 결승이 지나면 환급한다 (덜 끝났으면 SETTLE_RETRY_MS 뒤에 다시)
+        if (this.finished(n, now) && !this.settling.has(n) && now >= (this.settleAt.get(n) ?? 0) && this.unsettled(n)) { this.settleAt.set(n, now + SETTLE_RETRY_MS); void this.settle(n); }
+        continue;
+      }
+      if (this.drawing.has(n) || this.stuck(n) || now < (this.retryAt.get(n) ?? 0) || now < cycleStart(n) + DERBY_SALE_MS + this.jitter) continue;
       if (!this.covered(n) || (n === cur ? !raceScheduled(n, this.d.hours(), this.d.env()) && !this.holds(n) : !this.unsettled(n))) continue;
       if (x && now - x.at < REVEAL_WAIT_MS) continue; // 추첨한 사람이 공개하는 중
       this.drawing.add(n);
@@ -319,8 +329,8 @@ export class DerbyLive implements DerbyLiveSeam {
     this.settling.add(n);
     try {
       const r = await this.d.wallet.settleDerby(n);
-      if (r.paid > 0) this.d.toast(`🏇 제${n}경주 적중! 💰 ${koCoins(r.paid)} 을 받았어요.`);
-      else if (r.tickets > 0) this.d.toast(`🏇 제${n}경주 결과: 이번에는 적중한 마권이 없어요.`);
+      if (r.paid > 0) this.d.toast(`🏇 ${raceClock(n)} 경주 적중! 💰 ${koCoins(r.paid)} 을 받았어요.`);
+      else if (r.tickets > 0) this.d.toast(`🏇 ${raceClock(n)} 경주 결과: 이번에는 적중한 마권이 없어요.`);
     } catch (e) {
       console.warn('마권 환급을 마치지 못했습니다. 미정산 기록은 유지됩니다.', e);
       this.d.toast('마권 환급을 마치지 못했어요. 다음 접속 때 다시 받아요.', true);
@@ -364,9 +374,9 @@ export class DerbyLive implements DerbyLiveSeam {
     if (now < close) {
       if (!scheduled) return off('nosale', derbyStatusText(now, hours, env));
       if (!sold) return off('nosale', '발매하지 않는 경주');
-      return { status: 'selling', statusLabel: '발매 중', sellable: true, authEpoch: epoch, closesInMs: close - now };
+      return { status: 'selling', statusLabel: '발매 중', sellable: true, authEpoch: epoch, closesInMs: close - now, closesAt: close };
     }
-    if (this.results.get(n)?.res) return off('done', '결과 확정');
+    if (this.shownRes(n)) return off('done', '결과 확정'); // 결승 전에는 공개값이 있어도 아래의 '경주 중'
     if (!sold && !this.holds(n)) return off('nosale', '발매하지 않은 경주');
     if (now < cycleStart(n) + DERBY_FINISH_MS) return off('closed', '발매 마감 · 경주 중');
     if (this.stuck(n)) return off('settling', '결과를 공개하지 못했어요 · 다시 접속하면 다시 시도해요');
@@ -374,7 +384,7 @@ export class DerbyLive implements DerbyLiveSeam {
   }
 
   account(n: number): DerbyLiveAccount | null {
-    const m = this.mine.get(n), res = this.results.get(n)?.res ?? null;
+    const m = this.mine.get(n), res = this.shownRes(n); // 결승 전에는 착순·적중 여부를 보이지 않는다
     const card = derbyCard(n), gateOf = (r: string | undefined) => card.runners.find((q) => String(q.rank) === r)?.gate ?? 0;
     const tickets: DerbyTicketView[] = Object.keys(m?.tk ?? {}).sort().map((nn) => {
       const t = m!.tk[nn], paid = !!m!.paid[nn];
@@ -468,7 +478,7 @@ export function derbyPanelSnapshot(a: DerbySnapshotArgs): DerbySnapshot {
   }
   nums.add(n);
   const schedule: DerbyScheduleItem[] = [...nums].sort((x, y) => x - y).map((m) => ({
-    n: m, label: `제${m}경주 ${derbyCard(m).distance}m`, status: live?.sale(m)?.status ?? 'nosale', timeLabel: raceTimeLabel(m, nowMs),
+    n: m, label: `${raceTimeLabel(m, nowMs)} 경주 ${derbyCard(m).distance}m`, status: live?.sale(m)?.status ?? 'nosale', timeLabel: raceTimeLabel(m, nowMs),
   }));
 
   // 발매 연결(live)이 없으면 늘 발매 중이 아니다: 운영 시간 안이어도 "발매 연결 전"이라고 밝히고, 휴장이면 휴장 문구
@@ -479,7 +489,8 @@ export function derbyPanelSnapshot(a: DerbySnapshotArgs): DerbySnapshot {
     sellable: sale?.sellable === true,
     authEpoch: sale?.authEpoch ?? 0,
     closesInMs: sale?.closesInMs ?? 0,
-    label: `제${n}경주 ${card.distance}m${sale ? '' : ` · ${DERBY_VIEW_ONLY_LABEL}`}`,
+    closesAt: sale?.closesAt ?? 0,
+    label: `${raceTimeLabel(n, nowMs)} 경주 ${card.distance}m${sale ? '' : ` · ${DERBY_VIEW_ONLY_LABEL}`}`, // 경주 번호(일곱 자리)가 아니라 시작 시각으로 부른다
   };
   const spent = acct?.spent ?? 0, used = acct?.ticketUsed ?? 0;
   return {
@@ -542,6 +553,7 @@ export class DerbyView {
       },
       selectRace: (n) => this.selectRace(n),
       toast: (m, e) => this.d.toast(m, e),
+      now: () => this.d.now(),
     };
   }
 

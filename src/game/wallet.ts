@@ -5,7 +5,7 @@ import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_M
 import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
-import { DERBY_BET_TYPES, DERBY_CYCLE_MS, DERBY_SALE_MS, DERBY_TICKETS_PER_RACE, DERBY_SECRET_BITS, raceNo, raceOdds, cycleStart, ticketRecord, ticketWins, ticketPayout, validTicketAmount, derbyResolve, derbyProbeSuffix, derbyBitMayBeOne, derbyBitsDigits, parseDerbyDraw, type DerbyBetType, type DerbyDraw, type DerbyRes, type DerbyTicket } from '../shared/derby';
+import { DERBY_BET_TYPES, DERBY_CYCLE_MS, DERBY_SALE_MS, DERBY_FINISH_MS, DERBY_TICKETS_PER_RACE, DERBY_SECRET_BITS, raceNo, raceClock, raceOdds, cycleStart, ticketRecord, ticketWins, ticketPayout, validTicketAmount, derbyResolve, derbyProbeSuffix, derbyBitMayBeOne, derbyBitsDigits, parseDerbyDraw, type DerbyBetType, type DerbyDraw, type DerbyRes, type DerbyTicket } from '../shared/derby';
 import type { WorldCtx } from './state';
 
 // ---- 경마공원 지갑 칸 (2026-11-23). shared/shop.ts 의 Wallet 에는 없고, 규칙(tools/gen-rules.cjs)이 결제·환급 쓰기에만 묶는다 ----
@@ -59,7 +59,8 @@ export class WalletMgr {
       this.listeners.forEach((f) => f());
     });
   }
-  stop(): void { this.unsub?.(); this.unsub = null; this.listeners.clear(); }
+  private stopped = false;
+  stop(): void { this.stopped = true; this.unsub?.(); this.unsub = null; this.listeners.clear(); for (const t of this.derbyTimers.values()) clearTimeout(t); this.derbyTimers.clear(); }
 
   // 관리자가 코인을 지급·회수했으면(gf) 한 번 알린다. 본 것은 브라우저에 기억해 두어, 접속해 있지 않을 때 받은 것도 다음에 들어오면 뜬다
   private giftSeen = -1;
@@ -291,6 +292,7 @@ export class WalletMgr {
             [`race/u/${uid}/${ns}/s`]: spent + tk.a, [`race/u/${uid}/${ns}/c`]: idx + 1,
           });
           res = { ok: true, n, nn, a: tk.a, od };
+          this.watchDerby(n); // 이 경주가 끝나면 어디에 있든 환급한다
           break;
         } catch (e) {
           const total = Number((await get(ref(db, `race/u/${uid}/${ns}/s`))).val()) || 0;
@@ -371,8 +373,9 @@ export class WalletMgr {
       const todo: [number, Record<string, unknown>][] = [];
       for (const ns of Object.keys(races).sort((p, q) => Number(p) - Number(q))) {
         const n = Number(ns), led = races[ns];
-        if (derbyLedgerDone(led)) continue;
-        if (serverNow() < cycleStart(n) + DERBY_SALE_MS || this.derbyStuck.has(n)) { sum.pending++; continue; }
+        if (derbyLedgerDone(led)) { this.dropDerbyIndex(n); continue; }
+        if (serverNow() < cycleStart(n) + DERBY_FINISH_MS) { this.watchDerby(n); sum.pending++; continue; } // 아직 달리는 경주: 끝나면 받는다
+        if (this.derbyStuck.has(n)) { sum.pending++; continue; }
         todo.push([n, led]);
       }
       return todo;
@@ -390,8 +393,8 @@ export class WalletMgr {
   }
   private async settleDerbyRace(n: number, led: Record<string, unknown>, sum: DerbySettle): Promise<void> {
     const uid = this.w.uid, W = `wallet/${uid}`, ns = String(n);
-    if (derbyLedgerDone(led)) return;
-    if (serverNow() < cycleStart(n) + DERBY_SALE_MS) { sum.pending++; return; }
+    if (derbyLedgerDone(led)) { this.dropDerbyIndex(n); return; }
+    if (serverNow() < cycleStart(n) + DERBY_FINISH_MS) { sum.pending++; return; } // 결승 전에는 받지 않는다 (경주 중에 적중금이 먼저 들어오면 결과를 미리 알게 된다)
     const res = (await this.revealDerby(n))?.res;
     if (!res) { this.derbyStuck.add(n); sum.pending++; return; }
     this.derbyStuck.delete(n);
@@ -411,6 +414,32 @@ export class WalletMgr {
       }
     }
     if (left) sum.pending++;
+    else if (typeof led.c === 'number' && Object.keys(tickets).length >= led.c) this.dropDerbyIndex(n); // 발권한 장수만큼 마권을 읽었고 전부 받았을 때만
+  }
+  // 다 받은 경주는 내 경주 색인(race/u/{uid}/{n}/i)을 내린다: 접속할 때의 환급 확인은 i 가 켜진 경주를 통째로 읽으므로,
+  //  내리지 않으면 지난 경주가 전부 로그인마다 다시 내려오고 그 양이 끝없이 는다 (2026-11-24, 검토 반영). 마권·합계·장수·영수증은 그대로 남는다.
+  //  경주가 끝난 뒤에만 부른다 (더 살 수 없는 경주). 실패해도 다음 환급 확인 때 다시 내린다
+  private dropDerbyIndex(n: number): void {
+    set(ref(db, `race/u/${this.w.uid}/${n}/i`), null).catch((e) => console.warn('경마 색인을 내리지 못했습니다', e));
+  }
+  // 내 마권이 있는 경주가 끝나면(결승 + 몇 초) 이 화면이 스스로 환급한다: 공원·분점을 떠나 있어도, 창이 뒤에 있어도 적중금이 들어온다 (2026-11-24, 검토 반영.
+  //  전에는 그 자리에 머물러 있거나 다시 로그인해야 받았다). 공원에 있으면 판 쪽(DerbyLive)이 먼저 받고 여기는 받을 것이 없어 조용히 끝난다.
+  //  결과를 공개하지 못했으면 30초 뒤에 두 번까지 다시 해 보고, 그래도 안 되면 다음 접속 때 받는다
+  private derbyTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  private watchDerby(n: number, tries = 0): void {
+    if (this.stopped || this.derbyTimers.has(n)) return;
+    const wait = tries ? 30000 : Math.max(0, cycleStart(n) + DERBY_FINISH_MS - serverNow()) + 1500 + Math.floor(Math.random() * 2000);
+    const t = setTimeout(() => {
+      this.derbyTimers.delete(n);
+      if (this.stopped) return;
+      this.settleDerby(n).then((r) => {
+        if (r.paid > 0) this.w.toast(`🏇 ${raceClock(n)} 경주 적중! 💰 ${r.paid.toLocaleString('ko-KR')} 을 받았어요.`);
+        else if (r.tickets > 0) this.w.toast(`🏇 ${raceClock(n)} 경주 결과: 이번에는 적중한 마권이 없어요.`);
+        if (r.pending > 0 && tries < 2) this.watchDerby(n, tries + 1);
+      }, (e) => console.warn('마권 환급을 마치지 못했습니다. 다음 접속 때 다시 받습니다.', e));
+    }, wait);
+    (t as { unref?: () => void }).unref?.(); // Node(시험)에서는 이 타이머가 프로세스를 붙잡지 않게
+    this.derbyTimers.set(n, t);
   }
   // 접속할 때: 접속하지 않은 동안 끝난 경주의 마권을 받는다
   private async settlePendingDerby(): Promise<void> {

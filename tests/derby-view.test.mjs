@@ -123,6 +123,18 @@ test('판 스냅샷: 단승·연승·복승·쌍승·복연승 배당과 NPC 매
   assert.equal(h.sales, pools.W.cells[`${r.rank}`]);
 });
 
+// 2026-11-24 검토: 경주 번호는 서버 시각 ÷ 6분이라 일곱 자리다. 그대로 보여 주면 뜻이 없고 제목 줄이 넘쳤다
+test('판의 경주 이름: 일곱 자리 경주 번호가 아니라 시작 시각으로 부른다 (제목 줄·예정표·마감 시각)', () => {
+  const s = V.derbyPanelSnapshot({ nowMs: NOW, viewN: N, hours: HOURS, env: ENV, balance: 0, raceCap: 10000, v: 1 });
+  assert.match(s.head.label, /^\d\d:\d\d 경주 \d+m/);
+  assert.ok(!s.head.label.includes(String(N)), s.head.label);
+  assert.ok(s.schedule.length > 0);
+  for (const it of s.schedule) { assert.match(it.label, /\d\d:\d\d 경주 \d+m$/); assert.ok(!it.label.includes(String(it.n)), it.label); }
+  assert.equal(V.raceTimeLabel(N, NOW), D.raceClock(N));
+  assert.match(D.raceClock(N), /^\d\d:\d\d$/);
+  assert.equal(s.head.closesAt, 0, '발매 연결이 없으면 마감 시각도 없다');
+});
+
 test('휴장: 설정이 없거나 꺼져 있으면 닫힘, 다음 예정은 비어 있다', () => {
   for (const hours of [null, { on: false, d: HOURS.d }, { on: true, d: {} }]) {
     const s = V.derbyPanelSnapshot({ nowMs: NOW, viewN: V.derbyViewRace(NOW, hours, ENV, null), hours, env: ENV, balance: 0, raceCap: 100000, v: 1 });
@@ -279,7 +291,7 @@ test('발매 연결: 경주표·결과표 범위로 발매 중 → 마감 → �
   fire('race/cover', null);
   assert.deepEqual([live.sale(N).status, live.sale(N).statusLabel, live.sale(N).sellable], ['nosale', '발매하지 않는 경주', false]);
   fire('race/cover', COVER);
-  assert.deepEqual(live.sale(N), { status: 'selling', statusLabel: '발매 중', sellable: true, authEpoch: T0, closesInMs: D.DERBY_SALE_MS - 10000 });
+  assert.deepEqual(live.sale(N), { status: 'selling', statusLabel: '발매 중', sellable: true, authEpoch: T0, closesInMs: D.DERBY_SALE_MS - 10000, closesAt: CLOSE }); // closesAt: 창이 마감 시계를 매 프레임 그리는 기준
   assert.equal(live.sale(N + 1).status, 'nosale');
   st.now = CLOSE + 1000;
   assert.deepEqual([live.sale(N).status, live.sale(N).sellable], ['closed', false]);
@@ -439,7 +451,7 @@ test('발매 연결 구매: 마번 → 인기 순위, 경주 확인, 장마다 �
   assert.equal(st.buys.length, 1);
 });
 
-test('발매 연결 환급: 결과가 공개되면 그 경주만 settleDerby(n), 마권 상태·적중금이 판에 실린다', async () => {
+test('발매 연결 환급: 결과가 공개돼도 결승 전에는 판에 보이지 않고 환급하지 않는다. 결승 뒤에 그 경주만 settleDerby(n), 마권 상태·적중금이 판에 실린다', async () => {
   const { st, live, fire, flush } = liveRig();
   const x = revealed(N, '0000000', CLOSE + 300);
   const od = (t, s1, s2 = -1) => D.raceOdds(N, t, Number(s1), s2);
@@ -461,6 +473,17 @@ test('발매 연결 환급: 결과가 공개되면 그 경주만 settleDerby(n),
   st.data[`race/u/${U}/${N}`] = { i: true, s: 200, c: 2, '00': true, '01': true };
   fire(`race/x/${N}`, x);
   fire(`race/x/${N}`, x); // 같은 값이 다시 와도 한 번만
+  live.tick(st.now);
+  await flush(); await flush();
+  // 경주 중(결승 4:40 전): 공개값이 와 있어도 판은 '경주 중'이고 착순·적중을 보이지 않으며 환급하지 않는다 (쇼만 그 착순으로 달린다).
+  //  전에는 마감 1초 뒤에 '결과 확정'·착순·적중금이 먼저 떠서, 말이 달리는 40초 동안 결과를 미리 알 수 있었다 (2026-11-24 검토)
+  assert.deepEqual(st.settles, [], '결승 전에는 환급하지 않는다');
+  assert.deepEqual([live.sale(N).status, live.sale(N).statusLabel], ['closed', '발매 마감 · 경주 중']);
+  assert.equal(live.account(N).standings, null);
+  assert.deepEqual(live.account(N).tickets.map((t) => t.status), ['sold', 'sold']);
+  assert.ok(live.result(N), '쇼에는 결과가 간다 (그 착순으로 달린다)');
+  st.now = T0 + D.DERBY_FINISH_MS;
+  live.tick(st.now); live.tick(st.now); // 결승: 환급은 한 번만
   await flush(); await flush();
   assert.deepEqual(st.settles, [N]);
   const tk = live.account(N).tickets;
