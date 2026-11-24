@@ -20,11 +20,25 @@ export class Input {
   interactRepeat = false;      // 방금 온 F 가 키를 누르고 있어서 반복된 것인가 (채광은 누를 때마다 한 번만 친다)
   onAction: ((a: Action) => void) | null = null;
 
+  // 창(window)에 거는 리스너. 게임에서 나갈 때 떼야 해서 쥐고 있는다 (dispose)
+  private onKeyDown = (e: KeyboardEvent): void => this.keydown(e);
+  private onKeyUp = (e: KeyboardEvent): void => this.keyup(e);
+  private onBlur = (): void => { this.held = []; this.shift = false; this.touchRun = false; this.onAction?.({ board: false }); }; // 창이 뒤로 가면 TAB 을 뗀 것을 못 받는다: 점수판을 닫는다
+
   constructor() {
     // keydown 은 캡처 단계에서 받는다: 채팅 입력창이 전파를 막아도 Alt+2 같은 수식키 단축키는 동작해야 하므로
-    window.addEventListener('keydown', (e) => this.keydown(e), true);
-    window.addEventListener('keyup', (e) => this.keyup(e), true);
-    window.addEventListener('blur', () => { this.held = []; this.shift = false; this.touchRun = false; this.onAction?.({ board: false }); }); // 창이 뒤로 가면 TAB 을 뗀 것을 못 받는다: 점수판을 닫는다
+    window.addEventListener('keydown', this.onKeyDown, true);
+    window.addEventListener('keyup', this.onKeyUp, true);
+    window.addEventListener('blur', this.onBlur);
+  }
+  // 게임에서 나갈 때 (World.stop): 키 입력을 더 받지 않는다 (2026-11-24 밤, 제보 두 건의 원인).
+  // 창에 건 리스너라 떼지 않으면 나간 게임이 계속 받는다: 로그아웃했다가 새로고침 없이 다시 들어오면 옛 게임이 F·Y·E·T 에 같이 반응했다.
+  // 옛 게임이 멈춘 자리가 물가였으면 집 안에서 F 를 눌러도 낚시가 던져졌고("미끼를 달았다" → "놓쳤다"), Y 를 누르면 옛 게임의 유튜브 창이 따로 떴다
+  dispose(): void {
+    window.removeEventListener('keydown', this.onKeyDown, true);
+    window.removeEventListener('keyup', this.onKeyUp, true);
+    window.removeEventListener('blur', this.onBlur);
+    this.onAction = null; this.enabled = false; this.held = []; this.tap = null;
   }
 
   private isTyping(e: KeyboardEvent): boolean {

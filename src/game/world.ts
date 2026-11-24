@@ -1782,6 +1782,7 @@ export class World implements WorldCtx {
   private tvUsable(): boolean { return this.mapId === CLUB_MAP_ID || this.wallet.owns(MAWAPHONE_ID); }
   private tvBlocked(): boolean { return this.mafia.active && this.mafia.isParticipant(this.uid); } // 마피아 게임에 낀 동안에는 못 본다 (같이 보는 화면이 딴짓과 단서가 된다)
   private syncTv(): void {
+    if (this.stopped) return; // 나간 게임은 창을 다시 띄우지도, 구독을 다시 걸지도 않는다 (나가는 중에 DJ·마피아 쪽이 "바뀌었다"고 알려 온다)
     const usable = this.tvUsable(), want = !this.tvOff && usable && !this.tvBlocked();
     this.dj.setActive(this.mapId === CLUB_MAP_ID || want); // 클럽 안에서는 창을 꺼 두어도 구독한다 (DJ 기계의 예약 창, 다음 곡 넘기기)
     this.djPanel?.set(want ? this.dj.state : null);
@@ -1968,6 +1969,7 @@ export class World implements WorldCtx {
   private async stop(replaced = false): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    this.input.dispose(); // 나간 게임은 키 입력을 받지 않는다 (2026-11-24 밤: 안 끊으면 새로고침 없이 다시 들어온 뒤에도 옛 게임이 F·Y 에 반응했다. input.ts dispose)
     stopSound();
     clearInterval(this.bgTimer); document.removeEventListener('click', this.onUiClick, true);
     this.snowfight.reset();
