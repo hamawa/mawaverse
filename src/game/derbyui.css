@@ -170,7 +170,6 @@
 }
 #derby .d-ticket.won { outline: 1px solid #ffd84d; }
 #derby .d-ticket.lost { opacity: 0.75; }
-#derby .d-ticket.void { opacity: 0.75; outline: 1px dashed #9be7ff; }
 #derby .d-tst { margin-left: auto; font-size: 11px; color: #ffe9a8; white-space: nowrap; }
 #derby .d-ticket.won .d-tst { color: #ffd84d; font-weight: bold; }
 /* 확정 착순·배당판 */

@@ -99,13 +99,13 @@ export interface DerbyOddsCell { odds: number; pool: number } // 고정 배당 +
 // 견적 한 줄. key는 반드시 COMBO_KEY(kind, legs)와 같은 정규형이어야 한다
 // (호스트가 키를 맞추고, 패널은 키·배당·예상액을 그대로만 보여준다).
 export interface DerbyQuoteLine { key: string; legs: number[]; odds: number | null; est: number | null }
-export type DerbyTicketStatus = 'pending' | 'sold' | 'won' | 'lost' | 'void';
+export type DerbyTicketStatus = 'pending' | 'sold' | 'won' | 'lost';
 export interface DerbyTicketView {
   key: string; // "{n}_{00~99}" 마권 키
   kind: DerbyBetKind;
   legs: number[]; // 마번들
   stake: number; // 조합당 금액
-  status: DerbyTicketStatus; // sold: 발매됨 / won: 적중·정산됨 / lost: 낙첨 / pending: 대기 / void: 무효·환불
+  status: DerbyTicketStatus; // sold: 발매됨 / won: 적중·정산됨 / lost: 낙첨 / pending: 대기
   payout: number; // 적중 정산액 (won일 때만 >0. 호스트 숫자)
   note: string; // 실패·상태 안내 (외부 텍스트)
 }
@@ -114,8 +114,8 @@ export interface DerbyRaceHead {
   distance: DerbyDistance;
   status: DerbyRaceStatus;
   statusLabel: string; // 전광판 문구 ("결과 집계 중" 등. 호스트 문구 그대로)
-  sellable: boolean; // 지금 사도 되는가 (승인·하트비트·시간 판정은 호스트·규칙 몫)
-  authEpoch: number; // 발매 승인 epoch. 제출 때 seenAuth로 같이 보내고, 바뀌면 버튼이 잠긴다
+  sellable: boolean; // 지금 사도 되는가 (경주표·결과표 범위·시간 판정은 호스트·규칙 몫)
+  authEpoch: number; // 발매 epoch (공원 연결은 그 경주의 시작 시각). 제출 때 seenAuth로 같이 보내고, 바뀌면 버튼이 잠긴다
   closesInMs: number; // 마감까지 남은 시간 (표시용. 0 이하면 발매 불가)
   label: string; // "제7경주 1800m" 같은 머리말 (호스트 문구)
 }
@@ -1652,11 +1652,9 @@ export class DerbyPanel {
           ? `적중 +${ko(t.payout)}`
           : t.status === 'lost'
             ? '낙첨'
-            : t.status === 'void'
-              ? '무효·환불'
-              : t.status === 'pending'
-                ? '대기'
-                : '발매됨';
+            : t.status === 'pending'
+              ? '대기'
+              : '발매됨';
       row.append(el('span', { class: 'd-tst', text: st }));
       if (t.note) row.append(el('span', { class: 'd-err', text: t.note }));
       list.append(row);

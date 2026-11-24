@@ -5,7 +5,7 @@ import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_M
 import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
-import { DERBY_BET_TYPES, DERBY_CYCLE_MS, DERBY_SALE_MS, DERBY_TICKETS_PER_RACE, raceNo, raceOdds, ticketRecord, ticketWins, ticketPayout, validTicketAmount, type DerbyBetType, type DerbyRes, type DerbyTicket } from '../shared/derby';
+import { DERBY_BET_TYPES, DERBY_CYCLE_MS, DERBY_SALE_MS, DERBY_TICKETS_PER_RACE, DERBY_SECRET_BITS, raceNo, raceOdds, cycleStart, ticketRecord, ticketWins, ticketPayout, validTicketAmount, derbyResolve, derbyProbeSuffix, derbyBitMayBeOne, derbyBitsDigits, parseDerbyDraw, type DerbyBetType, type DerbyDraw, type DerbyRes, type DerbyTicket } from '../shared/derby';
 import type { WorldCtx } from './state';
 
 // ---- 경마공원 지갑 칸 (2026-11-23). shared/shop.ts 의 Wallet 에는 없고, 규칙(tools/gen-rules.cjs)이 결제·환급 쓰기에만 묶는다 ----
@@ -17,10 +17,14 @@ export interface DerbyLine { t: DerbyBetType; s1: number; s2: number; a: number 
 // 장마다의 결과. nn = 마권 번호 '00'~'99', od = 마권에 적은 배당 ×10
 //  line 형식이 틀림 · coins 잔액 부족 · cap 한 경주 한도 · full 한 경주 100장 · closed 그 경주 발매가 아님 · denied 규칙이 거부(발매 중지·하트비트·자리 등)
 export type DerbyBuyResult = { ok: true; n: number; nn: string; a: number; od: number } | { ok: false; why: 'line' | 'coins' | 'cap' | 'full' | 'closed' | 'denied' };
-// 환급 결과: 받은 적중금 · 무효 환불 · 받은 장 수 · 결과를 기다리는 경주 수
-export interface DerbySettle { paid: number; refunded: number; tickets: number; pending: number }
+// 환급 결과: 받은 적중금 · 받은 장 수 · 결과를 기다리는 경주 수
+export interface DerbySettle { paid: number; tickets: number; pending: number }
 type DerbyTicketRec = { t: DerbyBetType; s1: string; s2?: string; a: number; od: number };
-const DERBY_VOID_AFTER_MS = 86400000; // 마감 뒤 이만큼 결과가 없으면 무효로 확정할 수 있다 (규칙과 같은 값)
+const denied = (e: unknown) => /permission/i.test(String((e as Error)?.message ?? e));
+// 마권마다 영수증이 있다 = 다 받은 경주: 더 읽지 않는다
+const derbyLedgerDone = (led: Record<string, unknown>) => typeof led.c === 'number' && Object.keys(led).filter((k) => /^[0-9][0-9]$/.test(k) && led[k] === true).length >= led.c;
+// 환급 한 묶음에 결과·마권을 읽는 마감한 경주 수. 밀린 경주는 묶음씩 차례로 끝까지 보고, 묶음 사이에 공원의 경주별 환급(settleDerby(n))이 끼어든다
+export const DERBY_SETTLE_RACES = 8;
 
 // 규칙이 받는 모양으로: 순위는 0~7 정수, W·P 는 s2 없음(−1), 복승·복연승은 작은 순위가 앞, 같은 말 두 번은 안 됨, 금액은 100 단위
 function derbyCanon(l: DerbyLine): (DerbyTicket & { a: number }) | null {
@@ -298,49 +302,120 @@ export class WalletMgr {
     }
     return out;
   }
-  // 환급: 결과가 난 경주의 맞힌 마권은 금액 × 배당 / 10, 무효 경주의 마권은 금액을 한 장씩 받는다 (쓰기 한 번 = 지갑 + 영수증 race/u/{uid}/{n}/{nn}).
-  // 영수증은 지울 수 없어 같은 마권을 두 번 받지 못한다. 꽝도 0원 영수증을 남기며, 순서와 상관없이 앞 경주를 받을 수 있다.
-  // 마감 뒤 24시간이 지나도 결과가 없는 경주는 먼저 무효로 확정한다 (race/x/{n} = { v, at }. 그새 결과가 먼저 적혔으면 그 결과로).
-  // The index, tickets, totals and receipts are retained; no high-water cursor can skip an earlier ticket.
-  private settling: Promise<DerbySettle> | null = null;
-  settleDerby(): Promise<DerbySettle> {
-    this.settling ??= this.settleDerbyOnce().finally(() => { this.settling = null; });
-    return this.settling;
+  // ---- 경마공원 추첨과 공개 (운영 PC 없이. 칸 모양과 순서는 shared/derby/secret.ts 머리말, 규칙은 gen-rules.cjs derbyBlocks) ----
+  // 추첨: 마감 뒤 race/x/{n}/at 에 서버 시각을 한 번 쓴다. 먼저 쓴 한 사람만 받아들여지고, 그 숨은 칸(at % 4)이 무엇인지는 쓰는 사람도 모른다
+  async drawDerby(n: number): Promise<boolean> {
+    if (serverNow() < cycleStart(n) + DERBY_SALE_MS) return false;
+    try { await set(ref(db, `race/x/${n}/at`), serverTimestamp()); return true; }
+    catch (e) { if (!denied(e)) throw e; return false; } // 이미 추첨됐거나 숨은 칸이 없는 경주
   }
-  private async settleDerbyOnce(): Promise<DerbySettle> {
-    const uid = this.w.uid, W = `wallet/${uid}`, sum: DerbySettle = { paid: 0, refunded: 0, tickets: 0, pending: 0 };
-    const races = ((await get(query(ref(db, `race/u/${uid}`), orderByChild('i'), equalTo(true)))).val() || {}) as Record<string, Record<string, unknown>>;
-    for (const ns of Object.keys(races).sort((p, q) => Number(p) - Number(q))) {
-      const n = Number(ns), X = `race/x/${ns}`;
-      let x = (await get(ref(db, X))).val() as (DerbyRes & { v?: boolean }) | null;
-      if (!x && serverNow() >= n * DERBY_CYCLE_MS + DERBY_SALE_MS + DERBY_VOID_AFTER_MS) {
-        await set(ref(db, X), { v: true, at: serverTimestamp() }).catch(() => {}); // 거부되면 그새 결과·무효가 먼저 적혔다
-        x = (await get(ref(db, X))).val();
-      }
-      if (!x) { sum.pending++; continue; }
-      const tickets = ((await get(ref(db, `race/t/${ns}/${uid}`))).val() || {}) as Record<string, DerbyTicketRec>;
-      let left = 0;
-      for (const nn of Object.keys(tickets).sort()) {
-        if (races[ns][nn] === true) continue; // 이미 받은 마권
-        const tk = tickets[nn];
-        let pay: number;
-        try { pay = x.v === true ? tk.a : ticketWins(tk, x) ? ticketPayout(tk.a, tk.od) : 0; } catch { left++; continue; }
-        try {
-          await update(ref(db), { [`${W}/c`]: increment(pay), [`${W}/e`]: increment(pay), [`${W}/kn`]: ns, [`${W}/kr`]: nn, [`race/u/${uid}/${ns}/${nn}`]: true });
-          if (x.v === true) sum.refunded += pay; else sum.paid += pay;
-          sum.tickets++;
-        } catch (e) {
-          if ((await get(ref(db, `race/u/${uid}/${ns}/${nn}`))).val() !== true) { left++; console.warn('마권 환급이 거부됨', e); } // 영수증이 있으면 다른 탭이 먼저 받았다
-        }
-      }
-      if (left) sum.pending++;
+  // 공개: 아직 추첨 전이면 추첨하고, 추첨된 칸의 앞 24자리를 한 자리씩 묻는다 (race/q/{n}/{앞자리+'1'} 에 null 쓰기: 허용이면 1, 거부면 0. 저장되는 것은 없다).
+  //  알아낸 7자리 숫자 뒤에 지금 결과 계산의 1·2·3착·일어난 일을 붙여 race/x/{n} 에 { o, a, b, c, e } 를 쓴다(규칙이 숨은 칸과 같을 때만 받는다).
+  //  거부되면(결과표를 만든 뒤 계산 코드가 바뀜) 칸에 적힌 뒷부분을 마저 물어 그대로 쓴다: 공개값은 언제나 숨은 칸 그대로다. 다른 사람이 먼저 공개했으면 그 값.
+  //  한 탭 안에서 같은 경주는 한 번만 돈다. 공개된 결과, 공개할 수 없으면(마감 전·숨은 칸 없음) 공개 전 칸이나 null
+  private revealing = new Map<number, Promise<DerbyDraw | null>>();
+  revealDerby(n: number): Promise<DerbyDraw | null> {
+    let p = this.revealing.get(n);
+    if (!p) {
+      p = this.revealOnce(n).finally(() => this.revealing.delete(n));
+      this.revealing.set(n, p);
     }
-    return sum;
+    return p;
+  }
+  private async revealOnce(n: number): Promise<DerbyDraw | null> {
+    const X = `race/x/${n}`, read = async () => parseDerbyDraw((await get(ref(db, X))).val());
+    let x = await read();
+    if (!x) { await this.drawDerby(n); x = await read(); } // 거부됐어도 그새 다른 사람이 추첨했을 수 있다
+    if (!x || x.res) return x;
+    const ask = async (p: string): Promise<boolean> => {
+      try { await set(ref(db, `race/q/${n}/${p}`), null); return true; } catch (e) { if (!denied(e)) throw e; return false; }
+    };
+    let bits = '';
+    while (bits.length < DERBY_SECRET_BITS) bits += derbyBitMayBeOne(bits) && await ask(`${bits}1`) ? '1' : '0';
+    const digits = derbyBitsDigits(bits);
+    if (!digits) return read();
+    const put = (r: DerbyRes) => update(ref(db, X), { o: bits + r.a + r.b + r.c + r.e, a: r.a, b: r.b, c: r.c, e: r.e })
+      .then(() => true, (e) => { if (!denied(e)) throw e; return false; });
+    if (!(await put(derbyResolve(n, digits).res))) {
+      x = await read();
+      if (x?.res) return x;
+      const stored = await derbyProbeSuffix(ask, bits);
+      if (stored) await put(stored);
+    }
+    return read();
+  }
+  // 환급: 공개된 결과의 맞힌 마권은 금액 × 배당 / 10 을 한 장씩 받는다 (쓰기 한 번 = 지갑 + 영수증 race/u/{uid}/{n}/{nn}).
+  // 영수증은 지울 수 없어 같은 마권을 두 번 받지 못한다. 꽝도 0원 영수증을 남기며, 순서와 상관없이 앞 경주를 받을 수 있다.
+  // 마감했는데 결과가 공개되지 않은 경주는 이 화면이 추첨·공개한다 (revealDerby).
+  // 다 받은 경주(영수증 수 = 발권 장수 c)는 색인 한 번 읽기 외에 아무것도 읽지 않는다. 나머지는 오래된 것부터 DERBY_SETTLE_RACES 경주씩 묶어
+  //  끝까지 한 번씩 본다(색인은 처음 한 번만 읽는다). 공개하지 못한 경주(숨은 칸이 없거나 망가짐)는 이 접속 동안 다시 묻지 않아 뒤 경주를 막지 않는다
+  //  (다음 접속 때 한 번 더 해 본다). 그래서 한 번의 환급이 보내는 요청은 밀린 경주 수만큼이고, 같은 경주를 되풀이하지 않는다.
+  // The index, tickets, totals and receipts are retained; no high-water cursor can skip an earlier ticket.
+  // n 을 주면 그 경주만 본다 (공원에서 결과가 났을 때: 지난 경주 색인 전체를 다시 읽지 않는다). 한 탭 안에서는 묶음·경주별 환급이 차례로 돈다
+  private settleTail: Promise<unknown> = Promise.resolve();
+  private derbyStuck = new Set<number>(); // 이 접속에서 공개하지 못한 경주
+  private queueSettle<T>(f: () => Promise<T>): Promise<T> {
+    const run = this.settleTail.then(f, f);
+    this.settleTail = run.catch(() => {});
+    return run;
+  }
+  settleDerby(n?: number): Promise<DerbySettle> {
+    const uid = this.w.uid, sum: DerbySettle = { paid: 0, tickets: 0, pending: 0 };
+    if (n !== undefined) return this.queueSettle(async () => {
+      const led = (await get(ref(db, `race/u/${uid}/${n}`))).val() as Record<string, unknown> | null;
+      if (led?.i === true) await this.settleDerbyRace(n, led, sum);
+      return sum;
+    });
+    return this.queueSettle(async () => {
+      const races = ((await get(query(ref(db, `race/u/${uid}`), orderByChild('i'), equalTo(true)))).val() || {}) as Record<string, Record<string, unknown>>;
+      const todo: [number, Record<string, unknown>][] = [];
+      for (const ns of Object.keys(races).sort((p, q) => Number(p) - Number(q))) {
+        const n = Number(ns), led = races[ns];
+        if (derbyLedgerDone(led)) continue;
+        if (serverNow() < cycleStart(n) + DERBY_SALE_MS || this.derbyStuck.has(n)) { sum.pending++; continue; }
+        todo.push([n, led]);
+      }
+      return todo;
+    }).then(async (todo) => {
+      for (let i = 0; i < todo.length; i += DERBY_SETTLE_RACES) {
+        const batch = todo.slice(i, i + DERBY_SETTLE_RACES);
+        await this.queueSettle(async () => {
+          for (const [n, led] of batch) {
+            try { await this.settleDerbyRace(n, led, sum); } catch (e) { this.derbyStuck.add(n); sum.pending++; console.warn(`제${n}경주 마권 정산 실패`, e); }
+          }
+        });
+      }
+      return sum;
+    });
+  }
+  private async settleDerbyRace(n: number, led: Record<string, unknown>, sum: DerbySettle): Promise<void> {
+    const uid = this.w.uid, W = `wallet/${uid}`, ns = String(n);
+    if (derbyLedgerDone(led)) return;
+    if (serverNow() < cycleStart(n) + DERBY_SALE_MS) { sum.pending++; return; }
+    const res = (await this.revealDerby(n))?.res;
+    if (!res) { this.derbyStuck.add(n); sum.pending++; return; }
+    this.derbyStuck.delete(n);
+    const tickets = ((await get(ref(db, `race/t/${ns}/${uid}`))).val() || {}) as Record<string, DerbyTicketRec>;
+    let left = 0;
+    for (const nn of Object.keys(tickets).sort()) {
+      if (led[nn] === true) continue; // 이미 받은 마권
+      const tk = tickets[nn];
+      let pay: number;
+      try { pay = ticketWins(tk, res) ? ticketPayout(tk.a, tk.od) : 0; } catch { left++; continue; }
+      try {
+        await update(ref(db), { [`${W}/c`]: increment(pay), [`${W}/e`]: increment(pay), [`${W}/kn`]: ns, [`${W}/kr`]: nn, [`race/u/${uid}/${ns}/${nn}`]: true });
+        sum.paid += pay;
+        sum.tickets++;
+      } catch (e) {
+        if ((await get(ref(db, `race/u/${uid}/${ns}/${nn}`))).val() !== true) { left++; console.warn('마권 환급이 거부됨', e); } // 영수증이 있으면 다른 탭이 먼저 받았다
+      }
+    }
+    if (left) sum.pending++;
   }
   // 접속할 때: 접속하지 않은 동안 끝난 경주의 마권을 받는다
   private async settlePendingDerby(): Promise<void> {
     const r = await this.settleDerby().catch((e) => { console.warn('마권 정산을 완료하지 못했습니다. 미정산 기록은 유지됩니다.', e); return null; });
-    if (r && r.paid + r.refunded > 0) this.w.toast(`🏇 지난 경마 마권 ${r.tickets}장의 💰 ${(r.paid + r.refunded).toLocaleString('ko-KR')} 을 받았습니다.`);
+    if (r && r.paid > 0) this.w.toast(`🏇 지난 경마 마권 ${r.tickets}장의 💰 ${r.paid.toLocaleString('ko-KR')} 을 받았습니다.`);
   }
   // 자동 버프를 더 살 수 있는 최대 시간(ms): 남은 시간을 뺀 것
   autoRoom(kind: 'fish' | 'bug'): number { return Math.max(0, AUTO_MAX_MS - Math.max(0, (this.wallet[kind === 'fish' ? 'ar' : 'ab'] || 0) - serverNow())); }

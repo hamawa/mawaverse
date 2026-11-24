@@ -67,10 +67,10 @@ const isJackpot = `(data.child('ik').val() == 's' && ${SLOT_H} < ${SLOT_TIERS[0]
 const slotPay = SLOT_TIERS.reduceRight((rest, [below, mult]) => `(${SLOT_H} < ${below} ? ${IB} * ${mult} : ${rest})`, '0');
 const oePay = `(${SLOT_H} % 2 == data.child('ip').val() ? ${IB} * ${ODD_EVEN_NUM} / ${ODD_EVEN_DEN} : 0)`;
 const instantPay = `(${isJackpot} ? ${SLOT_JP} : (data.child('ik').val() == 's' ? ${slotPay} : ${oePay}))`;
-// 경마공원 (2026-11-23). 아래 숫자는 shared/derby (time.ts · tickets.ts · odds.ts · scenario.ts) 와 같아야 한다 (tests/derby-rules.test.mjs 가 대조)
-const DERBY_CYCLE_MS = 360000, DERBY_SALE_MS = 240000, DERBY_VOID_MS = 86400000, DERBY_HB_MS = 60000;
+// 경마공원 (2026-11-23). 아래 숫자는 shared/derby (time.ts · tickets.ts · scenario.ts · secret.ts) 와 같아야 한다 (tests/derby-rules.test.mjs 가 대조)
+const DERBY_CYCLE_MS = 360000, DERBY_SALE_MS = 240000;
 const DERBY_TICKET_MIN = 100, DERBY_TICKET_STEP = 100, DERBY_MAX_PARK = 100000, DERBY_MAX_BRANCH = 50000;
-const DERBY_TABLE_SIZE = 10000, DERBY_EVENT_SIZE = 1000, DERBY_SCENARIOS = 10000, DERBY_OP_RANGE = 260;
+const DERBY_SCENARIOS = 10000, DERBY_DRAW_SLOTS = 4;
 const DERBY_RACE_KEY = 'newData.isString() && newData.val().matches(/^[1-9][0-9]{0,11}$/)'; // 지갑 kd·kn: 경주 번호 (경로에 쓰므로 숫자 글자만)
 const DERBY_TICKET_KEY = 'newData.isString() && newData.val().matches(/^[0-9][0-9]$/)';     // 지갑 kb·kr: 마권 번호 '00'~'99'
 
@@ -354,25 +354,25 @@ function pokerBlocks(ind) {
     `${I}}`,
   ].join('\n');
 }
-// ---- 경마공원 (2026-11-23, SPEC "경마공원 > 결과 추첨과 장애 처리 · 데이터와 규칙") ----
-//  race/r/{n}             발매 승인 { g: true, v: raceData/v, at: 서버 시각 }. 운영 계정만, 그 경주의 발매 시간(주기 시작 ~ 마감 전)에 한 번. 운영 시간 판정 포함
-//  race/x/{n}             확정 결과 { k, g, a, b, c, e, at } (운영 계정, 마감 ~ 마감+24시간, 승인한 자료 버전 그대로, 착순표·몸짓 구간과 맞을 때만)
-//                         또는 무효 { v: true, at } (그 경주 마권을 가진 사람, 마감+24시간부터). 둘 중 먼저 쓴 하나만, 다시 못 쓴다
+// ---- 경마공원 (2026-11-24 운영 PC 없이, SPEC "경마공원 > 결과 추첨과 공개 · 데이터와 규칙") ----
+//  raceSecret/{n}/{0..3}  숨은 결과표 (관리자 도구가 Admin SDK 로만 올린다. 누구도 읽거나 쓰지 못하고 규칙만 대조한다. 칸 모양은 shared/derby/secret.ts)
+//  race/cover             숨은 결과표가 덮은 경주 범위 { s, e, v } (화면의 발매 안내용. 판정은 raceSecret/{n} 이 있는지로 한다)
+//  race/x/{n}/at          추첨 시각: 마감 뒤 누구든 서버 시각을 한 번 (그 경주의 숨은 칸이 있을 때). 칸 = at % 4
+//  race/x/{n}/{o,a,b,c,e} 공개: o 가 그 칸과 같고 a+b+c+e 로 끝날 때만, 한 번
+//  race/q/{n}/{앞자리}     공개용 묻기: null 쓰기만, 추첨된 칸이 그 앞자리로 시작할 때만 허용 (저장되는 것은 없다)
 //  race/t/{n}/{uid}/{nn}  마권 { t, s1, s2?, a, od } (지갑 결제와 같은 쓰기에서만. 지갑 규칙의 derbyPay 가 반대쪽에서 같은 것을 본다)
 //  race/u/{uid}/{n}/i     영구적인 내 경주 색인 (읽을 때 i 로 거른다. 미정산 경주를 건너뛰지 않도록 지우지 않는다)
 //  race/u/{uid}/{n}/s     영구적인 구매 합계 (결제와 원자적으로 증가; 지갑을 지워도 한도가 초기화되지 않는다)
 //  race/u/{uid}/{n}/c     영구적인 발권 장수 (1~100). s 와 한 번에 읽어 탭 사이의 발권 번호 경쟁을 판별한다.
 //  race/u/{uid}/{n}/{nn}  환급 영수증 (지갑 환급과 같은 쓰기에서 한 번. 지우지도 바꾸지도 못한다)
-//  race/op/hb             운영 프로세스 하트비트 (서버 시각). 마권은 60초 안의 하트비트가 있을 때만
-//  RACE_OP · RACE_SALE_OPEN 은 tools/gen-gate.cjs 가 배포 규칙에서 풀어 쓰는 자리 표시다 (운영 계정 판정 · 지금 경주의 운영 시간 판정)
+//  RACE_SALE_OPEN 은 tools/gen-gate.cjs 가 배포 규칙에서 풀어 쓰는 자리 표시다 (지금 경주의 운영 시간 판정: config/raceHours · 공휴일 · 차단 설정)
 function derbyBlocks(ind) {
   const I = ind, J = ind + '  ', K = ind + '    ', L = ind + '      ', M = ind + '        ', P = ind + '          ';
-  const OP = 'RACE_OP', SALE = 'RACE_SALE_OPEN', C = DERBY_CYCLE_MS, S = DERBY_SALE_MS;
+  const SALE = 'RACE_SALE_OPEN', C = DERBY_CYCLE_MS, S = DERBY_SALE_MS;
   const ADMIN = `root.child('admins/' + auth.uid).val() === true`;
   const own = q(`auth != null && (auth.uid == $uid || ${ADMIN})`);
   const NOWN = `((now - now % ${C}) / ${C})`; // 지금 경주 번호
   const current = `$n == '' + ${NOWN} && now % ${C} < ${S}`; // 지금 발매 중인 경주 (마감 전)
-  const sameData = `root.child('race/r/' + $n + '/v').val() == root.child('raceData/v').val()`;
   const N = (k) => `newData.child('${k}').val()`;
   const rank = "newData.isString() && newData.val().matches(/^[0-7]$/)";
   // --- 마권 ---
@@ -380,81 +380,57 @@ function derbyBlocks(ind) {
   const PL = (k) => `root.child('players/' + $uid + '/${k}').val()`;
   const cap = (k, def) => `(root.child('config/raceMax/${k}').isNumber() ? root.child('config/raceMax/${k}').val() : ${def})`;
   // 공원: 접속 표시가 공원 맵이고 그 자리를 실제로 차지하고 있다. 분점: 기본 맵의 경마분점(zone casino) 방에 들어가 있고(presence r · 방 명단) 그 자리를 차지하고 있다
-  const park = `(${PL('m')} == 'race-park' && ${PL('x')} >= 0 && ${PL('x')} < 56 && ${PL('y')} >= 0 && ${PL('y')} < 40 && root.child('occ/race-park~' + ${PL('x')} + '_' + ${PL('y')}).val() == $uid && ${WN}.child('kt').val() <= ${cap('park', DERBY_MAX_PARK)})`;
+  const park = `(${PL('m')} == 'race-park' && ${PL('x')} >= 0 && ${PL('x')} < 84 && ${PL('y')} >= 0 && ${PL('y')} < 49 && root.child('occ/race-park~' + ${PL('x')} + '_' + ${PL('y')}).val() == $uid && ${WN}.child('kt').val() <= ${cap('park', DERBY_MAX_PARK)})`;
   const branch = `((!root.child('players/' + $uid + '/m').exists() || ${PL('m')} == 'main') && ${PL('r')} == 'casino' && root.child('rooms/casino/members/' + $uid).exists() && ${PL('x')} >= 35 && ${PL('x')} < 41 && ${PL('y')} >= 6 && ${PL('y')} < 10 && root.child('occ/' + ${PL('x')} + '_' + ${PL('y')}).val() == $uid && ${WN}.child('kt').val() <= ${cap('branch', DERBY_MAX_BRANCH)})`;
   const legs = `((${N('t')} == 'W' || ${N('t')} == 'P') ? !newData.hasChild('s2') : (newData.hasChild('s2') && (${N('t')} == 'E' ? ${N('s1')} != ${N('s2')} : ${N('s1')} < ${N('s2')})))`;
   const ticket = [
     `$nn.matches(/^[0-9][0-9]$/) && newData.hasChildren(['t', 's1', 'a', 'od']) && ${current}`,
-    `root.child('race/r/' + $n + '/g').val() === true && ${sameData} && DERBY_OPERATOR_VALID && root.child('race/op/hb').isNumber() && root.child('race/op/hb').val() <= now && now - root.child('race/op/hb').val() < ${DERBY_HB_MS} && ${SALE}`,
+    `root.child('raceSecret/' + $n).exists() && ${SALE}`,
     `${WN}.child('b').val() == 'derby' && ${WN}.child('kd').val() == $n && ${WN}.child('kb').val() == $nn && ${WN}.child('sp').val() - (${W0}.child('sp').exists() ? ${W0}.child('sp').val() : 0) == ${N('a')}`,
     `newData.parent().parent().parent().parent().child('u/' + $uid + '/' + $n + '/i').val() === true && newData.parent().parent().parent().parent().child('u/' + $uid + '/' + $n + '/s').val() == ${WN}.child('kt').val() && (${park} || ${branch}) && ${legs}`,
     `newData.parent().parent().parent().parent().child('u/' + $uid + '/' + $n + '/c').val() == (root.child('race/u/' + $uid + '/' + $n + '/c').exists() ? root.child('race/u/' + $uid + '/' + $n + '/c').val() : 0) + 1`,
     `${N('a')} / 10 * ${N('od')} <= 9007199254740991`,
-    `${N('od')} == root.child('raceData/odds/' + root.child('raceData/sc/' + (${NOWN} % ${DERBY_SCENARIOS}) + '/p').val() + '/' + ${N('t')} + '/' + ${N('s1')} + (newData.hasChild('s2') ? ${N('s2')} : '')).val()`,
+    `${N('od')} == root.child('raceData/odds/' + root.child('raceData/sc/' + (${NOWN} % ${DERBY_SCENARIOS})).val() + '/' + ${N('t')} + '/' + ${N('s1')} + (newData.hasChild('s2') ? ${N('s2')} : '')).val()`,
   ].join(' && ');
-  // --- 결과 ---
-  // 경주 번호의 숫자는 승인 시각에서 얻는다 (승인은 그 경주 주기 안에서만 쓰인다): 주기 시작 = at − at % 주기
-  const RA = `root.child('race/r/' + $n + '/at').val()`, CS = `(${RA} - ${RA} % ${C})`;
-  const SCI = `(${CS} / ${C} % ${DERBY_SCENARIOS})`;
-  const H = (j, f) => `root.child('raceData/sc/' + ${SCI} + '/h/${j}/${f}').val()`;
-  const TB = (f) => `root.child('raceData/tbl/' + root.child('raceData/sc/' + ${SCI} + '/p').val() + '/' + ${N('k')} + '/${f}').val()`;
-  // 몸짓 추첨 g → 일어난 일 (scenario.ts pickDerbyEvent): 슬롯 j 의 기세 [시작, b) · 부진 [b, d) · 안정 [d, l), 다음 슬롯은 앞 슬롯의 l 부터 (빈 슬롯은 폭 0)
-  const G = `newData.val()`; // g 칸의 규칙에서 본다
-  const slot = (j, rest) => `(${G} < ${H(j, 'l')} ? (${G} < ${H(j, 'b')} ? 'b' : (${G} < ${H(j, 'd')} ? 'd' : 'l')) + ${H(j, 'r')} : ${rest})`;
-  const event = `newData.parent().child('e').val() == ${slot(0, slot(1, slot(2, "'n'")))}`;
-  // 1~3착 = 기본 상위 4착(A B C D) + 일어난 일 (scenario.ts applyDerbyEvent). 표의 칸을 거꾸로 대조한다
-  const [A, B, Cc, D] = ['a', 'b', 'c', 'd'].map(TB), [NA, NB, NC, E] = ['a', 'b', 'c', 'e'].map(N);
-  const momentum = `(${E} == 'b' + ${NA} && (${A} == ${NA} ? (${B} == ${NB} && ${Cc} == ${NC}) : (${A} == ${NB} && (${B} == ${NA} ? ${Cc} == ${NC} : ${B} == ${NC}))))`;
-  const slump = `(${E} == 'd' + ${A} ? (${B} == ${NA} && ${Cc} == ${NB} && ${D} == ${NC}) : (${A} == ${NA} && (${E} == 'd' + ${B} ? (${Cc} == ${NB} && ${D} == ${NC}) : (${B} == ${NB} && (${E} == 'd' + ${Cc} ? ${D} == ${NC} : ${Cc} == ${NC})))))`;
-  const steady = `(${A} == ${NA} && ${B} == ${NB} && (${Cc} == ${NC} ? (${E} == 'n' || ${E} == 'l' + ${NA} || ${E} == 'l' + ${NB} || ${E} == 'l' + ${NC}) : ${E} == 'l' + ${NC}))`;
-  const order = `(${E}.beginsWith('b') ? ${momentum} : (${E}.beginsWith('d') ? ${slump} : ${steady}))`;
-  const voidForm = `newData.hasChildren(['v', 'at']) && now >= ${CS} + ${S + DERBY_VOID_MS} && ${['k', 'g', 'a', 'b', 'c', 'e'].map((k) => `!newData.hasChild('${k}')`).join(' && ')}`;
-  const resultForm = `newData.hasChildren(['k', 'g', 'a', 'b', 'c', 'e', 'at']) && now < ${CS} + ${S + DERBY_VOID_MS} && ${sameData} && ${NA} != ${NB} && ${NA} != ${NC} && ${NB} != ${NC} && ${order}`;
-  const result = `root.child('race/r/' + $n + '/g').val() === true && now >= ${CS} + ${S} && (newData.hasChild('v') ? (${voidForm}) : (${resultForm}))`;
-  // --- 환급 영수증: 받는 돈 = 무효면 금액, 적중이면 금액 × 배당 / 10, 아니면 0 (tickets.ts ticketWins · ticketPayout) ---
+  // --- 추첨과 공개 (shared/derby/secret.ts) ---
+  // 마감한 가장 늦은 경주 번호. 경주 번호는 경로 글자라 글자로 비교한다 (규칙에는 글자 → 숫자 바꾸기가 없다): 자릿수가 적으면 더 앞 경주, 같으면 글자 순
+  //  (경주 번호는 0 으로 시작하지 않는다: raceSecret/{n} 이 있어야 하고 관리자 도구가 숫자 그대로 쓴다)
+  const CLOSED = `('' + ((now - ${S} - (now - ${S}) % ${C}) / ${C}))`;
+  const drawn = `newData.val() == now && root.child('raceSecret/' + $n).exists() && ($n.length < ${CLOSED}.length || ($n.length == ${CLOSED}.length && $n <= ${CLOSED}))`;
+  const SEC = (at) => `root.child('raceSecret/' + $n + '/' + (${at}.val() % ${DERBY_DRAW_SLOTS})).val()`;
+  const XN = (k) => `newData.parent().child('${k}').val()`;
+  const reveal = `newData.isString() && newData.val() == ${SEC("newData.parent().child('at')")} && newData.val().endsWith(${XN('a')} + ${XN('b')} + ${XN('c')} + ${XN('e')})`;
+  const shape = `newData.hasChild('at') && (newData.hasChild('o') ? newData.hasChildren(['a', 'b', 'c', 'e']) : (!newData.hasChild('a') && !newData.hasChild('b') && !newData.hasChild('c') && !newData.hasChild('e')))`;
+  const once = q('auth != null && !data.exists() && newData.exists()');
+  const probe = `auth != null && !newData.exists() && root.child('race/x/' + $n + '/at').isNumber() && ${SEC("root.child('race/x/' + $n + '/at')")}.beginsWith($p)`;
+  // --- 환급 영수증: 받는 돈 = 적중이면 금액 × 배당 / 10, 아니면 0 (tickets.ts ticketWins · ticketPayout). 공개된 결과(o 가 있는 race/x/{n})로만 ---
   //  (race/u/$uid/$n/$k 에서 본다: $k 가 마권 번호)
   const WR = `newData.parent().parent().parent().parent().parent().child('wallet/' + $uid)`;
   const TT = (f) => `root.child('race/t/' + $n + '/' + $uid + '/' + $k + '/${f}').val()`, X = (f) => `root.child('race/x/' + $n + '/${f}').val()`;
   const in3 = (s) => `(${X('a')} == ${s} || ${X('b')} == ${s} || ${X('c')} == ${s})`;
   // 연승·복연승: 3착 안에 (복연승은 둘 다) · 단승: 1착 · 쌍승: 1·2착 순서대로 · 복승: 1·2착 순서 무관
   const wins = `((${TT('t')} == 'P' || ${TT('t')} == 'R') ? (${in3(TT('s1'))} && (${TT('t')} == 'P' || ${in3(TT('s2'))})) : ((${X('a')} == ${TT('s1')} && (${TT('t')} == 'W' || ${X('b')} == ${TT('s2')})) || (${TT('t')} == 'Q' && ${X('a')} == ${TT('s2')} && ${X('b')} == ${TT('s1')})))`;
-  const pay = `(${X('v')} === true ? ${TT('a')} : (${wins} ? ${TT('a')} / 10 * ${TT('od')} : 0))`;
-  const receipt = `$k.matches(/^[0-9][0-9]$/) && root.child('race/t/' + $n + '/' + $uid + '/' + $k).exists() && ${WR}.child('kn').val() == $n && ${WR}.child('kr').val() == $k && root.child('race/x/' + $n + '/at').exists() && ${WR}.child('e').val() - root.child('wallet/' + $uid + '/e').val() == ${pay}`;
+  const pay = `(${wins} ? ${TT('a')} / 10 * ${TT('od')} : 0)`;
+  const receipt = `$k.matches(/^[0-9][0-9]$/) && root.child('race/t/' + $n + '/' + $uid + '/' + $k).exists() && ${WR}.child('kn').val() == $n && ${WR}.child('kr').val() == $k && root.child('race/x/' + $n + '/o').exists() && ${WR}.child('e').val() - root.child('wallet/' + $uid + '/e').val() == ${pay}`;
   const ledgerW = `newData.parent().parent().parent().parent().parent().child('wallet/' + $uid)`;
   const ledgerTicket = `root.child('race/t/' + $n + '/' + $uid + '/' + ${ledgerW}.child('kb').val())`;
   const ledger = `${ledgerW}.child('kd').val() == $n && !${ledgerTicket}.exists() && ${ledgerW}.child('kt').val() == newData.val() && newData.val() > (data.exists() ? data.val() : 0)`;
   const v = (x) => `{ ".validate": ${q(x)} }`;
-  const recoveryRead = `${OP} && query.orderByKey == true && query.startAt != null && query.startAt.length > 0 && query.endAt != null && query.endAt.length > 0 && query.limitToFirst == ${DERBY_OP_RANGE}`;
   return [
     `${I}"race": {`,
-    `${J}"r": {`,
-    // REST orderBy="$key", string startAt/endAt, limitToFirst=260 on both recovery paths.
-    `${K}".read": ${q(recoveryRead)},`,
-    `${K}"$n": {`,
-    `${L}".read": ${q(`auth != null || ${OP}`)},`,
-    `${L}".write": ${q(`${OP} && !data.exists()`)},`,
-    `${L}".validate": ${q(`newData.hasChildren(['g', 'v', 'at']) && ${current} && ${SALE}`)},`,
-    `${L}"g": ${v('newData.val() === true')},`,
-    `${L}"v": ${v(`newData.isString() && newData.val() == root.child('raceData/v').val()`)},`,
-    `${L}"at": ${v('newData.val() === now')},`,
-    `${L}"$other": { ".validate": false }`,
-    `${K}}`,
-    `${J}},`,
+    `${J}"cover": { ".read": "auth != null", ".write": false },`,
     `${J}"x": {`,
-    `${K}".read": ${q(recoveryRead)},`,
     `${K}"$n": {`,
-    `${L}".read": ${q(`auth != null || ${OP}`)},`,
-    `${L}".write": ${q(`!data.exists() && ((${OP} && newData.hasChild('k')) || (auth != null && newData.hasChild('v') && root.child('race/t/' + $n + '/' + auth.uid).exists()))`)},`,
-    `${L}".validate": ${q(result)},`,
-    `${L}"k": ${v(`newData.isNumber() && newData.val() % 1 == 0 && newData.val() >= 0 && newData.val() < ${DERBY_TABLE_SIZE}`)},`,
-    `${L}"g": ${v(`newData.isNumber() && newData.val() % 1 == 0 && newData.val() >= 0 && newData.val() < ${DERBY_EVENT_SIZE} && ${event}`)},`,
-    ...['a', 'b', 'c'].map((k) => `${L}"${k}": ${v(rank)},`),
-    `${L}"e": ${v('newData.isString()')},`,
-    `${L}"v": ${v('newData.val() === true')},`,
-    `${L}"at": ${v('newData.val() === now')},`,
+    `${L}".read": "auth != null",`,
+    `${L}".validate": ${q(shape)},`,
+    `${L}"at": { ".write": ${once}, ".validate": ${q(drawn)} },`,
+    `${L}"o": { ".write": ${once}, ".validate": ${q(reveal)} },`,
+    ...['a', 'b', 'c'].map((k) => `${L}"${k}": { ".write": ${once}, ".validate": ${q(rank)} },`),
+    `${L}"e": { ".write": ${once}, ".validate": "newData.isString() && newData.val().matches(/^(n|[bdl][0-7])$/)" },`,
     `${L}"$other": { ".validate": false }`,
     `${K}}`,
     `${J}},`,
+    `${J}"q": { "$n": { "$p": { ".write": ${q(probe)}, ".validate": false } } },`,
     `${J}"t": {`,
     `${K}"$n": {`,
     `${L}"$uid": {`,
@@ -483,16 +459,11 @@ function derbyBlocks(ind) {
     `${M}"$k": { ".write": "auth != null && auth.uid == $uid && !data.exists() && newData.exists()", ".validate": ${q(`newData.val() === true && (${receipt})`)} }`,
     `${L}}`,
     `${K}}`,
-    `${J}},`,
-    `${J}"op": {`,
-    `${K}"hb": { ".read": "auth != null", ".write": ${q(`(${OP} && newData.exists()) || (auth != null && ${ADMIN} && !newData.exists())`)}, ".validate": "newData.val() === now" }`,
     `${J}}`,
     `${I}},`,
-    // 고정 자료는 관리자만 쓴다. 운영 계정은 버전만 읽는다.
-    `${I}"raceData": {`,
-    `${J}".write": ${q(`auth != null && ${ADMIN}`)},`,
-    `${J}"v": { ".read": "${OP}" }`,
-    `${I}}`,
+    // 공개 고정 자료는 관리자만 쓴다 (화면은 읽지 않고 같은 코드로 계산한다). 숨은 결과표는 Admin SDK 로만 (규칙만 읽는다)
+    `${I}"raceData": { ".write": ${q(`auth != null && ${ADMIN}`)} },`,
+    `${I}"raceSecret": { ".read": false, ".write": false }`,
   ].join('\n');
 }
 // 보유: 이미 가진 것이거나, 지갑의 마지막 구매 표시(b)가 이 품목일 때만 (b 는 가격을 정확히 낸 쓰기에서만 바뀐다).
@@ -643,8 +614,8 @@ if (mode === 'sandbox') {
   const casAt = t.indexOf('\n    "casino": {');
   must(casAt >= 0, 'casino 블록을 못 찾음');
   t = t.slice(0, casAt + 1) + pokerBlocks('    ') + ',\n' + t.slice(casAt + 1);
-  // 6) 경마공원 블록(race · raceData): 있으면 지우고 casino 블록 앞에 다시 만들어 넣는다
-  for (const key of ['race', 'raceData']) {
+  // 6) 경마공원 블록(race · raceData · raceSecret): 있으면 지우고 casino 블록 앞에 다시 만들어 넣는다
+  for (const key of ['race', 'raceData', 'raceSecret']) {
     const at = t.indexOf(`\n    "${key}": {`);
     if (at < 0) continue;
     let e = blockRange(t, key, at)[1];
@@ -662,7 +633,7 @@ if (mode === 'final') {
   must(r.wallet['$uid']['.validate'].includes("child('b')") && r.wallet['$uid'].gf && r.wallet['$uid'].px, 'wallet 규칙이 안 바뀜');
   must(r.users['$uid'].own['$item']['.validate'].includes('wallet/'), 'own 규칙이 안 바뀜');
   must(r.players['$uid'].pa && r.players['$uid'].push, 'players 규칙이 이상함');
-  must(r.race && r.race.t && r.race.x && r.race.u && r.raceData && r.wallet['$uid'].kd && r.wallet['$uid'].kr, '경마공원 규칙이 안 들어감');
+  must(r.race && r.race.t && r.race.x && r.race.q && r.race.u && r.raceData && r.raceSecret && r.raceSecret['.read'] === false && r.wallet['$uid'].kd && r.wallet['$uid'].kr, '경마공원 규칙이 안 들어감');
 }
 fs.writeFileSync(FILE, t);
 console.log(mode, '적용. 크기', t.length, '바이트, wallet 식 길이', walletValidate().length);

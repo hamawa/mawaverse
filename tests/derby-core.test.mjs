@@ -161,10 +161,6 @@ test('결정성: 같은 입력이면 같은 말·시나리오·결과', () => {
   assert.deepEqual(D.derbyHorse(3000, 2), D.derbyHorse(3000, 2));
   assert.deepEqual(D.derbyResolve(123456, '4071935'), D.derbyResolve(123456, [4, 0, 7, 1, 9, 3, 5]));
   assert.deepEqual(D.derbyPools(123456, 0.4), D.derbyPools(123456, 0.4));
-  // 고정 자료는 계산값 그대로
-  const st = D.derbyStaticScenario(77), sc = D.derbyScenario(77);
-  assert.equal(st.p, sc.p);
-  sc.horses.forEach((h, j) => assert.deepEqual(st.h[j], { r: `${h.r}`, k: h.k, b: h.b, d: h.d, l: h.l }));
   assert.throws(() => D.derbyResolve(1, '123456'));
   assert.throws(() => D.derbyResolve(1, [1, 2, 3, 4, 5, 6, 10]));
 });
@@ -368,20 +364,66 @@ test('마권: 방식 펼치기·적중·적중금·열쇠·한도', () => {
   assert.equal(D.validTicketAmount(100), true); assert.equal(D.validTicketAmount(150), false); assert.equal(D.validTicketAmount(0), false);
 });
 
-test('고정 자료 모양: sc 슬롯 3칸(빈 칸 폭 0) · tbl a~d · odds 열쇠', () => {
-  for (let s = 0; s < 500; s++) {
-    const st = D.derbyStaticScenario(s);
-    assert.equal(st.h.length, 3);
-    let end = 0;
-    for (const x of st.h) {
-      assert.ok(end <= x.b && x.b <= x.d && x.d <= x.l && x.l <= 1000);
-      if (x.r === '-') assert.ok(x.k === '-' && x.b === end && x.l === end);
-      else assert.ok(/^[0-7]$/.test(x.r) && x.k in D.DERBY_BEHAVIORS);
-      end = x.l;
-    }
-  }
+test('공개 고정 자료 모양: sc = 시나리오마다 프로필 번호 · odds 열쇠 (결과 계산용 칸은 없다)', () => {
+  const data = D.derbyStaticData();
+  assert.deepEqual(Object.keys(data).sort(), ['odds', 'sc']);
+  assert.equal(data.sc.length, D.DERBY_SCENARIOS);
+  for (let s = 0; s < 500; s++) assert.equal(data.sc[s], D.derbyScenario(s).p);
+  assert.equal(data.odds.length, D.DERBY_PROFILES.length);
   const od = D.derbyOddsTable(0);
   assert.deepEqual(Object.keys(od).sort(), ['E', 'P', 'Q', 'R', 'W']);
   assert.deepEqual(Object.keys(od.W), ['0', '1', '2', '3', '4', '5', '6', '7']);
   assert.ok('01' in od.Q && !('10' in od.Q) && '10' in od.E);
+});
+
+// 숨은 결과표 칸: 앞 24자리 = 7자리 숫자의 2진수, 뒤 = derbyResolve 의 1·2·3착 + 일어난 일. 앞자리 묻기(허용 = 그 앞자리로 시작)로 칸을 되찾는다
+test('숨은 결과표 칸: 2진수 앞자리 묻기로 7자리 숫자와 결과를 되찾고, 묻는 수는 경주당 24번 이하', () => {
+  const n = 4987454;
+  let probes = 0, max = 0;
+  const samples = ['0000000', '9999999', '0000999', '8388607', '8388608', ...Array.from({ length: 300 }, (_, i) => String((i * 33331 + 7) % 10_000_000).padStart(7, '0'))];
+  for (const digits of samples) {
+    const o = D.derbySecretEntry(n, digits), res = D.derbyResolve(n, digits).res;
+    assert.equal(o, Number(digits).toString(2).padStart(24, '0') + res.a + res.b + res.c + res.e);
+    let bits = '', asked = 0;
+    while (bits.length < D.DERBY_SECRET_BITS) {
+      if (!D.derbyBitMayBeOne(bits)) { bits += '0'; continue; }
+      asked++;
+      bits += o.startsWith(bits + '1') ? '1' : '0';
+    }
+    assert.equal(D.derbyBitsDigits(bits), digits);
+    assert.ok(o.endsWith(res.a + res.b + res.c + res.e));
+    probes += asked; max = Math.max(max, asked);
+  }
+  assert.ok(max <= 24, `최대 ${max}`);
+  assert.ok(probes / samples.length > 20, `평균 ${probes / samples.length}`);
+  assert.equal(D.derbyBitsDigits('1'.repeat(24)), null, '9,999,999 보다 큰 2진수');
+  const x = D.parseDerbyDraw({ at: 5, o: D.derbySecretEntry(n, '4071935'), ...D.derbyResolve(n, '4071935').res });
+  assert.deepEqual(x, { at: 5, digits: '4071935', res: D.derbyResolve(n, '4071935').res });
+  assert.deepEqual(D.parseDerbyDraw({ at: 5 }), { at: 5, digits: null, res: null });
+  assert.equal(D.parseDerbyDraw(null), null);
+});
+
+test('숨은 칸 뒷부분 묻기: 칸에 적힌 1·2·3착·일어난 일을 그대로 되찾고, 모양이 틀리면 null', async () => {
+  const bits = '0'.repeat(24);
+  for (const tail of ['013n', '765b3', '102d7', '230l0']) {
+    let asked = 0;
+    const r = await D.derbyProbeSuffix(async (p) => { asked++; return (bits + tail).startsWith(p); }, bits);
+    assert.deepEqual(r, { a: tail[0], b: tail[1], c: tail[2], e: tail.slice(3) });
+    assert.ok(asked <= 36, `${asked}`);
+  }
+  assert.equal(await D.derbyProbeSuffix(async () => false, bits), null);
+});
+
+test('결과표 범위 기록: 다른 버전 뒤에 잇지 않고, --replace 는 남겨 둔 칸을 새 버전으로 표시하지 않는다', async () => {
+  const G = await import('../tools/gen-derby.mjs');
+  const writes = [], write = async (p) => { writes.push(p); };
+  const old = { s: 100, e: 200, v: 'old' };
+  await assert.rejects(G.uploadSecret({ write, cur: 150, cover: old, days: 1, v: 'new' }));
+  assert.equal(writes.length, 0);
+  await G.uploadSecret({ write, cur: 150, cover: old, days: 1, replace: true, v: 'new' });
+  const rep = writes.at(-1)['race/cover'];
+  assert.deepEqual(rep, { s: 100, e: 150 + G.RACES_PER_DAY, v: 'new', f: 151 }, '100~150 은 이전 버전의 칸');
+  assert.ok(!writes.some((p) => Object.keys(p).some((k) => k === 'raceSecret/150')), '지금 경주의 칸은 그대로');
+  await G.uploadSecret({ write, cur: 160, cover: rep, days: 2, v: 'new' });
+  assert.deepEqual(writes.at(-1)['race/cover'], { s: 100, e: 160 + 2 * G.RACES_PER_DAY, v: 'new', f: 151 }, '같은 버전으로 이으면 f 를 그대로');
 });

@@ -12,10 +12,12 @@
 //                    derbyResolve(n, digits7) → { res: {a,b,c,e}, order, fall, … }
 // derby/tickets.ts   expandSelection(sel), ticketRecord(tk, a), ticketWins(tk, res), raceOdds(n, t, s1, s2), ticketPayout(a, odds), ticketKey(n, nn),
 //                    validTicketAmount(a), derbyPools(n, progress), 한도 상수 DERBY_TICKET_MIN · STEP · MAX_PARK · MAX_BRANCH · TICKETS_PER_RACE
-// derby/data.ts      derbyStaticData() (raceData/ 고정 자료: sc · tbl · odds. 자료 모양은 그 파일 머리말)
+// derby/data.ts      derbyStaticData() (raceData/ 공개 고정 자료: sc · odds. 자료 모양은 그 파일 머리말)
+// derby/secret.ts    숨은 결과표 칸 derbySecretEntry(n, digits7), 공개 칸 읽기 parseDerbyDraw(v), 2진수 앞자리 derbyBitMayBeOne · derbyBitsDigits
 export * from './derby/time';
 export * from './derby/stable';
 export * from './derby/odds';
 export * from './derby/scenario';
 export * from './derby/tickets';
 export * from './derby/data';
+export * from './derby/secret';

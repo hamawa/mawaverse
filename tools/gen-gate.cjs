@@ -3,8 +3,8 @@
 // 원본 규칙의 "로그인했는가(auth != null)" 조건을 모두 "지금 이용할 수 있는 사람인가"로 바꿔 넣는다.
 //   전체 조건 FULL : 관리자이거나, (가입이 승인됐고 그리고 이용 시간)      ← 게임의 모든 경로
 //   시간 조건 TIME : 관리자이거나, 이용 시간                                ← 가입 신청에 필요한 경로 (내 프로필·아이디·닉네임·신청서, 내 승인 표시 지우기)
-//   그대로   NONE : 일반 계정의 로그인만(경마 운영 계정 제외)                 ← 내가 관리자인지·승인됐는지 읽기
-//   경마 운영 계정 RACE_OP (원본의 자리 표시) : config/raceOperatorUid 이고 관리자·승인된 사용자가 아닌 계정 ← 경마공원 승인·결과·하트비트와 그에 필요한 읽기만 (아래 raceSaleOpen 위)
+//   그대로   NONE : 로그인만                                                  ← 내가 관리자인지·승인됐는지 읽기
+//   경마공원 DERBY : 관리자이거나 가입이 승인됨 (이용 시간과 무관)              ← race/ 아래 (마권·추첨·공개·환급. 발매 시간은 RACE_SALE_OPEN 이 따로 본다)
 // 이용 시간 = 평일(월~금) 09:00~18:00 KST 가 아닐 때, 그 안의 쉬는 시간(hours.json)일 때, 또는 공휴일(holidays/{KST 날짜 번호} 가 있을 때). 판정은 서버 시각(now)으로 한다.
 // 시간 차단은 관리자 설정 config/hoursBlock 이 true 일 때만 건다 (기본 꺼짐: 값이 없거나 false 면 언제나 이용 시간으로 본다). 가입 승인 조건은 설정과 무관하게 늘 건다.
 //
@@ -42,13 +42,12 @@ function compact(expr) {
   return out;
 }
 const AUTH = 'auth != null';
-// 경마공원 (2026-11-23). 원본 규칙의 자리 표시 둘을 여기서 풀어 쓴다:
-//  RACE_OP        : 경마 운영 계정인가. config/raceOperatorUid 의 계정이고, 관리자도 승인된 사용자도 아니다 (일반 게임 권한이 없는 전용 계정).
-//                   가입 승인·이용 시간 조건(FULL)은 붙이지 않는다: 그 계정은 승인되지 않으므로 FULL 이면 아무것도 못 한다. 대신 규칙이 운영 계정에 연 곳만 쓴다
+// 경마공원 (2026-11-23). 원본 규칙의 자리 표시를 여기서 풀어 쓴다:
 //  RACE_SALE_OPEN : 지금(NOW) 경주가 운영 시간에 드는가 (shared/derby/time.ts raceScheduled 와 같은 판정). config/raceHours 의 on 이 true 이고,
 //                   그날 칸(공휴일이면 7)의 [s, e) 분 안에 발매 4분 전체가 들고, 차단 설정(config/hoursBlock)이 켜져 있으면 그 4분이 모두 이용 시간일 것.
 //                   쉬는 시간은 hours.json 에서 읽는다 (이어진 구간은 합쳐서 본다: 쉬는 시간이 09:00·18:00 이나 다른 쉬는 시간에 붙어 있어도 화면 판정과 같게)
-const OP_TOKEN = 'RACE_OP', SALE_TOKEN = 'RACE_SALE_OPEN';
+//  DERBY_CLAIM_AUTH : 환급 쓰기(지갑 + 영수증)는 이용 시간 밖에도 승인된 본인이면 (지갑의 FULL 조건 대신)
+const SALE_TOKEN = 'RACE_SALE_OPEN';
 const RACE_CYCLE_MS = 360000, RACE_SALE_MS = 240000; // shared/derby/time.ts DERBY_CYCLE_MS · DERBY_SALE_MS
 const openSpans = (() => {
   const spans = [[0, 32400000], ...breaks, [64800000, 86400000]].sort((a, b) => a[0] - b[0]);
@@ -64,8 +63,6 @@ function raceSaleOpen(NOW) {
   // 공휴일이면 7번 칸(차단 없음), 아니면 요일 칸 + 차단 설정이 켜져 있으면 주말이거나 발매 4분이 모두 이용 시간
   return `(root.child('config/raceHours/on').val()===true&&(root.child('holidays/'+${DAY}).exists()?${slot(7)}:(${slot(`(${DAY}+4)%7`)}&&(root.child('config/hoursBlock').val()!=true||(${T}/86400000+5)%7<2||${win}))))`;
 }
-const OP_VALID = `(root.child('config/raceOperatorUid').isString()&&root.child('config/raceOperatorUid').val()!=''&&root.child('admins/'+root.child('config/raceOperatorUid').val()).val()!==true&&root.child('approved/'+root.child('config/raceOperatorUid').val()).val()!==true&&!root.child('players/'+root.child('config/raceOperatorUid').val()).exists())`;
-const OP_GATE = `(auth!=null&&auth.uid===root.child('config/raceOperatorUid').val()&&root.child('admins/'+auth.uid).val()!==true&&root.child('approved/'+auth.uid).val()!==true&&!root.child('players/'+auth.uid).exists())`;
 function gates(NOW) {
   const T = `(${NOW}+32400000)`;                                     // KST 시각
   const MS = `${T}%86400000`;                                        // 자정부터 지난 ms
@@ -78,24 +75,21 @@ function gates(NOW) {
   const OPEN = `(root.child('config/hoursBlock').val()!=true||${U}>=32400000${BREAK}||(${T}/86400000+5)%7<2||root.child('holidays/'+${DAY}).exists())`;
   const ADMIN = `root.child('admins/'+auth.uid).val()===true`;
   const APPROVED = `root.child('approved/'+auth.uid).val()===true`;
-  const USER = `auth!=null&&auth.uid!=root.child('config/raceOperatorUid').val()`;
+  const USER = 'auth!=null';
   return {
     FULL: `(${USER}&&(${ADMIN}||${APPROVED}&&${OPEN}))`,
     TIME: `(${USER}&&(${ADMIN}||${OPEN}))`,
     DERBY: `(${USER}&&(${ADMIN}||${APPROVED}))`,
     NONE: `(${USER})`,
     SALE: raceSaleOpen(NOW),
-    // A grant cannot carry an operator UID under the agreed wire shape. Lock UID
-    // rotation/removal while a grant is on sale, including parent config deletes.
-    ROTATE: `(newData.child('raceOperatorUid').val()==data.child('raceOperatorUid').val()||(!newData.parent().child('race/op/hb').exists()&&(${NOW}%360000>=240000||!root.child('race/r/'+((${NOW}-${NOW}%360000)/360000)).exists())))`,
     CLAIM: `(${USER}&&auth.uid==$uid&&${APPROVED}&&newData.child('kn').isString()&&newData.child('kr').isString()&&!root.child('race/u/'+$uid+'/'+newData.child('kn').val()+'/'+newData.child('kr').val()).exists()&&newData.parent().parent().child('race/u/'+$uid+'/'+newData.child('kn').val()+'/'+newData.child('kr').val()).val()===true)`,
-    RACENOW: NOW === 'now' ? null : NOW, // 시험용 규칙: race/ 아래의 now 도 _test/now 로 (발매·마감·하트비트·결과 시각을 시험이 정한다)
+    RACENOW: NOW === 'now' ? null : NOW, // 시험용 규칙: race/ 아래의 now 도 _test/now 로 (발매·마감·추첨 시각을 시험이 정한다)
   };
 }
 // race/ 아래 식의 시각을 시험 시각으로 바꾸고(시험용만), 자리 표시를 풀어 쓴다. 로그인 조건(auth != null)은 build 가 따로 바꾼다
 function race(v, p, G) {
   const s = G.RACENOW && p[0] === 'race' ? v.replace(/\bnow\b/g, G.RACENOW) : v;
-  return s.split('DERBY_OPERATOR_VALID').join(OP_VALID).split('DERBY_ROTATE').join(G.ROTATE).split('DERBY_CLAIM_AUTH').join(G.CLAIM).split(OP_TOKEN).join(OP_GATE).split(SALE_TOKEN).join(G.SALE);
+  return s.split('DERBY_CLAIM_AUTH').join(G.CLAIM).split(SALE_TOKEN).join(G.SALE);
 }
 
 // 경로별 조건 종류. 여기 없는 경로는 모두 FULL
@@ -109,7 +103,7 @@ function classOf(p, key) {
   return 'FULL';
 }
 
-const stats = { FULL: 0, TIME: 0, NONE: 0, DERBY: 0, OP: 0 };
+const stats = { FULL: 0, TIME: 0, NONE: 0, DERBY: 0 };
 const noAuth = [];
 function build(node, p, G, count) {
   const out = {};
@@ -117,8 +111,7 @@ function build(node, p, G, count) {
     if (v && typeof v === 'object' && !Array.isArray(v)) { out[k] = build(v, [...p, k], G, count); continue; }
     if ((k === '.read' || k === '.write') && typeof v === 'string') {
       const cls = classOf(p, k);
-      if (count) stats.OP += v.split(OP_TOKEN).length - 1;
-      if (!v.includes(AUTH) && !v.includes(OP_TOKEN)) { if (count) noAuth.push(`${p.join('/')} ${k}: ${v}`); out[k] = v; continue; }
+      if (!v.includes(AUTH)) { if (count) noAuth.push(`${p.join('/')} ${k}: ${v}`); out[k] = v; continue; }
       if (count) stats[cls] += v.split(AUTH).length - 1;
       out[k] = compact(race(v, p, G).split(AUTH).join(G[cls]));
       continue;
@@ -134,7 +127,7 @@ const deploy = { rules: build(src.rules, [], gates('now'), true) };
 const PUBLIC = new Set(['config/hoursBlock .read: true']);
 const open = noAuth.filter((s) => !/: false$/.test(s) && !PUBLIC.has(s));
 if (open.length) { console.error('로그인 조건이 없는 규칙이 있습니다 (차단이 걸리지 않음):\n  ' + open.join('\n  ')); process.exit(1); }
-if (/RACE_OP|RACE_SALE_OPEN|DERBY_OPERATOR_VALID|DERBY_ROTATE|DERBY_CLAIM_AUTH/.test(JSON.stringify(deploy))) { console.error('경마공원 자리 표시가 풀리지 않았습니다 (.read/.write/.validate 밖에 있음)'); process.exit(1); }
+if (/RACE_SALE_OPEN|DERBY_CLAIM_AUTH/.test(JSON.stringify(deploy))) { console.error('경마공원 자리 표시가 풀리지 않았습니다 (.read/.write/.validate 밖에 있음)'); process.exit(1); }
 
 const test = { rules: build(src.rules, [], gates(`root.child('_test/now').val()`), false) };
 test.rules._test = { '.read': true, '.write': true };
@@ -156,4 +149,4 @@ write('database.rules.test.json', test);
 write('holidays.deploy.json', hol, true);
 const size = fs.statSync(path.join(ROOT, 'database.rules.deploy.json')).size;
 if (size > 262144) throw new Error(`RTDB rules exceed 262144 bytes: ${size}`);
-console.log(`규칙 생성: 전체 조건 ${stats.FULL}곳, 시간 조건 ${stats.TIME}곳, 그대로 ${stats.NONE}곳, 경마 운영 계정 ${stats.OP}곳 ·${(size / 1024).toFixed(0)}KB (${size}바이트 / 한도 262144, 남은 여유 ${((262144 - size) / 1024).toFixed(1)}KB) · 공휴일 ${Object.keys(hol).length}일`);
+console.log(`규칙 생성: 전체 조건 ${stats.FULL}곳, 시간 조건 ${stats.TIME}곳, 그대로 ${stats.NONE}곳, 경마공원 ${stats.DERBY}곳 ·${(size / 1024).toFixed(0)}KB (${size}바이트 / 한도 262144, 남은 여유 ${((262144 - size) / 1024).toFixed(1)}KB) · 공휴일 ${Object.keys(hol).length}일`);
