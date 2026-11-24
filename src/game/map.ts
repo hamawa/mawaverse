@@ -582,83 +582,69 @@ export function buildClubMap(): MapData {
   return m;
 }
 
-// 경마공원 (2026-11-23, 사용자 기획): 84×49 (말을 2배 크기로 그리면서 주로·예시장을 넓혔다). 마방(뒤쪽, 말이 나오고 들어감) · 예시장(관람석 옆 작은 타원 펜스: 직사각 링으로 흉내, 바깥 둘레에서 관람) ·
-// 지하마도(예시장 ↔ 본마장, 말만 다님) · 본마장(큰 타원 주로, 결승선, 거리별 출발대) · 관람석(결승선 앞, 기존 앉기) · 발매소 창구 둘(관람석 뒤·예시장 옆) ·
-// 위너스 서클 · 전광판. 말·기수·마필관리사는 펜스 안과 지하마도·주로만 다니는 그림이고 유저 칸(occ)을 차지하지 않는다.
+// 경마공원 (2026-11-23 기여자 기획. 2026-11-24 저장소 주인 요청으로 84×49 → 38×34 로 줄였다: 쓰이지 않던 마방·위너스 서클·지하마도, 따로 있던 예시장, 빈 풀밭을 없앴다).
+// 가운데가 본마장이다: 주로(폭 7칸, 맨 바깥 줄은 울타리)가 한 바퀴 돌고, 그 안쪽 전체가 말과 기수의 대기장(예시장)이다. 말은 대기장에서 주로로 바로 나가고 경주 뒤에 대기장 문으로 들어간다.
+// 사람은 주로 바깥의 산책로(폭 2칸)를 따라 한 바퀴 돌며 보고, 결승 직선 앞 관람석(기존 앉기)에 앉는다. 발매소 창구는 둘(관람석 뒤 통로 · 북쪽 산책로).
+// 말·기수·마필관리사는 대기장과 주로만 다니는 그림이고 유저 칸(occ)을 차지하지 않는다.
 // 유저는 'track'·'paddock' zone 에 들어갈 수 없다(isWalkable). 물이 없어 낚시는 없고, 풀밭에는 다른 맵처럼 곤충이 나온다.
-// 좌표는 derbyshow.ts(쇼 그림)·world.ts(F·카메라)·tests/maps.test.mjs 가 함께 쓴다.
+// 좌표는 derbyshow.ts(쇼 그림)·world.ts(F·카메라)·tests/maps.test.mjs 가 함께 쓴다. 맵 크기는 보안 규칙에도 들어 있다(tools/gen-rules.cjs derbyBlocks 의 park. tests/derby-rules.test.mjs 가 대조).
+export const RACE_PARK_W = 38, RACE_PARK_H = 34;
 
-// 본마장 주로 한 바퀴 (결승선 idx 0 에서 출발 방향 순서. 타일 좌표). 주로 띠(폭 7칸)의 한가운데 선이다.
-// 결승선은 관람석 앞 남쪽 직선의 동쪽 끝이라 마지막 직선을 관람석 앞에서 달린다
+// 본마장 주로 한 바퀴 (결승선 idx 0 에서 진행 방향 순서. 타일 좌표). 주로 띠의 한가운데 선이다.
+// 점 사이는 거의 같은 길이(3칸, 모서리 2.8칸)로 둔다: 쇼가 점 번호 단위로 거리를 재므로 길이가 들쭉날쭉하면 구간마다 속도가 달라 보인다.
+// 결승선은 관람석 동쪽 끝 앞이라 마지막 직선(남쪽)을 관람석 앞에서 달린다
 export const RACE_LOOP: ReadonlyArray<readonly [number, number]> = [
-  [70, 34], [73, 34], [76, 33], [77, 30], [77, 26], [77, 22], [77, 18], [77, 14], [77, 11], [76, 8], [73, 7],
-  [69, 7], [65, 7], [61, 7], [57, 7], [53, 7], [49, 8], [48, 11], [48, 15], [48, 19], [48, 23], [48, 27], [48, 30],
-  [49, 33], [52, 34], [56, 34], [60, 34], [64, 34], [67, 34],
+  [26, 22], [29, 22], [31, 20], [31, 17], [31, 14], [31, 11], [31, 8], [29, 6], [26, 6], [23, 6], [20, 6], [17, 6], [14, 6],
+  [11, 6], [8, 6], [6, 8], [6, 11], [6, 14], [6, 17], [6, 20], [8, 22], [11, 22], [14, 22], [17, 22], [20, 22], [23, 22],
 ];
 export const RACE_FINISH_INDEX = 0;
-// 거리별 출발대 위치 (주로 위 인덱스. 거리가 길수록 결승선에서 먼 쪽에서 출발)
-export const RACE_START_INDEX: Record<number, number> = { 1000: 21, 1200: 17, 1400: 13, 1800: 8 };
-// 예시장 (펜스 링 포함. 안은 말이 다니는 그림이라 유저가 못 들어간다)
-export const RACE_PADDOCK = { x: 20, y: 3, w: 22, h: 16 };
-// 예시장 안에서 말이 도는 타원 (한가운데·반지름, 타일)
-export const RACE_PADDOCK_RING = { cx: 30.5, cy: 10.5, rx: 7.5, ry: 4.6 };
-// 예시장 주회 자리 8곳 (마번 1~8 순서의 타원)
+// 거리별 출발대 위치 (주로 위 인덱스. 직선 위에 둔다: 1000m 서쪽 직선 · 1200m·1400m 북쪽 직선 · 1800m 동쪽 직선. 거리가 길수록 결승선에서 먼 쪽에서 출발)
+export const RACE_START_INDEX: Record<number, number> = { 1000: 16, 1200: 11, 1400: 8, 1800: 3 };
+// 대기장 = 예시장 (주로 안쪽 전체. 말이 다니는 그림이라 유저가 못 들어간다)
+export const RACE_PADDOCK = { x: 10, y: 10, w: 18, h: 9 };
+// 대기장 안에서 말이 도는 타원 (한가운데·반지름, 타일). 모래 길(가운데 선 x 12~25 · y 12~16) 위를 돈다
+export const RACE_PADDOCK_RING = { cx: 18.5, cy: 14, rx: 6.8, ry: 2.5 };
+// 대기장 주회 자리 8곳 (마번 1~8 순서의 타원)
 export const RACE_PADDOCK_SLOTS: ReadonlyArray<readonly [number, number]> = [
-  [26, 7], [30, 6], [35, 7], [38, 10], [35, 14], [30, 15], [26, 14], [23, 10],
+  [14, 12], [18, 11], [23, 12], [25, 14], [23, 16], [18, 17], [14, 16], [12, 14],
 ];
-export const RACE_STABLE_DOOR = { x: 8, y: 9 }; // 마방 문 (말이 나오고 들어가는 자리)
-// 본마장 입장 퍼레이드: 예시장 동쪽 입구 → 지하마도 → 서쪽 직선 → 관람석 앞 직선 (마번 순 일렬)
+// 본마장 입장 퍼레이드: 대기장 서쪽 → 주로 서쪽 직선 → 관람석 앞 직선 (마번 순 일렬).
+// 둘째 점이 대기장 문(주로 안쪽 가장자리. 확정 뒤 말이 들어가 사라지는 자리)이고 셋째 점에서 주로 한가운데 선에 오른다 (derbyshow.ts 가 이 순서에 기댄다)
 export const RACE_PARADE_PATH: ReadonlyArray<readonly [number, number]> = [
-  [39, 10], [43, 10], [47, 12], [48, 16], [48, 22], [48, 28], [49, 32], [52, 34], [58, 34], [64, 34], [68, 34],
+  [12, 14], [9, 14], [6, 16], [6, 19], [8, 22], [13, 22], [19, 22], [25, 22],
 ];
-export const RACE_WINNER_CIRCLE = { x: 75.5, y: 40.5 }; // 위너스 서클 한가운데 (타일 좌표, 소수 허용)
-export const RACE_STANDS = { x: 52, y: 40, w: 20, h: 2 }; // 관람석 벤치 범위 (앉는 자리. 북쪽 주로를 본다)
-export const RACE_TELLERS: ReadonlyArray<readonly [number, number]> = [[62, 44], [41, 19]]; // 발매소 창구 둘 (관람석 뒤·예시장 옆)
-export const RACE_BOARD = { x: 60, y: 38 }; // 전광판 왼쪽 칸 (BOARD_L·BOARD_R 두 칸)
+export const RACE_STANDS = { x: 11, y: 28, w: 16, h: 2 }; // 관람석 벤치 범위 (앉는 자리. 북쪽 주로를 본다)
+// 발매소 창구 둘 (관람석 뒤 통로 · 북쪽 산책로의 울타리 쪽). 둘 다 창구의 북쪽 칸에 서서 쓴다: 그래야 안내 글자가 맵 위쪽 밖으로 나가지 않는다 (world.ts canvasHint)
+export const RACE_TELLERS: ReadonlyArray<readonly [number, number]> = [[18, 32], [18, 2]];
+export const RACE_BOARD = { x: 18, y: 14 }; // 전광판 왼쪽 칸 (BOARD_L·BOARD_R 두 칸. 대기장 한가운데)
 
 export function buildRaceParkMap(): MapData {
-  const W = 84, H = 49;
+  const W = RACE_PARK_W, H = RACE_PARK_H;
   const m = emptyMap(RACE_PARK_MAP_ID, '경마공원', W, H);
   const setG = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.ground[y * W + x] = id; };
   const setO = (x: number, y: number, id: number) => { if (inBounds(m, x, y)) m.objects[y * W + x] = id; };
   const fillG = (x: number, y: number, w: number, h: number, id: number) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) setG(x + i, y + j, id); };
 
-  // 마방: 서북쪽 건물. 남쪽에 문(x7~10)을 내고 안은 나무 바닥
-  for (let x = 2; x <= 15; x++) { setO(x, 2, O.WALL); }
-  for (let y = 2; y <= 8; y++) { setO(2, y, O.WALL); setO(15, y, O.WALL); }
-  for (let x = 2; x <= 6; x++) setO(x, 8, O.WALL);
-  for (let x = 11; x <= 15; x++) setO(x, 8, O.WALL);
-  fillG(3, 3, 12, 5, G.WOOD);
-  // 마방 문 앞 산책로 → 예시장 서쪽까지
-  fillG(2, 9, 18, 2, G.PATH);
-  // 남쪽 입구 광장·관람석 뒤 콩코스
-  fillG(2, 42, 10, 5, G.PATH);
-  fillG(44, 43, 37, 3, G.PATH);
+  // 산책로: 주로 바깥을 한 바퀴 (폭 2칸). 어디서든 서서 경주를 본다
+  fillG(1, 1, 36, 2, G.PATH); fillG(1, 26, 36, 2, G.PATH); fillG(1, 1, 2, 27, G.PATH); fillG(35, 1, 2, 27, G.PATH);
 
-  // 예시장: 안은 말이 도는 자리. 링 펜스 (동쪽 y10~11 은 지하마도 입구라 비운다)
-  const PX0 = RACE_PADDOCK.x, PY0 = RACE_PADDOCK.y, PX1 = PX0 + RACE_PADDOCK.w - 1, PY1 = PY0 + RACE_PADDOCK.h - 1;
-  m.zones.push({ id: 'paddock', kind: 'paddock', x: RACE_PADDOCK.x, y: RACE_PADDOCK.y, w: RACE_PADDOCK.w, h: RACE_PADDOCK.h, label: '예시장' });
-  fillG(25, 7, 12, 7, G.SAND);
-  for (let y = PY0; y <= PY1; y++) { setO(PX0, y, O.FENCE); if (y < 10 || y > 11) setO(PX1, y, O.FENCE); }
-  for (let x = PX0; x <= PX1; x++) { setO(x, PY0, O.FENCE); setO(x, PY1, O.FENCE); }
+  // 본마장 주로 (폭 7칸의 띠 넷. 바깥 32×23, 안쪽 18×9)
+  m.zones.push({ id: 'track-s', kind: 'track', x: 3, y: 19, w: 32, h: 7, label: '본마장' });
+  m.zones.push({ id: 'track-n', kind: 'track', x: 3, y: 3, w: 32, h: 7, label: '본마장' });
+  m.zones.push({ id: 'track-e', kind: 'track', x: 28, y: 10, w: 7, h: 9, label: '본마장' });
+  m.zones.push({ id: 'track-w', kind: 'track', x: 3, y: 10, w: 7, h: 9, label: '본마장' });
+  fillG(3, 19, 32, 7, G.SAND); fillG(3, 3, 32, 7, G.SAND); fillG(28, 10, 7, 9, G.SAND); fillG(3, 10, 7, 9, G.SAND);
+  // 울타리: 주로의 맨 바깥 줄에 세운다 (사람과 말 사이. 말은 가운데 다섯 줄로 달린다)
+  for (let x = 3; x <= 34; x++) { setO(x, 3, O.FENCE); setO(x, 25, O.FENCE); }
+  for (let y = 3; y <= 25; y++) { setO(3, y, O.FENCE); setO(34, y, O.FENCE); }
 
-  // 지하마도: 예시장 동쪽 입구 → 본마장 서쪽 (말만 다니는 그림. 유저는 못 들어간다)
-  m.zones.push({ id: 'tunnel', kind: 'track', x: 41, y: 9, w: 4, h: 4, label: '지하마도' });
-  fillG(41, 9, 4, 4, G.PATH);
+  // 대기장(예시장): 주로 안쪽 전체. 모래 길 한 바퀴(폭 2칸) 위를 말이 돌고, 가운데 잔디에 전광판이 있다
+  m.zones.push({ id: 'paddock', kind: 'paddock', x: RACE_PADDOCK.x, y: RACE_PADDOCK.y, w: RACE_PADDOCK.w, h: RACE_PADDOCK.h, label: '대기장' });
+  fillG(11, 11, 16, 7, G.SAND); fillG(13, 13, 12, 3, G.GRASS);
+  setO(RACE_BOARD.x, RACE_BOARD.y, O.BOARD_L); setO(RACE_BOARD.x + 1, RACE_BOARD.y, O.BOARD_R);
+  setO(14, 14, O.BUSH); setO(23, 14, O.BUSH);
 
-  // 본마장 주로 (남·북 직선 + 동·서 직선 띠, 폭 7칸. 모서리는 겹쳐서 덮는다)
-  m.zones.push({ id: 'track-s', kind: 'track', x: 45, y: 31, w: 36, h: 7, label: '본마장' });
-  m.zones.push({ id: 'track-n', kind: 'track', x: 45, y: 4, w: 36, h: 7, label: '본마장' });
-  m.zones.push({ id: 'track-e', kind: 'track', x: 74, y: 11, w: 7, h: 20, label: '본마장' });
-  m.zones.push({ id: 'track-w', kind: 'track', x: 45, y: 11, w: 7, h: 20, label: '본마장' });
-  fillG(45, 31, 36, 7, G.SAND);
-  fillG(45, 4, 36, 7, G.SAND);
-  fillG(74, 11, 7, 20, G.SAND);
-  fillG(45, 11, 7, 20, G.SAND);
-  // 안쪽 잔디밭 장식 (닿을 수 없는 안뜰. 말 그림과 겹치지 않게 주로 띠 안쪽만)
-  for (const [tx, ty, o] of [[56, 15, O.PINE], [66, 26, O.PINE], [70, 14, O.PINE], [62, 17, O.PINE], [71, 25, O.PINE], [60, 24, O.BUSH], [55, 20, O.BUSH], [68, 20, O.BUSH], [62, 28, O.BUSH]] as const) setO(tx, ty, o);
-
-  // 관람석: 결승선 앞 벤치 두 줄. 북쪽 주로를 본다(앉으면 dir 3)
+  // 관람석: 결승 직선 앞 벤치 두 줄. 북쪽 주로를 본다(앉으면 dir 3). 앞줄은 산책로에서, 뒷줄은 뒤 통로에서 앉는다
   for (let x = RACE_STANDS.x; x < RACE_STANDS.x + RACE_STANDS.w; x++) {
     for (let y = RACE_STANDS.y; y < RACE_STANDS.y + RACE_STANDS.h; y++) {
       setO(x, y, O.BENCH);
@@ -666,27 +652,23 @@ export function buildRaceParkMap(): MapData {
       m.dirs[y * W + x] = 3;
     }
   }
-  // 전광판: 관람석 앞 두 칸짜리 게시판
-  setO(RACE_BOARD.x, RACE_BOARD.y, O.BOARD_L); setO(RACE_BOARD.x + 1, RACE_BOARD.y, O.BOARD_R);
-  // 위너스 서클: 화단 링 + 한가운데 매트 (남쪽을 비워 유저도 들어갈 수 있게)
-  for (let x = 73; x <= 78; x++) setO(x, 39, O.FLOWERBED);
-  for (const y of [40, 41]) { setO(73, y, O.FLOWERBED); setO(78, y, O.FLOWERBED); }
-  for (let y = 40; y <= 41; y++) for (let x = 74; x <= 77; x++) setO(x, y, O.MAT);
-  // 발매소 창구 둘 (관람석 뒤·예시장 옆)
+  // 관람석 뒤 통로와 입구 (포탈 앞)
+  fillG(1, 30, 36, 2, G.PATH);
+  fillG(1, 32, 4, 1, G.PATH);
+  // 발매소 창구 둘: 창구마다 카운터 두 칸 (왼쪽 칸이 teller zone 이고 옆 한 칸까지 닿으므로 어느 칸 앞에서도 열린다)
   for (const [tx, ty] of RACE_TELLERS) {
-    setO(tx, ty, O.COUNTER);
+    setO(tx, ty, O.COUNTER); setO(tx + 1, ty, O.COUNTER);
     m.zones.push({ id: `teller-${tx}-${ty}`, kind: 'teller', x: tx, y: ty, w: 1, h: 1, label: '발매소' });
   }
-  // 콩코스 가로등·화단
-  // 가로등은 키가 커서 위 칸을 덮는다: 창구 앞 자리(62,45)와 3착 세리머니 자리(79,42) 위를 피해 둔다
-  setO(47, 43, O.LAMP); setO(65, 46, O.LAMP); setO(81, 43, O.LAMP);
-  setO(45, 45, O.FLOWERBED); setO(79, 45, O.FLOWERBED);
-  setO(16, 40, O.PINE); setO(18, 45, O.BUSH); setO(2, 38, O.PINE);
+  // 가로등·화단·소나무 (가로등은 키가 커서 위 칸을 덮는다: 통로 아래 줄에 둔다)
+  setO(8, 32, O.LAMP); setO(29, 32, O.LAMP);
+  for (const x of [11, 12, 25, 26]) setO(x, 32, O.FLOWERBED);
+  for (const [x, y] of [[0, 0], [37, 0], [0, 33], [37, 33], [0, 16], [37, 16]]) setO(x, y, O.PINE);
 
   m.zones.push({ id: 'lbl-derby', kind: 'label', x: 1, y: 1, w: W - 2, h: H - 2, label: '🏇 경마공원' });
   // 복귀 포탈: 행선지가 하나라 고르는 창 없이 바로 기본 맵의 시작 자리로
-  m.zones.push({ id: 'portal-main', kind: 'portal', x: 4, y: 46, w: 2, h: 1, label: '메인 광장', targetMap: MAIN_MAP_ID });
-  m.spawn = { x: 4, y: 44 };
+  m.zones.push({ id: 'portal-main', kind: 'portal', x: 2, y: 32, w: 2, h: 1, label: '메인 광장', targetMap: MAIN_MAP_ID });
+  m.spawn = { x: 6, y: 30 };
   return m;
 }
 

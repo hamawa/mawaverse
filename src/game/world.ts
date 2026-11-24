@@ -16,10 +16,9 @@ import { O, objectAt, faceChairs, buildDefaultMap, buildPortalGarden, buildGoldM
 import { MAIN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, RACE_PARK_MAP_ID, playerMapId, isHomeMapId, homeMapId, homeOwnerOf } from '../shared/maps';
 import { mapSource, parseSavedMap, arrivalTile, savedMapId, portalBlock, portalYields, primaryOnlyRoom, destView, whereLabel, MAP_INFO, PRIMARY_ONLY_ROOM_MSG } from './portal';
 import { openPortalPicker } from './portalui';
-import { derbyFrame, derbyCaption, derbySoundEvents, derbyHoofActive, derbyFocusAt, derbyNearestRunner, snapshotInput, DERBY_CYCLE_MS, DERBY_HOOF_INTERVAL_MS, type DerbyShowInput, type DerbyFrame, type DerbyFieldSnapshot } from './derbyshow';
+import { derbyFrame, derbyCaption, derbySoundEvents, derbyHoofActive, derbyFocusAt, snapshotInput, DERBY_CYCLE_MS, DERBY_HOOF_INTERVAL_MS, type DerbyShowInput, type DerbyFrame, type DerbyFieldSnapshot } from './derbyshow';
 import { DerbyView, DerbyLive, derbyRaceCap } from './derbyview';
 import type { DerbyWhere } from './derbyui';
-import { describeHorse } from './derbyui';
 import { Net } from './net';
 import { Chat } from './chat';
 import { Rooms } from './rooms';
@@ -193,7 +192,6 @@ export class World implements WorldCtx {
   private boardZone: Zone | undefined;
   private fishZone: Zone | undefined;
   private arcadeZone: Zone | undefined;
-  private derbyPaddock: Zone | undefined; // 경마공원 예시장 (옆에서 F → 출전마 카드)
   private derbyTellers: Zone[] = []; // 경마공원 발매소 창구 둘 (옆에서 F → 마권 구매 판)
   private linkZones: Zone[] = []; // 바깥 게임으로 가는 오락기 (shared/links.ts)
 
@@ -886,7 +884,6 @@ export class World implements WorldCtx {
     this.boardZone = map.zones.find((z) => z.kind === 'board');
     this.fishZone = map.zones.find((z) => z.kind === 'fish');
     this.arcadeZone = map.zones.find((z) => z.kind === 'arcade');
-    this.derbyPaddock = map.zones.find((z) => z.kind === 'paddock');
     this.derbyTellers = map.zones.filter((z) => z.kind === 'teller');
     this.linkZones = map.zones.filter((z) => z.kind === 'link' && !!gameLinkOf(z.id));
   }
@@ -1023,17 +1020,6 @@ export class World implements WorldCtx {
     if (!view || view.phase !== 'race') return null;
     return derbyFocusAt(view);
   }
-  // 예시장 펜스 옆에서 가장 가까운 출전마 (있는 말만, 5칸 안. 없으면 null)
-  private derbyPaddockGate(): { x: number; y: number; gate: number; name: string } | null {
-    if (this.mapId !== RACE_PARK_MAP_ID || !this.derbyPaddock) return null;
-    const me = this.me;
-    if (!nearZone(this.derbyPaddock, me.x, me.y, 1)) return null;
-    const view = this.derbyView();
-    if (!view) return null;
-    const near = derbyNearestRunner(view, me.x, me.y, 5);
-    if (!near) return null;
-    return { x: me.x, y: me.y - 1, gate: near.gate, name: near.name };
-  }
   // 마권 판(derbyview.ts)은 공원(창구 옆 판)과 광장 경마분점(카지노 방에 앉아 보는 판)에 묶여 있다: 그곳에 있는 동안 처음 필요할 때 만들고,
   // 맵을 옮기거나 방을 나가거나 종료하면 판·구독을 거둔다.
   // 운영 시간은 config/raceHours, 한도는 config/raceMax/{park|branch} 를 그곳에 있는 동안만 구독하고(첫 값이 오기 전·읽기 실패 때는 로그인 때 읽은 config 값), 운영 시간 값이 없으면 휴장이다
@@ -1090,22 +1076,6 @@ export class World implements WorldCtx {
     const where = this.derbyPlace();
     if (!where) { this.derbyLeave(); return; }
     this.derbyCtl(where).sync();
-  }
-  // F 예시장 펜스 옆 → 가장 가까운 출전마 정보 카드 + 그 말로 마권 판 열기
-  openDerbyRunnerCard(): void {
-    const g = this.derbyPaddockGate();
-    const view = this.derbyView();
-    if (!g || !view) return;
-    const n = view.input.n;
-    const derby = this.derbyCtl();
-    const h = derby.horse(n, g.gate);
-    if (!h) return;
-    const style = view.input.runners.find((x) => x.gate === g.gate)?.style;
-    this.input.releaseAll();
-    derby.showRunnerCard(n, g.gate, (pick, closed) => modal(`🐴 ${g.gate}번 ${h.name}`, el('div', { text: describeHorse(h) + (style ? ` · 각질 ${style}` : '') }), [
-      { label: '이 말로 마권 고르기', primary: true, onClick: pick },
-      { label: '닫기', onClick: () => {} },
-    ], false, closed));
   }
   // F 발매소 창구 옆 → 마권 판 (출마표·배당·다음 경주 시각·구매·내 마권. 발매 상태는 DerbyLive 가 경주표·결과표 범위·공개 칸에서 정한다)
   openDerbyTeller(): void {
@@ -1408,7 +1378,7 @@ export class World implements WorldCtx {
 
   // ---------- 상호작용 ----------
   // F 로 할 수 있는 것과 그 안내 위치. 우선순위: 게시판 → 낚시 중 → 물가(낚시 시작) → 낚시 표지판
-  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' | 'decoPlace' | 'decoRemove' | 'sit' | 'sitting' | 'dj' | 'link' | 'photo' | 'fire' | 'paddock' | 'teller' } | null {
+  private canvasHint(): { x: number; y: number; text: string; kind: 'board' | 'fishing' | 'cast' | 'sign' | 'bug' | 'arcade' | 'dig' | 'digging' | 'mafia' | 'portal' | 'mine' | 'mining' | 'snowman' | 'snowfight' | 'chop' | 'chopping' | 'bed' | 'sleeping' | 'chest' | 'decoPlace' | 'decoRemove' | 'sit' | 'sitting' | 'dj' | 'link' | 'photo' | 'fire' | 'teller' } | null {
     const me = this.me;
     if (me.roomId) return null;
     if (this.switching) return { x: me.x, y: me.y - 1, text: '🌀 이동 중…', kind: 'portal' };
@@ -1450,14 +1420,15 @@ export class World implements WorldCtx {
     const yields = portalYields({ fishing: !!fv, autoFishing: !!fv?.auto, bug: !!bug, digging: this.dig.active, digSpot: !!this.dig.spotHere() });
     const portal = yields ? undefined : portalNear(this.map, me.x, me.y);
     if (portal) return { x: portal.x, y: portal.y - 1, text: `F 포탈 이동${portal.label ? `: ${portal.label}` : ''}`, kind: 'portal' };
-    // 경마공원: 발매소 창구 옆에서 마권 구매 판, 예시장 펜스 옆에서 가장 가까운 출전마 카드 (포탈 다음. 포탈 옆에서는 포탈이 먼저다)
+    // 경마공원: 발매소 창구 옆에서 마권 구매 판 (포탈 다음. 포탈 옆에서는 포탈이 먼저다).
+    //  대기장 옆에서 F 로 말 정보를 보던 것은 맵을 줄이면서 없앴다 (2026-11-24 저장소 주인 결정: 대기장이 주로 안쪽이라 옆에 설 자리가 없다. 말 정보는 마권 판의 '정보' 단추)
     if (this.mapId === RACE_PARK_MAP_ID) {
       const teller = this.derbyTellers.find((z) => nearZone(z, me.x, me.y, 1));
-      const pg = this.derbyPaddockGate();
       // 관람석 앞에서는 앉기가 먼저 (발매소 창구가 앉기를 가리지 않게)
-      if ((teller || pg) && this.seatAhead()) { const st = this.seatAhead()!; return { x: st.x, y: st.y, text: 'F 앉기', kind: 'sit' }; }
-      if (teller) return { x: teller.x, y: teller.y - 1, text: 'F 마권 구매', kind: 'teller' };
-      if (pg) return { x: pg.x, y: pg.y, text: `F ${pg.gate}번 ${pg.name} 정보 보기`, kind: 'paddock' };
+      if (teller && this.seatAhead()) { const st = this.seatAhead()!; return { x: st.x, y: st.y, text: 'F 앉기', kind: 'sit' }; }
+      // 안내 글자의 자리: 창구가 내 아래 줄이면 창구 칸을 가리킨다 (render 가 내 이름표 아래로 내린다). 창구 위 칸에 그리면 그 칸에 선 내 머리를 덮는다.
+      //  줄인 맵의 창구는 둘 다 북쪽 칸에 서서 쓴다. 그 밖(창구가 내 위나 옆)에는 전처럼 창구 위 칸
+      if (teller) return { x: teller.x, y: teller.y > me.y ? teller.y : teller.y - 1, text: 'F 마권 구매', kind: 'teller' };
     }
     const room = this.map.zones.find((z) => primaryOnlyRoom(this.mapId, z) && nearZone(z, me.x, me.y, 1));
     if (room) return { x: room.x, y: room.y - 1, text: PRIMARY_ONLY_ROOM_MSG, kind: 'sign' };
@@ -1555,7 +1526,6 @@ export class World implements WorldCtx {
     else if (ch.kind === 'sign') { this.input.releaseAll(); this.openFishBook(); }
     else if (ch.kind === 'link') this.openGameLink();
     else if (ch.kind === 'photo') this.openPhoto();
-    else if (ch.kind === 'paddock') this.openDerbyRunnerCard();
     else if (ch.kind === 'teller') this.openDerbyTeller(); // 차후 클라이언트 로직이 구매 판으로 잇는다
   }
   // 바깥 게임 오락기 가운데 가장 가까운 것 (옆 1칸, 대각선 포함)

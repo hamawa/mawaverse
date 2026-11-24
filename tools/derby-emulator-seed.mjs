@@ -47,8 +47,8 @@ export const SEED = Object.freeze({
   player: { id: 'racer', pw: 'racer1234', nick: '경마손님', avatar: 'm01', coins: 100000 },
   admin: { id: 'admin', pw: 'admin1234', nick: '관리자', avatar: 'f01' },
   secretDays: 2,
-  // 경마공원 관람석 뒤 창구(62,44) 바로 앞 (map.ts RACE_TELLERS). 3 = 위를 본다
-  spawn: { x: 62, y: 45, d: 3, m: 'race-park' },
+  // 경마공원 관람석 뒤 창구(18,32) 바로 앞 (map.ts RACE_TELLERS. 창구의 북쪽 칸에 선다). 0 = 아래(창구)를 본다
+  spawn: { x: 18, y: 31, d: 0, m: 'race-park' },
   // 광장 경마분점(카지노 방 zone x 35~40 · y 6~9, map.ts buildCoffeeStreet)의 첫 자리. 시험(tests/derby-e2e)이 여기 앉아 분점에서 산다
   branchSeat: { x: 35, y: 6 },
   // --branch: 다음 로그인 때 광장 경마분점 문 앞(zone exit 38,10. 기본 맵이라 m 을 싣지 않는다)에서 시작한다. 3 = 위(문)를 본다

@@ -219,11 +219,17 @@ async function contract(store, expect) {
     const bad = purchase(); bad[`race/t/${N}/${U}/00`] = { t, s1: a, ...(b === undefined ? {} : { s2: b }), a: 100, od: 10 };
     await deny(label, U, bad);
   }
-  { // 관람석 뒤 창구(62,44) 앞 (62,45): 공원 맵 84×49 어디서나 살 수 있다
-    const f = fixture(); f.players[U].x = 62; f.players[U].y = 45; f.occ = { 'race-park~62_45': U };
-    await reset(f); await allow('stands teller spot in the east half of the park', U, purchase());
-    f.players[U].x = 84; f.occ = { 'race-park~84_45': U };
-    await reset(f); await deny('outside the park map', U, purchase());
+  { // 관람석 뒤 창구(18,32) 앞 (18,31), 동남쪽 구석 (36,31): 공원 맵 38×34 어디서나 살 수 있다. 맵 밖 좌표는 안 된다 (2026-11-24 에 84×49 에서 줄였다)
+    const f = fixture(); f.players[U].x = 18; f.players[U].y = 31; f.occ = { 'race-park~18_31': U };
+    await reset(f); await allow('teller spot behind the stands', U, purchase());
+    f.players[U].x = 36; f.players[U].y = 31; f.occ = { 'race-park~36_31': U };
+    await reset(f); await allow('far corner of the park', U, purchase());
+    f.players[U].x = 38; f.occ = { 'race-park~38_31': U };
+    await reset(f); await deny('outside the park map (x)', U, purchase());
+    f.players[U].x = 18; f.players[U].y = 34; f.occ = { 'race-park~18_34': U };
+    await reset(f); await deny('outside the park map (y)', U, purchase());
+    f.players[U].x = 62; f.players[U].y = 31; f.occ = { 'race-park~62_31': U }; // 옛 큰 맵의 자리
+    await reset(f); await deny('a spot of the old 84x49 map', U, purchase());
   }
   await reset(); await deny('stake must be a 100 multiple', U, purchase(N, '00', 150));
   await deny('odds must match pinned profile', U, { ...purchase(), [`race/t/${N}/${U}/00`]: { t: 'W', s1: '0', a: 100, od: 999999 } });

@@ -71,6 +71,7 @@ const instantPay = `(${isJackpot} ? ${SLOT_JP} : (data.child('ik').val() == 's' 
 const DERBY_CYCLE_MS = 360000, DERBY_SALE_MS = 240000;
 const DERBY_TICKET_MIN = 100, DERBY_TICKET_STEP = 100, DERBY_MAX_PARK = 10000, DERBY_MAX_BRANCH = 5000; // 기본 한도 (2026-11-24 저장소 주인 결정: 지갑 가운데 값이 2만이라 낮게 시작한다. 올릴 때는 관리자 설정 config/raceMax)
 const DERBY_SCENARIOS = 10000, DERBY_DRAW_SLOTS = 4;
+const DERBY_PARK_W = 38, DERBY_PARK_H = 34; // 경마공원 맵 크기: src/game/map.ts 의 RACE_PARK_W · RACE_PARK_H 와 같아야 한다 (tests/maps.test.mjs 가 대조. 2026-11-24 에 84×49 에서 줄였다)
 const DERBY_RACE_KEY = 'newData.isString() && newData.val().matches(/^[1-9][0-9]{0,11}$/)'; // 지갑 kd·kn: 경주 번호 (경로에 쓰므로 숫자 글자만)
 const DERBY_TICKET_KEY = 'newData.isString() && newData.val().matches(/^[0-9][0-9]$/)';     // 지갑 kb·kr: 마권 번호 '00'~'99'
 
@@ -382,7 +383,7 @@ function derbyBlocks(ind) {
   const PL = (k) => `root.child('players/' + $uid + '/${k}').val()`;
   const cap = (k, def) => `(root.child('config/raceMax/${k}').isNumber() ? root.child('config/raceMax/${k}').val() : ${def})`;
   // 공원: 접속 표시가 공원 맵이고 그 자리를 실제로 차지하고 있다. 분점: 기본 맵의 경마분점(zone casino) 방에 들어가 있고(presence r · 방 명단) 그 자리를 차지하고 있다
-  const park = `(${PL('m')} == 'race-park' && ${PL('x')} >= 0 && ${PL('x')} < 84 && ${PL('y')} >= 0 && ${PL('y')} < 49 && root.child('occ/race-park~' + ${PL('x')} + '_' + ${PL('y')}).val() == $uid && ${WN}.child('kt').val() <= ${cap('park', DERBY_MAX_PARK)})`;
+  const park = `(${PL('m')} == 'race-park' && ${PL('x')} >= 0 && ${PL('x')} < ${DERBY_PARK_W} && ${PL('y')} >= 0 && ${PL('y')} < ${DERBY_PARK_H} && root.child('occ/race-park~' + ${PL('x')} + '_' + ${PL('y')}).val() == $uid && ${WN}.child('kt').val() <= ${cap('park', DERBY_MAX_PARK)})`;
   const branch = `((!root.child('players/' + $uid + '/m').exists() || ${PL('m')} == 'main') && ${PL('r')} == 'casino' && root.child('rooms/casino/members/' + $uid).exists() && ${PL('x')} >= 35 && ${PL('x')} < 41 && ${PL('y')} >= 6 && ${PL('y')} < 10 && root.child('occ/' + ${PL('x')} + '_' + ${PL('y')}).val() == $uid && ${WN}.child('kt').val() <= ${cap('branch', DERBY_MAX_BRANCH)})`;
   const legs = `((${N('t')} == 'W' || ${N('t')} == 'P') ? !newData.hasChild('s2') : (newData.hasChild('s2') && (${N('t')} == 'E' ? ${N('s1')} != ${N('s2')} : ${N('s1')} < ${N('s2')})))`;
   const ticket = [
