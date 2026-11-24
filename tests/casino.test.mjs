@@ -60,7 +60,7 @@ const NOW = FB.now;
 // at % 5 가 말 번호: 2번 말이 이기는 마감 시각
 const atFor = (horse, near) => { let at = near; while (winnerOf(at) !== horse) at--; return at; };
 
-function rig({ rounds = {}, wallet = {}, room = 'casino' } = {}) {
+function rig({ rounds = {}, wallet = {}, room = 'casino', start = true } = {}) {
   FB.rounds = structuredClone(rounds); FB.sets = []; FB.now = NOW;
   const calls = { bets: [], claims: [], toasts: [] };
   const w = {
@@ -74,10 +74,11 @@ function rig({ rounds = {}, wallet = {}, room = 'casino' } = {}) {
     events: { emit: () => {} },
   };
   const mgr = new CasinoMgr(w);
-  mgr.start();
+  FB.listener = null;
+  if (start) mgr.start();
   // 화면은 최신 라운드 하나만 본다
   const show = () => { const k = Object.keys(FB.rounds).sort().at(-1); FB.listener({ forEach: (f) => { if (k) f({ key: k, val: () => structuredClone(FB.rounds[k]) }); } }); };
-  show();
+  if (start) show();
   return { mgr, w, calls, show };
 }
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -160,6 +161,25 @@ test('내 배팅이 최신이 아닌 라운드에 남았으면: 끝나기 전에
   await flush(); await flush(); await flush();
   assert.ok(FB.sets.includes('casino/r/R0/at'), '최신이 아닌 내 라운드를 닫았다');
   assert.deepEqual(calls.claims, [['R0', payoutOf(300)]]);
+});
+
+test('경마분점 전환 뒤(라운드 구독 없이 tick 만): 지난 배팅의 배당을 받고, 안 닫힌 내 라운드는 때가 되면 닫고 받으며, 새 라운드는 열지 않는다', async () => {
+  const at = atFor(2, NOW - 3600000);
+  const won = rig({ rounds: { R0: { o: at - BET_MS, by: 'me', at, bets: { me: { h: 2, a: 300, n: '나' } } } }, wallet: { cb: 'R0' }, start: false });
+  assert.equal(FB.listener, null, '라운드를 구독하지 않는다');
+  won.mgr.tick();
+  await flush(); await flush();
+  assert.deepEqual(won.calls.claims, [['R0', payoutOf(300)]]);
+  assert.deepEqual(FB.sets, []);
+  const open = rig({ rounds: { R0: { o: NOW - 5000, by: 'me', bets: { me: { h: 2, a: 300, n: '나' } } } }, wallet: { cb: 'R0' }, start: false });
+  open.mgr.tick();
+  await flush(); await flush();
+  assert.deepEqual(FB.sets, [], '배팅 중인 라운드는 아직 닫지 않는다');
+  FB.now = atFor(2, NOW + BET_MS);
+  open.mgr.tick();
+  await flush(); await flush(); await flush();
+  assert.deepEqual(FB.sets, ['casino/r/R0/at']);
+  assert.deepEqual(open.calls.claims, [['R0', payoutOf(300)]]);
 });
 
 test('이미 받은 라운드는 다시 읽지도 받지도 않는다', async () => {

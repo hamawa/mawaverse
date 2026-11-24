@@ -4,9 +4,10 @@ export const GARDEN_MAP_ID = 'portal-garden';
 export const GOLD_MINE_MAP_ID = 'gold-mine';
 export const CLUB_MAP_ID = 'club';     // 클럽 (2026-11-18, 사용자 제안): 춤추는 펫, 신나는 음악, 이모트가 전부 춤이 되는 방
 export const WINTER_MAP_ID = 'winter'; // 겨울 얼음 낚시터: 전용 물고기 풀(shared/winter.ts)과 얼음 낚싯대 계열만 쓰는 코드에 든 맵
+export const RACE_PARK_MAP_ID = 'race-park'; // 경마공원 (2026-11-23): 6분 주기 경마 쇼가 열리는 코드에 든 맵. 말은 그림으로만 다니고 유저 칸을 차지하지 않는다
 // 코드에 든 맵(저장된 maps/{id} 가 아니라 빌더로 만든다). 늘릴 때 같이 고칠 곳: portal.ts mapSource·MAP_INFO, map.ts isReservedMapId, world.ts loadMap,
-// database.rules.json 의 players/$uid/m 검증(글자로 들어 있다), 관리자 편집기 불러오기 목록, dev/main.ts
-export const BUILTIN_MAP_IDS: readonly string[] = [GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID];
+// database.rules.json 의 players/$uid/m 검증(글자로 들어 있다. 규칙 담당이 'race-park' 를 넣는다), 관리자 편집기 불러오기 목록, dev/main.ts
+export const BUILTIN_MAP_IDS: readonly string[] = [GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, RACE_PARK_MAP_ID];
 
 export function isMapId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9_-]{1,20}$/i.test(value);

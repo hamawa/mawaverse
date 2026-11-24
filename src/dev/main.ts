@@ -3,9 +3,11 @@ import '../styles.css';
 import { Engine } from '../game/engine';
 import { Input } from '../game/input';
 import { render, poseForEmote, type Entity, type RenderState } from '../game/render';
-import { buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, isWalkable, isWater, isFishable, roomAt, portalNear, portalDests, labelAt, type MapData } from '../game/map';
-import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID } from '../shared/maps';
+import { buildDefaultMap, buildPortalGarden, buildGoldMine, buildWinterMap, buildClubMap, buildRaceParkMap, isWalkable, isWater, isFishable, roomAt, portalNear, portalDests, labelAt, type MapData } from '../game/map';
+import { MAIN_MAP_ID, GARDEN_MAP_ID, GOLD_MINE_MAP_ID, WINTER_MAP_ID, CLUB_MAP_ID, RACE_PARK_MAP_ID } from '../shared/maps';
 import { destView, MAP_INFO } from '../game/portal';
+import { derbyFrame, derbyCaption, derbySoundEvents, derbyHoofActive, mockDerbyField, mockDerbyResult, derbyDistanceFor, drawDerbyMini, DERBY_CYCLE_MS, DERBY_HOOF_INTERVAL_MS } from '../game/derbyshow';
+import { sfx } from '../game/audio';
 import { WinterPlay } from '../game/winterplay';
 import { snowActive } from '../shared/snowpenalty';
 import { SnowfightState, snowGateAt, snowfightAction, planSnowThrow, snowStillThere, SNOW_PACK_HINT, SNOW_THROW_HINT } from '../game/snowfight';
@@ -26,7 +28,7 @@ const mode = location.hash === '#gallery' ? 'gallery' : 'play';
 const locBadge = el('span', { style: 'font-weight:bold;color:#38bdf8;margin-left:8px', text: '📍 위치: 중앙 광장 (기본 맵)' });
 const nav = el('div', { style: 'padding:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, [
   el('a', { href: '#play', text: '플레이그라운드' }), el('span', { text: ' | ' }), el('a', { href: '#gallery', text: '캐릭터 갤러리 (150)' }),
-  el('span', { class: 'muted', text: '  방향키 이동, F 상호작용/포탈 이동, J 정원, K 금광, I 겨울 (그래픽 미리보기)' }),
+  el('span', { class: 'muted', text: '  방향키 이동, F 상호작용/포탈 이동, J 정원, K 금광, I 겨울, R 경마공원 (그래픽 미리보기)' }),
   locBadge,
 ]);
 app.append(nav);
@@ -76,6 +78,7 @@ if (mode === 'gallery') {
     [GOLD_MINE_MAP_ID]: buildGoldMine(),
     [WINTER_MAP_ID]: buildWinterMap(),
     [CLUB_MAP_ID]: buildClubMap(),
+    [RACE_PARK_MAP_ID]: buildRaceParkMap(),
   };
   const requestedMap = new URLSearchParams(location.search).get('map');
   let currentMapId: string = requestedMap && Object.hasOwn(maps, requestedMap) ? requestedMap : MAIN_MAP_ID;
@@ -208,6 +211,7 @@ if (mode === 'gallery') {
     k: [GOLD_MINE_MAP_ID, 12, 13],
     i: [WINTER_MAP_ID, 20, 19],
     u: [CLUB_MAP_ID, 10, 12],
+    r: [RACE_PARK_MAP_ID, 4, 44],
   };
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
@@ -218,6 +222,27 @@ if (mode === 'gallery') {
     }
   });
   (window as unknown as { __dev: unknown }).__dev = { me, others, input, get to() { return to; }, get currentMapId() { return currentMapId; }, get map() { return map; }, get winter() { return winter; }, switchMap, get snow() { return snow; }, get glovesOn() { return glovesOn; }, dummies };
+  // 경마공원 쇼 미리보기: 6분 주기 자막·소리·미니 중계 + 시간 스크럽·배속 (목 출전표·목 결과. 실제 데이터는 Lead 가 연결 예정)
+  const derbyUi = { n: 3, ms: 20000, speed: 8, playing: true, prev: 20000, hoofAt: 0 };
+  const derbyBar = document.createElement('div');
+  derbyBar.style.cssText = 'display:flex;gap:8px;align-items:center;padding:6px 8px;background:#0d1510;flex-wrap:wrap';
+  const derbyPlayBtn = document.createElement('button');
+  derbyPlayBtn.textContent = '⏸ 쇼 정지';
+  derbyPlayBtn.onclick = () => { derbyUi.playing = !derbyUi.playing; derbyPlayBtn.textContent = derbyUi.playing ? '⏸ 쇼 정지' : '▶ 쇼 재생'; };
+  const derbyScrub = document.createElement('input');
+  derbyScrub.type = 'range'; derbyScrub.min = '0'; derbyScrub.max = '360'; derbyScrub.step = '0.5'; derbyScrub.value = '20'; derbyScrub.style.width = '220px'; derbyScrub.title = '주기 안 시각 (초)';
+  derbyScrub.oninput = () => { derbyUi.ms = Number(derbyScrub.value) * 1000; derbyUi.prev = derbyUi.ms; };
+  const derbySpeed = document.createElement('select');
+  for (const s of [1, 4, 8, 30, 60]) { const o = document.createElement('option'); o.value = String(s); o.textContent = `×${s}`; if (s === 8) o.selected = true; derbySpeed.append(o); }
+  derbySpeed.onchange = () => { derbyUi.speed = Number(derbySpeed.value); };
+  const derbyNext = document.createElement('button');
+  derbyNext.textContent = '다음 경주'; derbyNext.title = '경주 번호를 올려 목 출전표·결과를 바꾼다';
+  derbyNext.onclick = () => { derbyUi.n += 1; derbyUi.ms = 0; derbyUi.prev = 0; };
+  const derbyPhase = document.createElement('span'); derbyPhase.className = 'muted';
+  const derbyCap = document.createElement('span'); derbyCap.style.fontWeight = 'bold'; derbyCap.style.color = '#ffd84d';
+  const derbyMini = document.createElement('canvas'); derbyMini.width = 168; derbyMini.height = 104; derbyMini.style.imageRendering = 'pixelated'; derbyMini.title = '분점 중계 (미니)';
+  derbyBar.append(derbyPlayBtn, derbyScrub, derbySpeed, derbyNext, derbyPhase, derbyCap, derbyMini);
+  nav.append(derbyBar);
   const rooms: RenderState['rooms'] = { casino: { cap: 10, round: 1, state: 'open', members: { a: { n: '철수', ready: false, losses: 0, at: 1 } } } };
   eng.start((_dt, now) => {
     if (now - lastFrameAt > 500) winter.resetSlide(); // 뒤쪽 탭이었다가 돌아온 첫 프레임: 밀린 미끄러짐을 따라잡지 않는다
@@ -265,8 +290,23 @@ if (mode === 'gallery') {
     snow.sync(snowGate()); // 장갑을 빼거나 겨울 맵을 벗어나면 뭉친 눈이 사라진다
     me.snowReady = snow.packed;
     while (flights.length && now - flights[0].start > 480) flights.shift();
+    // 경마공원 쇼: 공원에 있을 때만 목 출전표로 6분 주기를 돌린다 (자막·소리·미니 포함)
+    let derbyView = null;
+    if (currentMapId === RACE_PARK_MAP_ID) {
+      if (derbyUi.playing) derbyUi.ms = (derbyUi.ms + _dt * derbyUi.speed) % DERBY_CYCLE_MS;
+      const derbyField = mockDerbyField(derbyUi.n), derbyRes = mockDerbyResult(derbyUi.n);
+      const derbyDist = derbyDistanceFor(derbyUi.n);
+      derbyView = derbyFrame({ n: derbyUi.n, ms: derbyUi.ms, distance: derbyDist, runners: derbyField, result: derbyRes });
+      for (const s of derbySoundEvents(derbyUi.prev, derbyUi.ms)) { try { sfx(s); } catch { /* 미리보기: 소리 실패 무시 */ } }
+      if (derbyHoofActive(derbyUi.ms) && derbyUi.ms - derbyUi.hoofAt >= DERBY_HOOF_INTERVAL_MS) { derbyUi.hoofAt = derbyUi.ms; try { sfx('hoof', { vol: 0.5 }); } catch { /* 미리보기: 소리 실패 무시 */ } }
+      derbyUi.prev = derbyUi.ms;
+      derbyPhase.textContent = `${derbyView.phase} ${Math.floor(derbyUi.ms / 60000)}:${String(Math.floor(derbyUi.ms / 1000) % 60).padStart(2, '0')} (${derbyUi.n}경주)`;
+      derbyCap.textContent = derbyCaption(derbyUi.ms, { n: derbyUi.n, distance: derbyDist, runners: derbyField, result: derbyRes });
+      if (document.activeElement !== derbyScrub) derbyScrub.value = String(derbyUi.ms / 1000);
+      drawDerbyMini(derbyMini, { n: derbyUi.n, ms: derbyUi.ms, distance: derbyDist, runners: derbyField, result: derbyRes });
+    }
     const loc = labelAt(map, to.x, to.y) || MAP_INFO[currentMapId]?.name || '광장';
     locBadge.textContent = `📍 위치: ${loc} (${map.name})`;
-    render(eng, { map, entities: [me, ...(currentMapId === MAIN_MAP_ID ? others : currentMapId === WINTER_MAP_ID ? dummies : [])], rooms, now, serverNow: Date.now(), hint, bugs: [], tosses: flights, snow: winter.views(now) });
+    render(eng, { map, entities: [me, ...(currentMapId === MAIN_MAP_ID ? others : currentMapId === WINTER_MAP_ID ? dummies : [])], rooms, now, serverNow: Date.now(), hint, bugs: [], tosses: flights, snow: winter.views(now), derby: derbyView });
   });
 }

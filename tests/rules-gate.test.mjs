@@ -184,6 +184,7 @@ await expect('맵: 저장된 맵 ID 허용', 'allow', () => ok.ref('players/OK/m
 await expect('맵: 코드에 든 금광 맵 허용', 'allow', () => ok.ref('players/OK/m').set('gold-mine'));
 await expect('맵: 겨울 맵(winter) 허용', 'allow', () => ok.ref('players/OK/m').set('winter'));
 await expect('맵: 겨울 맵과 비슷한 이름은 저장된 맵이 없으면 거부', 'deny', () => ok.ref('players/OK/m').set('winter2'));
+await expect('맵: 저장본 없이 내 경마공원 위치 갱신 허용', 'allow', () => ok.ref('players/OK/m').set('race-park'));
 await expect('맵: 채광 중 표시는 true 만', 'allow', () => ok.ref('players/OK/mn').set(true));
 await expect('맵: 채광 중 표시에 다른 값', 'deny', () => ok.ref('players/OK/mn').set(1));
 await expect('맵: 채광 중 표시 지우기', 'allow', () => ok.ref('players/OK/mn').remove());
@@ -253,6 +254,16 @@ await root.ref().update({ 'logs/chat/darklog1': null, 'wallet/OK': { c: 0, e: 0,
 await expect('빠따: 방어 깨짐 표시(풀리는 시각)', 'allow', () => other.ref('players/OTHER/gb').set(Date.now() + 60000));
 await expect('빠따: 방어 깨짐 표시가 너무 먼 미래', 'deny', () => other.ref('players/OTHER/gb').set(Date.now() + 3600000));
 await expect('빠따: 방어 깨짐 표시에 숫자가 아닌 값', 'deny', () => other.ref('players/OTHER/gb').set(true));
+// 펫 먹이 (px): 먹이 결제(b='petfood')에서 pp 의 펫만 오른다. 그 밖의 쓰기는 px 를 못 바꾼다 (지갑 규칙이 맨 위에서 한 번 묻는다)
+await root.ref().update({ 'wallet/OK': { c: 10000, e: 10000, b: 'petfood', pp: 'petdog', px: { petdog: 2 } }, 'config/prices/petfood': 10, 'config/prices/bait': 5 });
+await expect('펫 먹이: 돈 안 내고(b 는 petfood 그대로) 경험치 올리기', 'deny', () => ok.ref('wallet/OK/px/petdog').set(3));
+await expect('펫 먹이: 획득하면서 경험치 올리기', 'deny', () => ok.ref('wallet/OK').update({ c: 10010, e: 10010, 'px/petdog': 3 }));
+await expect('펫 먹이: 미끼를 사면서 경험치 끼워 넣기', 'deny', () => ok.ref('wallet/OK').update({ c: 9995, sp: 5, b: 'bait', bait: 1, 'px/petdog': 3 }));
+await expect('펫 먹이: 먹이면서 다른 펫 경험치 끼워 넣기', 'deny', () => ok.ref('wallet/OK').update({ c: 9982, sp: 18, b: 'petfood', pp: 'petdog', 'px/petdog': 3, 'px/petcat': 5 }));
+await expect('펫 먹이: 값이 모자람 (먹은 수만큼 오른 값)', 'deny', () => ok.ref('wallet/OK').update({ c: 9990, sp: 10, b: 'petfood', pp: 'petdog', 'px/petdog': 3 }));
+await expect('펫 먹이: 1개 (10 + 4×2)', 'allow', () => ok.ref('wallet/OK').update({ c: 9982, sp: 18, b: 'petfood', pp: 'petdog', 'px/petdog': 3 }));
+await expect('펫 먹이: 미끼 구매는 경험치를 그대로 두면 된다', 'allow', () => ok.ref('wallet/OK').update({ c: 9977, sp: 23, b: 'bait', bait: 1 }));
+await root.ref().update({ 'config/prices/petfood': null, 'config/prices/bait': null });
 await root.ref('wallet/OK').remove();
 await root.ref().update({
   'mafia/game/st': 'day',
@@ -1424,6 +1435,9 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('도감 목록: 모르는 시간대', 'deny', () => admin.ref('fish/defs/x3').set(def('storm')));
   await root.ref().update({ users: null, wallet: null, 'fish/contest': null, 'fish/cprize': null, 'fish/defs': null, 'bug/defs': null, 'approved/THIRD': null, 'approved/OTHER': null });
 }
+
+const { derbyEmulatorCases } = await import('./derby-rules.test.mjs');
+await derbyEmulatorCases({ root, as, expect });
 
 console.log(`규칙 시험: 통과 ${pass} · 실패 ${fail}`);
 process.exit(fail ? 1 : 0);
