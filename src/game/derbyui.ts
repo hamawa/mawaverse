@@ -1,4 +1,5 @@
 // 경마공원 마권 패널 (2026-11-23): 공원(`race-park`)과 분점(`casino` 방) 공용 구매 UI.
+// 2026-11-25: 한 화면에 전부 늘어놓던 것을 탭 넷(구매 · 출마표 · 배당 · 내 마권)으로 나누고, PC 에서는 제목 줄을 끌어 옮긴다 (저장소 주인 요청. 아래 "탭" 머리말)
 // SPEC "경마공원 > 마권 구매"가 상품 계약이다. 이 파일은 순수 뷰+선택 상태만 들고,
 // 숫자·판정·지갑·Firebase는 전부 호스트(컨트롤러)가 준다. 계산을 복제하지 않는다.
 //
@@ -190,6 +191,36 @@ function statusText(s: DerbyRaceStatus): string {
   return '미발매';
 }
 
+// ---- 탭 (2026-11-25, 저장소 주인 요청: 한 화면에 전부 담겨 조잡했고 폰에서는 길게 스크롤해야 했다) ----
+// 구매: 승식·마번·금액·즉시 구매 / 출마표: 말 여덟 마리의 정보 / 배당: 두 마리 승식의 배당표 / 내 마권: 산 마권과 결과.
+// 탭 하나의 내용은 폰(402×714)에서도 스크롤 없이 한 화면에 든다 (derbyui.css 머리말의 높이 계산)
+export type DerbyTab = 'buy' | 'card' | 'odds' | 'mine';
+export const DERBY_TABS: readonly DerbyTab[] = ['buy', 'card', 'odds', 'mine'];
+const TAB_LABEL: Record<DerbyTab, string> = { buy: '구매', card: '출마표', odds: '배당', mine: '내 마권' };
+const GRID_KINDS: readonly DerbyBetKind[] = ['Q', 'E', 'R']; // 배당 탭의 표: 두 마리 승식 (단승·연승 배당은 출마표와 마번 단추에 있다)
+// 승식 한 줄 설명 (구매 탭. 적중 판정은 shared/derby/tickets.ts ticketWins)
+export const DERBY_KIND_HELP: Record<DerbyBetKind, string> = {
+  W: '1등 할 말 한 마리를 맞혀요.',
+  P: '3등 안에 들 말 한 마리를 맞혀요.',
+  Q: '1·2등 두 마리를 맞혀요. 순서는 상관없어요.',
+  E: '1등과 2등을 순서대로 맞혀요.',
+  R: '3등 안에 들 두 마리를 맞혀요. 순서는 상관없어요.',
+};
+const NOT_SELLING = '지금은 발매 중이 아니에요.';
+const STAKE_CHIPS: ReadonlyArray<readonly [number, string]> = [[100, '100'], [500, '500'], [1000, '1천'], [5000, '5천'], [10000, '1만']];
+
+// ---- PC: 제목 줄을 끌어 옮기기 ----
+const PHONE_QUERY = '(max-width: 760px)'; // derbyui.css 의 폰 배치와 같은 기준. 이 너비에서는 자리를 CSS 가 정한다 (끌지 않는다)
+export const DERBY_DRAG_TOP = 48;  // 위쪽 한계: 위쪽 버튼 줄 아래 (CSS 의 처음 자리 top 과 같다. 창이 버튼 줄보다 앞에 그려져서 그 위로 가면 버튼을 가린다)
+export const DERBY_DRAG_KEEP = 56; // 아래쪽 한계: 제목 줄(두 줄)은 화면 안에 남는다 (다시 잡아 옮길 수 있게)
+// 끌어 옮긴 자리를 화면 안에 가둔다. x·y = 창의 왼쪽 위 (부모 안의 px), w = 창 너비, pw·ph = 부모(게임 화면) 크기
+export function derbyClampPos(x: number, y: number, w: number, pw: number, ph: number): { x: number; y: number } {
+  return {
+    x: Math.round(Math.max(0, Math.min(x, pw - w))),
+    y: Math.round(Math.max(DERBY_DRAG_TOP, Math.min(y, ph - DERBY_DRAG_KEEP))),
+  };
+}
+
 export class DerbyPanel {
   private root: HTMLElement | null = null;
   private off: (() => void) | null = null;
@@ -199,14 +230,21 @@ export class DerbyPanel {
   private mini: HTMLCanvasElement | null = null;
   private miniBase = 0; // show.ms 기준점
   private miniAt = 0; // 기준점을 잡은 시각
+  private tab: DerbyTab = 'buy';
   private kind: DerbyBetKind = 'W';
+  private gridKind: DerbyBetKind = 'Q'; // 배당 탭에서 보는 승식
   private legs: number[] = [];
   private selectionRace: number | null = null;
   private stakeText = String(STAKE_MIN);
-  private detailGate = 0; // 말 정보 펼침 (0이면 닫힘)
+  private detailGate = 0; // 출마표에서 누른 말 (0이면 없음)
   private collapsed = false;
   private purchaseSeq = 0;
   private submitting = false;
+  // PC 에서 끌어 옮긴 자리 (게임 화면 안의 px). 창을 닫았다 열어도 이번 접속 동안은 그 자리이고, 새로고침하면 처음 자리다 (유튜브 창처럼 저장하지 않는다)
+  private pos: { x: number; y: number } | null = null;
+  private drag: { id: number; dx: number; dy: number } | null = null;
+  private seenW = 0;
+  private seenH = 0;
 
   constructor(private h: DerbyHost) {}
 
@@ -225,6 +263,7 @@ export class DerbyPanel {
     // 모바일 공원 판은 접힌 시트로 시작한다 (맵이 먼저 보여야 한다).
     if (this.h.where === 'park' && document.body.classList.contains('mobile')) this.collapsed = true;
     this.root = root;
+    this.bindDrag(root);
     this.snap = this.h.snapshot();
     if (opts?.prefillGate) this.prefill(opts.prefillGate);
     this.lastV = -1;
@@ -233,6 +272,7 @@ export class DerbyPanel {
       this.render(true);
     });
     this.render(true);
+    this.place();
     const loop = () => {
       if (!this.root) return;
       this.tick();
@@ -249,6 +289,8 @@ export class DerbyPanel {
     this.root.remove();
     this.root = null;
     this.mini = null;
+    this.bodyEl = null;
+    this.drag = null;
     document.body.classList.remove('in-derby');
   }
 
@@ -258,12 +300,71 @@ export class DerbyPanel {
     this.render(true);
   }
 
-  /** 예시장 말 카드에서 선택한 마번으로 연다. 구매는 버튼을 눌러야 한다. */
+  /** 말 하나를 골라 둔 채로 연다 (구매 탭). 구매는 버튼을 눌러야 한다. */
   prefill(gate: number): void {
     if (this.submitting || !this.snap || !Number.isInteger(gate) || gate < 1 || gate > 8) return;
     this.selectionRace = this.snap.head.n;
     this.legs = [gate];
+    this.tab = 'buy';
     this.render(true);
+  }
+
+  // ---- PC: 제목 줄을 끌어 창을 옮긴다 (2026-11-25, 저장소 주인 요청) ----
+  // 듣는 곳은 창 자신이다: 제목 줄은 다시 그릴 때마다 새로 만들어져서, 거기에 걸면 끄는 중에 스냅샷이 바뀌는 순간 끊긴다.
+  // 창·문서(window·document)에는 걸지 않는다 (포인터를 창이 붙잡아 둔다. 창이 사라지면 리스너도 같이 사라진다)
+  private movable(): boolean {
+    return typeof matchMedia === 'function' && !matchMedia(PHONE_QUERY).matches;
+  }
+  private parentBox(): { left: number; top: number; width: number; height: number } {
+    const p = this.root?.parentElement;
+    return p ? p.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+  }
+  private bindDrag(root: HTMLElement): void {
+    root.addEventListener('pointerdown', (e) => {
+      if (!this.movable() || e.button !== 0) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (!t || !t.closest('.d-head') || t.closest('button, input, a')) return; // 제목 줄의 빈 곳만 (단추는 단추대로)
+      const box = root.getBoundingClientRect(), par = this.parentBox();
+      this.drag = { id: e.pointerId, dx: e.clientX - box.left, dy: e.clientY - box.top };
+      this.pos = { x: box.left - par.left, y: box.top - par.top };
+      try { root.setPointerCapture(e.pointerId); } catch { /* 붙잡지 못해도 창 위에서는 끌린다 */ }
+      root.classList.add('dragging');
+      e.preventDefault(); // 끄는 동안 글자가 선택되지 않게
+    });
+    root.addEventListener('pointermove', (e) => {
+      const d = this.drag;
+      if (!d || e.pointerId !== d.id) return;
+      const par = this.parentBox();
+      this.pos = { x: e.clientX - d.dx - par.left, y: e.clientY - d.dy - par.top };
+      this.place();
+    });
+    const end = (e: PointerEvent): void => {
+      if (!this.drag || e.pointerId !== this.drag.id) return;
+      this.drag = null;
+      root.classList.remove('dragging');
+      try { root.releasePointerCapture(e.pointerId); } catch { /* 이미 풀렸다 */ }
+    };
+    root.addEventListener('pointerup', end);
+    root.addEventListener('pointercancel', end);
+  }
+  // 끌어 옮긴 자리를 창에 입힌다. 폰 너비에서는 자리를 CSS 가 정하므로 입힌 것을 걷는다 (창 크기가 바뀌면 tick 이 다시 부른다)
+  private place(): void {
+    const root = this.root;
+    if (!root) return;
+    this.seenW = window.innerWidth;
+    this.seenH = window.innerHeight;
+    const movable = this.movable();
+    root.classList.toggle('movable', movable);
+    if (!movable || !this.pos) {
+      root.style.left = root.style.top = root.style.right = root.style.maxHeight = '';
+      return;
+    }
+    const par = this.parentBox();
+    this.pos = derbyClampPos(this.pos.x, this.pos.y, root.offsetWidth, par.width, par.height);
+    root.style.left = `${this.pos.x}px`;
+    root.style.top = `${this.pos.y}px`;
+    root.style.right = 'auto';
+    root.style.maxHeight = `${Math.max(160, Math.round(par.height - this.pos.y - 8))}px`; // 아래로 내려도 창의 아래쪽이 화면 밖으로 나가지 않게 (넘치면 안에서 스크롤)
   }
 
   private quote(kind: DerbyBetKind, legs: number[], stake: number) {
@@ -285,6 +386,7 @@ export class DerbyPanel {
   private tick(): void {
     const snap = this.snap;
     if (!snap || !this.root) return;
+    if (window.innerWidth !== this.seenW || window.innerHeight !== this.seenH) this.place(); // 창 크기가 바뀌었다: 자리를 다시 가둔다
     const c = this.root.querySelector('[data-d="count"]');
     if (c) {
       c.textContent =
@@ -328,15 +430,21 @@ export class DerbyPanel {
     this.lastV = snap.v;
     root.replaceChildren(); // 비우기만 한다. 외부 텍스트는 el(text)→textContent로만 넣는다
     root.classList.toggle('fold', this.collapsed);
+    this.mini = null;
     this.buildHead(root, snap);
     if (!this.collapsed) {
-      this.buildSchedule(root, snap);
+      // 제목 줄 · (휴장 안내) · (분점 중계) · 탭 줄은 늘 보이고, 그 아래 한 칸에 고른 탭의 내용만 그린다
+      this.buildNotice(root, snap);
       this.buildMini(root, snap);
-      this.buildKindTabs(root, snap);
-      this.buildPurchase(snap);
-      this.buildCard(root, snap);
-      this.buildTickets(root, snap);
-      this.buildBoard(root, snap);
+      this.buildTabBar(root, snap);
+      const body = el('div', { class: `d-body t-${this.tab}` });
+      body.setAttribute('data-d', 'body');
+      root.append(body);
+      this.bodyEl = body;
+      if (this.tab === 'card') this.buildCard(snap);
+      else if (this.tab === 'odds') this.buildOdds(snap);
+      else if (this.tab === 'mine') this.buildMine(snap);
+      else this.buildBuy(snap);
     }
     if (st && scroller) {
       const now = root.querySelector('[data-d="body"]');
@@ -353,10 +461,35 @@ export class DerbyPanel {
     const head = el('div', { class: 'd-head' });
     const title = el('b', { class: 'd-title', text: this.h.where === 'branch' ? '🏇 경마 분점' : '🏇 경마공원 마권' });
     head.append(title);
-    head.append(el('span', { class: 'd-race', text: snap.head.label || `제${snap.head.n}경주` }));
-    head.append(el('span', { class: 'd-count', text: '' }));
-    const c = head.lastChild as HTMLElement;
+    // 경주 고르기: 예정표의 앞뒤 경주로 넘긴다 (전에는 시각 단추를 늘어놓아 두 줄을 차지했다)
+    const race = el('span', { class: 'd-race' });
+    const list = [...snap.schedule].sort((a, b) => a.n - b.n);
+    const at = list.findIndex((s) => s.n === snap.head.n);
+    const step = (dir: -1 | 1): HTMLElement => {
+      const to = at < 0 ? undefined : list[at + dir];
+      const b = el('button', { class: 'd-step', text: dir < 0 ? '‹' : '›', title: to ? `${to.timeLabel || `${to.n}R`} 경주 보기` : dir < 0 ? '앞 경주가 없어요' : '다음 경주가 없어요' });
+      b.setAttribute('data-dk', dir < 0 ? 'race-prev' : 'race-next');
+      b.setAttribute('aria-label', dir < 0 ? '앞 경주' : '다음 경주');
+      b.disabled = !to || this.submitting;
+      if (to) {
+        const n = to.n;
+        b.onclick = () => {
+          try {
+            this.h.selectRace(n);
+          } catch (e) {
+            this.h.toast((e as Error).message || '경주를 고르지 못했어요.', true);
+          }
+        };
+      }
+      return b;
+    };
+    const label = el('span', { class: 'd-rlab', text: snap.head.label || `제${snap.head.n}경주` });
+    if (list.length > 1) race.append(step(-1), label, step(1));
+    else race.append(label);
+    head.append(race);
+    const c = el('span', { class: 'd-count', text: '' });
     c.setAttribute('data-d', 'count');
+    head.append(c);
     // 단추는 한 상자에 모아 제목 줄의 오른쪽 위에 둔다 (derbyui.css: 제목 줄은 두 줄이다. 한 줄에 다 넣으면 넘쳐서 단추가 창 밖으로 밀려났다)
     const btns = el('span', { class: 'd-btns' });
     // 공원 판은 접었다 폈다 (모바일은 접힘 시작) 하고 ✕ 로 닫는다. 분점은 나가기로 닫는다.
@@ -389,10 +522,7 @@ export class DerbyPanel {
     }
     head.append(btns);
     root.append(head);
-    const body = el('div', { class: 'd-body' });
-    body.setAttribute('data-d', 'body');
-    root.append(body);
-    this.bodyEl = body;
+    this.bodyEl = null;
   }
 
   private bodyEl: HTMLElement | null = null;
@@ -400,53 +530,14 @@ export class DerbyPanel {
     return this.bodyEl ?? this.root!;
   }
 
-  private buildSchedule(root: HTMLElement, snap: DerbySnapshot): void {
-    void root;
-    const body = this.body();
-    if (snap.closed) {
-      body.append(el('div', { class: 'd-banner', text: '휴장 중입니다. 공원 산책은 그대로 할 수 있어요.' }));
-      // 휴장 중에도 예정·다음 경주는 보여준다 (밑에서 이어 그린다).
-    }
-    if (!snap.schedule.length) {
-      body.append(el('div', { class: 'd-banner', text: snap.card.length ? '' : '출마표를 불러오는 중…' }));
-      const b = body.lastChild as HTMLElement;
-      if (!b.textContent) b.remove();
-      return;
-    }
-    const bar = el('div', { class: 'd-sched', title: '예정 경주 (눌러서 보기)' });
-    for (const s of snap.schedule) {
-      const cur = s.n === snap.head.n;
-      const time = s.timeLabel ? `${s.timeLabel} ` : '';
-      const b = el('button', {
-        class: 'btn small' + (cur ? ' on' : ''),
-        text: s.timeLabel ? `${s.timeLabel} · ${statusText(s.status)}` : `${time}${s.n}R·${statusText(s.status)}`,
-        title: s.label || `제${s.n}경주 보기`,
-      });
-      b.setAttribute('data-dk', `sched-${s.n}`);
-      b.disabled = cur || this.submitting;
-      if (!cur) {
-        const n = s.n;
-        b.onclick = () => {
-          try {
-            this.h.selectRace(n);
-          } catch (e) {
-            this.h.toast((e as Error).message || '경주를 고르지 못했어요.', true);
-          }
-        };
-      }
-      bar.append(b);
-    }
-    const next = snap.schedule.find((s) => s.n === snap.nextN);
-    if (next && next.n !== snap.head.n) {
-      bar.append(el('span', { class: 'd-next', text: `다음 ${next.timeLabel || `${next.n}R`}` }));
-    }
-    body.append(bar);
+  // 휴장·불러오는 중 한 줄 (있을 때만)
+  private buildNotice(root: HTMLElement, snap: DerbySnapshot): void {
+    if (snap.closed) root.append(el('div', { class: 'd-banner', text: '휴장 중입니다. 공원 산책은 그대로 할 수 있어요.' }));
+    else if (!snap.schedule.length && !snap.card.length) root.append(el('div', { class: 'd-banner', text: '출마표를 불러오는 중…' }));
   }
 
   private buildMini(root: HTMLElement, snap: DerbySnapshot): void {
-    void root;
     if (this.h.where !== 'branch') return;
-    const body = this.body();
     const box = el('div', { class: 'd-mini' });
     const cv = document.createElement('canvas');
     cv.width = 296;
@@ -460,51 +551,26 @@ export class DerbyPanel {
     const cap = el('div', { class: 'd-minicap', text: snap.showCaption || snap.head.statusLabel || '' });
     cap.setAttribute('data-d', 'minicap');
     box.append(cap);
-    body.append(box);
+    root.append(box);
   }
 
-  private buildCard(root: HTMLElement, snap: DerbySnapshot): void {
-    void root;
-    const body = this.body();
-    body.append(el('div', { class: 'd-sec', text: `출마표 · ${snap.head.distance ?? ''}m` }));
-    if (!snap.card.length) {
-      body.append(el('div', { class: 'd-banner', text: '출마표가 아직 없어요. 잠시 뒤에 다시 열어 주세요.' }));
-      return;
-    }
-    const list = el('div', { class: 'd-card' });
-    for (const h of [...snap.card].sort((a, b) => a.gate - b.gate)) {
-      const row = el('div', { class: 'd-horse' + (this.detailGate === h.gate ? ' open' : '') });
-      const pick = el('button', { class: 'd-gate', text: String(h.gate), title: `${h.gate}번 선택` });
-      pick.setAttribute('data-dk', `gate-${h.gate}`);
-      paintGate(pick, h.gate);
-      pick.setAttribute('aria-pressed', this.isGateOn(h.gate) ? 'true' : 'false');
-      pick.disabled = this.submitting;
-      pick.onclick = () => this.toggleGate(h.gate);
-      row.append(pick);
-      // 마명·성별·나이·기수는 외부 텍스트이므로 textContent로만 넣는다 (el text가 그렇게 한다).
-      row.append(el('span', { class: 'd-nm', text: `${h.name}` }));
-      row.append(el('span', { class: 'd-sx', text: horseTag(h) }));
-      row.append(el('span', { class: 'd-jk', text: h.jockey }));
-      row.append(el('span', { class: 'd-odds', text: `단 ${h.winOdds} · 연 ${h.placeOdds}` }));
-      const info = el('button', { class: 'btn small', text: '정보', title: `${h.gate}번 정보` });
-      info.setAttribute('data-dk', `info-${h.gate}`);
-      info.setAttribute('aria-expanded', this.detailGate === h.gate ? 'true' : 'false');
-      info.onclick = () => {
-        this.detailGate = this.detailGate === h.gate ? 0 : h.gate;
+  private buildTabBar(root: HTMLElement, snap: DerbySnapshot): void {
+    const bar = el('div', { class: 'd-tabbar' });
+    const won = snap.tickets.some((t) => t.status === 'won');
+    for (const t of DERBY_TABS) {
+      const on = this.tab === t;
+      const b = el('button', { class: 'd-tab' + (on ? ' on' : '') + (t === 'mine' && won ? ' won' : ''), text: TAB_LABEL[t] });
+      b.setAttribute('data-dk', `tab-${t}`);
+      b.setAttribute('aria-pressed', String(on));
+      if (t === 'mine' && snap.tickets.length) b.append(el('span', { class: 'd-badge', text: String(snap.tickets.length) }));
+      b.onclick = () => {
+        if (this.tab === t) return;
+        this.tab = t;
         this.render(true);
       };
-      row.append(info);
-      if (this.detailGate === h.gate) {
-        row.append(
-          el('div', {
-            class: 'd-detail',
-            text: describeHorse(h),
-          }),
-        );
-      }
-      list.append(row);
+      bar.append(b);
     }
-    body.append(list);
+    root.append(bar);
   }
 
   private isGateOn(gate: number): boolean {
@@ -519,11 +585,37 @@ export class DerbyPanel {
     this.render(true);
   }
 
-  private buildKindTabs(root: HTMLElement, snap: DerbySnapshot): void {
-    void root;
-    void snap;
+  // 출마표·배당 탭에서 골라 구매 탭으로 넘어간다
+  private pickGate(gate: number): void {
+    if (this.submitting) return;
+    this.tab = 'buy';
+    if (this.isGateOn(gate)) this.render(true);
+    else this.toggleGate(gate);
+  }
+  private pickCombo(kind: DerbyBetKind, legs: number[]): void {
+    if (this.submitting || !this.snap) return;
+    this.kind = kind;
+    this.legs = [...legs];
+    this.selectionRace = this.snap.head.n;
+    this.tab = 'buy';
+    this.render(true);
+  }
+
+  // 마번 단추 아래의 작은 배당: 단승·연승은 그 말의 배당, 두 마리 승식은 먼저 고른 말과 짝지었을 때의 배당 (아직 안 골랐으면 비운다)
+  private chipOdds(snap: DerbySnapshot, h: DerbyCardHorse): string {
+    if (this.kind === 'W') return String(h.winOdds);
+    if (this.kind === 'P') return String(h.placeOdds);
+    const first = this.legs[0];
+    if (!first) return '';
+    if (first === h.gate) return this.kind === 'E' ? '1착' : '';
+    const cell = snap.odds[this.kind]?.[COMBO_KEY(this.kind, [first, h.gate])];
+    return cell ? String(cell.odds) : '';
+  }
+
+  // ---- 탭: 구매 ----
+  private buildBuy(snap: DerbySnapshot): void {
     const body = this.body();
-    const tabs = el('div', { class: 'd-tabs', title: '승식' });
+    const kinds = el('div', { class: 'd-kinds', title: '승식' });
     for (const k of DERBY_KINDS) {
       const b = el('button', { class: 'btn small' + (this.kind === k ? ' on' : ''), text: DERBY_KIND_LABEL[k] });
       b.setAttribute('data-dk', `kind-${k}`);
@@ -535,26 +627,22 @@ export class DerbyPanel {
         this.legs = [];
         this.render(true);
       };
-      tabs.append(b);
+      kinds.append(b);
     }
-    body.append(tabs);
-  }
-
-  private buildPurchase(snap: DerbySnapshot): void {
-    const body = this.body();
-    const pair = KIND_NEEDS_PAIR[this.kind];
-    const hint = this.kind === 'E' ? '1착, 2착 순서로 고르세요.' : pair ? '말 두 마리를 고르세요. 순서는 상관없어요.' : '말 한 마리를 고르세요.';
-    body.append(el('div', { class: 'd-hint', text: hint }));
+    body.append(kinds);
+    body.append(el('div', { class: 'd-hint', text: DERBY_KIND_HELP[this.kind] }));
+    if (!snap.card.length) body.append(el('div', { class: 'd-banner', text: '출마표가 아직 없어요. 잠시 뒤에 다시 열어 주세요.' }));
     const row = el('div', { class: 'd-pick' });
-    for (const { gate } of [...snap.card].sort((a, b) => a.gate - b.gate)) {
-      const selected = this.isGateOn(gate);
-      const b = el('button', { class: 'd-num' + (selected ? ' on' : ''), text: String(gate) });
-      b.setAttribute('data-dk', `pick-${gate}`);
-      b.setAttribute('aria-label', `${gate}번 말`);
+    for (const h of [...snap.card].sort((a, b) => a.gate - b.gate)) {
+      const selected = this.isGateOn(h.gate);
+      const b = el('button', { class: 'd-num' + (selected ? ' on' : ''), title: `${h.gate}번 ${h.name}` });
+      b.append(el('b', { text: String(h.gate) }), el('span', { class: 'd-no', text: this.chipOdds(snap, h) }));
+      b.setAttribute('data-dk', `pick-${h.gate}`);
+      b.setAttribute('aria-label', `${h.gate}번 말`);
       b.setAttribute('aria-pressed', String(selected));
-      paintGate(b, gate);
+      paintGate(b, h.gate);
       b.disabled = this.submitting;
-      b.onclick = () => this.toggleGate(gate);
+      b.onclick = () => this.toggleGate(h.gate);
       row.append(b);
     }
     body.append(row);
@@ -565,18 +653,11 @@ export class DerbyPanel {
   private buildStake(): void {
     const body = this.body();
     const row = el('div', { class: 'd-stake' });
-    row.append(el('span', { class: 'd-picklab', text: '구매 금액' }));
-    const minus = el('button', { class: 'btn small', text: '−100', title: '100 줄이기' });
-    minus.setAttribute('data-dk', 'stake-down');
-    minus.disabled = this.submitting;
-    minus.onclick = () => {
-      const stake = Number(this.stakeText);
-      this.stakeText = String(validStake(stake) ? Math.max(STAKE_MIN, stake - STAKE_STEP) : STAKE_MIN);
-      this.render(true);
-    };
+    row.append(el('span', { class: 'd-picklab', text: '금액' }));
     const input = el('input', {
       class: 'd-stakein',
       type: 'number',
+      inputmode: 'numeric',
       min: String(STAKE_MIN),
       step: String(STAKE_STEP),
       value: this.stakeText,
@@ -588,16 +669,18 @@ export class DerbyPanel {
       this.stakeText = input.value;
       if (this.snap) this.root?.querySelector('.d-quote')?.replaceWith(this.buildQuote(this.snap));
     };
-    const plus = el('button', { class: 'btn small', text: '+100', title: '100 더하기' });
-    plus.setAttribute('data-dk', 'stake-up');
-    plus.disabled = this.submitting;
-    plus.onclick = () => {
-      const stake = Number(this.stakeText);
-      this.stakeText = String(validStake(stake) && Number.isSafeInteger(stake + STAKE_STEP) ? stake + STAKE_STEP : STAKE_MIN);
-      this.render(true);
-    };
-    row.append(minus, input, plus);
-    row.append(el('span', { class: 'd-coin', text: '코인' }));
+    row.append(input);
+    // 자주 쓰는 금액: 누르면 그 금액이 된다 (다른 금액은 칸에 적는다)
+    for (const [amount, label] of STAKE_CHIPS) {
+      const b = el('button', { class: 'btn small' + (Number(this.stakeText) === amount ? ' on' : ''), text: label, title: `${ko(amount)}코인` });
+      b.setAttribute('data-dk', `stake-${amount}`);
+      b.disabled = this.submitting;
+      b.onclick = () => {
+        this.stakeText = String(amount);
+        this.render(true);
+      };
+      row.append(b);
+    }
     body.append(row);
   }
 
@@ -606,7 +689,8 @@ export class DerbyPanel {
     const kind = this.kind, stake = Number(this.stakeText);
     const { n, authEpoch: auth } = snap.head;
     const legs = kind === 'E' ? [...this.legs] : [...this.legs].sort((a, b) => a - b);
-    const ready = legs.length === (KIND_NEEDS_PAIR[kind] ? 2 : 1);
+    const pair = KIND_NEEDS_PAIR[kind];
+    const ready = legs.length === (pair ? 2 : 1);
     const quote = ready ? this.quote(kind, legs, validStake(stake) ? stake : STAKE_MIN) : null;
     const summary = el('div', { class: 'd-combo' });
     summary.setAttribute('aria-live', 'polite');
@@ -616,9 +700,19 @@ export class DerbyPanel {
     if (quote && validStake(stake)) summary.append(el('span', { class: 'd-est', text: `예상 적중금 ${ko(quote.est)}코인` }));
     box.append(summary);
     box.append(el('div', { class: 'd-total', text: `잔액 ${ko(snap.balance)} · 남은 한도 ${ko(snap.raceRemain)} · ${snap.ticketUsed}/${snap.ticketMax}장` }));
+    // 단추가 지금 할 일을 말한다: 발매 중이 아니면 그 말, 아직 덜 골랐으면 고르는 법, 살 수 없으면 까닭, 살 수 있으면 금액
     const blocked = purchaseBlock(snap, stake, this.left(snap));
-    if (ready && blocked) box.append(el('div', { class: 'd-warn', text: blocked }));
-    const go = el('button', { class: 'btn primary d-go', text: this.submitting ? '사는 중…' : validStake(stake) ? `즉시 구매 · ${ko(stake)}코인` : '즉시 구매' });
+    const hint = pair
+      ? legs.length === 1
+        ? kind === 'E' ? '2착 말을 고르세요.' : '한 마리 더 고르세요.'
+        : kind === 'E' ? '1착, 2착 순서로 고르세요.' : '말 두 마리를 고르세요.'
+      : '말 한 마리를 고르세요.';
+    const text = this.submitting ? '사는 중…'
+      : blocked === NOT_SELLING ? NOT_SELLING
+        : !ready ? hint
+          : !quote ? '배율을 확인하지 못했어요.'
+            : blocked || `즉시 구매 · ${ko(stake)}코인`;
+    const go = el('button', { class: 'btn primary d-go', text });
     go.setAttribute('data-dk', 'submit');
     go.disabled = !quote || !!blocked || this.submitting;
     if (quote) go.onclick = () => {
@@ -667,20 +761,141 @@ export class DerbyPanel {
     }
   }
 
+  // ---- 탭: 출마표 ----
+  private buildCard(snap: DerbySnapshot): void {
+    const body = this.body();
+    if (!snap.card.length) {
+      body.append(el('div', { class: 'd-banner', text: '출마표가 아직 없어요. 잠시 뒤에 다시 열어 주세요.' }));
+      return;
+    }
+    const list = el('div', { class: 'd-card' });
+    for (const h of [...snap.card].sort((a, b) => a.gate - b.gate)) {
+      const open = this.detailGate === h.gate;
+      // 한 줄 전체가 단추다 (누르면 아래에 나머지 정보). 마명·기수는 외부 텍스트이므로 textContent 로만 넣는다 (el text 가 그렇게 한다)
+      const row = el('button', { class: 'd-horse' + (open ? ' open' : '') + (this.isGateOn(h.gate) ? ' picked' : ''), title: describeHorse(h) });
+      row.setAttribute('data-dk', `info-${h.gate}`);
+      row.setAttribute('aria-pressed', String(open));
+      const chip = el('span', { class: 'd-gate', text: String(h.gate) });
+      paintGate(chip, h.gate);
+      row.append(chip);
+      row.append(el('span', { class: 'd-nm', text: `${h.name}` }));
+      row.append(el('span', { class: 'd-sx', text: horseTag(h) }));
+      row.append(el('span', { class: 'd-jk', text: h.jockey }));
+      row.append(el('span', { class: 'd-odds', text: `단 ${h.winOdds} · 연 ${h.placeOdds}` }));
+      row.onclick = () => {
+        this.detailGate = open ? 0 : h.gate;
+        this.render(true);
+      };
+      list.append(row);
+    }
+    body.append(list);
+    // 누른 말의 나머지 정보와 고르기 단추 (자리는 늘 잡아 둔다: 누를 때마다 창 높이가 바뀌지 않게)
+    const more = el('div', { class: 'd-detail' });
+    const h = snap.card.find((x) => x.gate === this.detailGate);
+    if (h) {
+      more.append(el('span', { class: 'd-dt', text: `${h.gate}번 · 레이팅 ${ko(h.rating)} · 매출 ${ko(h.sales)} · 최근 ${h.last5}` }));
+      const pick = el('button', { class: 'btn small', text: '고르기', title: `${h.gate}번을 골라 구매 탭으로` }); // 짧게: 매출이 여섯 자리면 "이 말 고르기"로는 옆의 글이 두 줄로 넘어갔다
+      pick.setAttribute('data-dk', 'card-pick');
+      pick.disabled = this.submitting;
+      pick.onclick = () => this.pickGate(h.gate);
+      more.append(pick);
+    } else {
+      more.append(el('span', { class: 'd-dt', text: '말을 누르면 레이팅과 매출이 보여요.' }));
+    }
+    body.append(more);
+  }
+
+  // ---- 탭: 배당 (복승·쌍승·복연승 마번×마번 표. 호스트 숫자 그대로) ----
+  private buildOdds(snap: DerbySnapshot): void {
+    const body = this.body();
+    const k = GRID_KINDS.includes(this.gridKind) ? this.gridKind : 'Q';
+    const sub = el('div', { class: 'd-kinds', title: '승식' });
+    for (const g of GRID_KINDS) {
+      const b = el('button', { class: 'btn small' + (k === g ? ' on' : ''), text: DERBY_KIND_LABEL[g] });
+      b.setAttribute('data-dk', `grid-${g}`);
+      b.setAttribute('aria-pressed', String(k === g));
+      b.onclick = () => {
+        if (this.gridKind === g) return;
+        this.gridKind = g;
+        this.render(true);
+      };
+      sub.append(b);
+    }
+    body.append(sub);
+    body.append(el('div', { class: 'd-hint', text: k === 'E' ? '세로가 1착, 가로가 2착이에요. 칸을 누르면 그 조합을 골라요.' : '칸을 누르면 그 두 마리를 골라요. 순서는 상관없어요.' }));
+    const grid = snap.odds[k];
+    if (!grid || !Object.keys(grid).length) {
+      body.append(el('div', { class: 'd-banner', text: '배당이 아직 없어요.' }));
+      return;
+    }
+    const sel = this.kind === k && this.legs.length === 2 ? COMBO_KEY(k, this.legs) : '';
+    const tab = el('table', { class: 'd-grid' });
+    const head = el('tr', {});
+    head.append(el('th', { class: 'd-corner', text: k === 'E' ? '1＼2' : '', title: k === 'E' ? '세로 1착 · 가로 2착' : '' })); // 짧게: "1착＼2착"은 PC 의 칸 너비(35px)에서 잘렸다
+    const gateHead = (g: number): HTMLElement => {
+      const th = el('th', { text: String(g) });
+      paintGate(th, g);
+      return th;
+    };
+    for (let c = 1; c <= 8; c++) head.append(gateHead(c));
+    tab.append(head);
+    for (let r = 1; r <= 8; r++) {
+      const tr = el('tr', {});
+      tr.append(gateHead(r));
+      for (let c = 1; c <= 8; c++) {
+        const td = el('td', {});
+        // 순서가 없는 승식은 같은 조합이 두 번 나오므로 오른쪽 위 절반만 적는다
+        if (r === c || (k !== 'E' && r > c)) {
+          td.className = 'none';
+        } else {
+          // 키는 COMBO_KEY 정규형. 옛 `r>c`식(접두사 없음)도 읽는다.
+          const key = COMBO_KEY(k, [r, c]);
+          const cell = grid[key] ?? grid[key.replace(/^[QER]:/, '')];
+          td.textContent = cell ? String(cell.odds) : '–';
+          if (cell) {
+            td.className = 'pick' + (key === sel ? ' sel' : '');
+            td.title = `${r}번${k === 'E' ? ' → ' : ' · '}${c}번 · 풀 ${ko(cell.pool)}`;
+            td.onclick = () => this.pickCombo(k, [r, c]);
+          } else {
+            td.className = 'none';
+          }
+        }
+        tr.append(td);
+      }
+      tab.append(tr);
+    }
+    body.append(tab);
+  }
+
+  // ---- 탭: 내 마권 (결과 + 산 마권) ----
   private ticketLabel(t: DerbyTicketView): string {
     const legs = t.kind === 'E' ? t.legs.join('→') : [...t.legs].sort((a, b) => a - b).join('-');
     return `${DERBY_KIND_LABEL[t.kind]} ${legs} · ${ko(t.stake)}`;
   }
 
-  private buildTickets(root: HTMLElement, snap: DerbySnapshot): void {
-    void root;
+  private buildMine(snap: DerbySnapshot): void {
     const body = this.body();
-    body.append(el('div', { class: 'd-sec', text: '내 마권' }));
+    const res = el('div', { class: 'd-result' });
+    if (snap.standings && snap.standings.length) {
+      res.append(el('span', { class: 'd-rl', text: '결과' }));
+      snap.standings.forEach((g, i) => {
+        const place = el('span', { class: 'd-place', text: `${i + 1}착` });
+        const chip = el('span', { class: 'd-chip', text: String(g) });
+        paintGate(chip, g);
+        place.append(chip);
+        res.append(place);
+      });
+    } else {
+      const s = snap.head.status;
+      res.append(el('span', { class: 'd-dt', text: s === 'settling' ? snap.head.statusLabel || '결과 집계 중…' : s === 'selling' || s === 'closed' ? '결과는 경주가 끝나면 여기에 나와요.' : '결과가 아직 없어요.' }));
+    }
+    body.append(res);
     if (!snap.tickets.length) {
-      body.append(el('div', { class: 'd-hint', text: '산 마권이 아직 없어요. 적중금은 자동으로 들어온다.' }));
+      body.append(el('div', { class: 'd-hint', text: '이 경주에 산 마권이 없어요. 적중금은 경주가 끝나면 자동으로 들어와요.' }));
       return;
     }
     const list = el('div', { class: 'd-tickets' });
+    let won = 0;
     for (const t of snap.tickets) {
       const row = el('div', { class: 'd-ticket ' + t.status });
       row.append(el('span', { class: 'd-tk', text: this.ticketLabel(t) }));
@@ -692,58 +907,13 @@ export class DerbyPanel {
             : t.status === 'pending'
               ? '대기'
               : '발매됨';
+      if (t.status === 'won') won += t.payout;
       row.append(el('span', { class: 'd-tst', text: st }));
       if (t.note) row.append(el('span', { class: 'd-err', text: t.note }));
       list.append(row);
     }
     body.append(list);
-  }
-
-  private buildBoard(root: HTMLElement, snap: DerbySnapshot): void {
-    void root;
-    const body = this.body();
-    if (snap.standings && snap.standings.length) {
-      body.append(el('div', { class: 'd-sec', text: '확정 착순' }));
-      body.append(el('div', { class: 'd-stand', text: snap.standings.map((g, i) => `${i + 1}착 ${g}번`).join(' · ') }));
-    } else if (snap.head.status === 'settling') {
-      body.append(el('div', { class: 'd-banner', text: snap.head.statusLabel || '결과 집계 중…' }));
-    }
-    // 배당판: 복승·쌍승·복연승 마번×마번 표 (호스트 숫자 그대로).
-    const gridKinds: DerbyBetKind[] = ['Q', 'E', 'R'];
-    const hasGrid = gridKinds.some((k) => snap.odds[k] && Object.keys(snap.odds[k]!).length > 0);
-    if (!hasGrid) return;
-    body.append(el('div', { class: 'd-sec', text: '배당판' }));
-    for (const k of gridKinds) {
-      const grid = snap.odds[k];
-      if (!grid || !Object.keys(grid).length) continue;
-      const wrap = el('div', { class: 'd-gridwrap' });
-      wrap.append(el('div', { class: 'd-gridlab', text: DERBY_KIND_LABEL[k] }));
-      const tab = el('table', { class: 'd-grid' });
-      const head = el('tr', {});
-      head.append(el('th', { text: '' }));
-      for (let c = 1; c <= 8; c++) head.append(el('th', { text: String(c) }));
-      tab.append(head);
-      for (let r = 1; r <= 8; r++) {
-        const tr = el('tr', {});
-        tr.append(el('th', { text: String(r) }));
-        for (let c = 1; c <= 8; c++) {
-          const td = el('td', {});
-          if (r === c) {
-            td.textContent = '–';
-          } else {
-            // 키는 COMBO_KEY 정규형. 옛 `r>c`식(접두사 없음)도 읽는다.
-            const key = COMBO_KEY(k, [r, c]);
-            const cell = grid[key] ?? grid[key.replace(/^[QER]:/, '')];
-            td.textContent = cell ? String(cell.odds) : '–';
-            td.title = cell ? `풀 ${ko(cell.pool)}` : '';
-          }
-          tr.append(td);
-        }
-        tab.append(tr);
-      }
-      wrap.append(tab);
-      body.append(wrap);
-    }
+    body.append(el('div', { class: 'd-total', text: `산 금액 ${ko(snap.spent)} · ${snap.ticketUsed}/${snap.ticketMax}장${won > 0 ? ` · 적중금 +${ko(won)}` : ''}` }));
   }
 }
 
