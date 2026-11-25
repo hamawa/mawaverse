@@ -349,6 +349,15 @@ body.dj-dock #app, body.dj-dock #casino { top: var(--dj-dock, 0px); }
 .stock-price .up { color: #ff6b6b; } .stock-price .down { color: #5aa9ff; } .stock-price .flat { color: var(--muted); }
 .stock-side { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
 .stock-spark { width: 150px; height: 40px; background: rgba(255, 255, 255, 0.04); border-radius: 6px; }
+/* 손익 순위 (2026-11-25) */
+.stock-rank { display: flex; gap: 10px; align-items: center; background: #0d1510; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; }
+.stock-rank.me { border-color: var(--accent); }
+.stock-rank .no { width: 22px; text-align: center; color: var(--muted); font-weight: bold; }
+.stock-rank .who { flex: 1; min-width: 0; }
+.stock-rank .who .nm { font-weight: bold; }
+.stock-rank .who .ds { font-size: 12px; color: var(--muted); }
+.stock-rank .sum { white-space: nowrap; }
+.stock-rank .sum.up { color: #ff6b6b; } .stock-rank .sum.down { color: #5aa9ff; }
 .shop-card .ic { font-size: 26px; line-height: 1.2; }
 .shop-card canvas { image-rendering: pixelated; }
 .shop-card .nm { font-weight: bold; font-size: 13px; }

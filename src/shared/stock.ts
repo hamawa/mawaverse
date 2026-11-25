@@ -16,6 +16,16 @@
 //
 // 거래: 지갑의 코인(c)과 보유(stock/h/{uid}/{종목}/q)를 쓰기 한 번에 바꾼다. 규칙(stock/h/{uid} 의 .validate)이 "코인이 바뀐 양 = 가격 × 수량 ∓ 수수료"를 본다.
 //  살 때는 코인만 줄이고(지갑 규칙은 코인이 줄기만 하는 쓰기를 그냥 받는다), 팔 때는 획득(e)도 같이 올린다. 지갑 규칙(gen-rules.cjs)은 건드리지 않았다
+//
+// 하락 상품 (2026-11-25, 건의 반영: "가격이 내려가는 쪽에도 투자"). 종목마다 하나씩이고 값은 그 종목의 가격에서 바로 나온다: invPrice = floor(1,000,000 / 가격).
+//  가격이 반이 되면 값은 두 배다 (1,000 → 1,000 · 500 → 2,000 · 2,000 → 500). 되돌리는 항이 위아래 대칭이라 하락 상품의 움직임도 보통 종목과 같은 성질이다.
+//  따로 굴리지 않는다: 가격 칸은 그대로이고 보유의 iq·ia 와 규칙의 금액 식만 늘었다. 규칙에는 내림이 없어 `x - x % 1` 로 적는다
+//  (1,000,000 / 가격의 소수부는 0 이거나 1/9999 이상이라 실수 오차로 값이 달라지지 않는다. tests/rules-gate 가 값마다 대조한다).
+//  값 고르기 (600일치 계산, scratch stock-sim): 오를 때도 내릴 때도 벌 수 있게 되어 "가장 잘했을 때"의 수익이 거의 두 배가 된다
+//  (세 종목 합, 한도 1,000주: 주 45만 → 86만. 한 번에 10만 코인: 7.6만 → 14.5만). 하락 상품의 수수료를 5% 로 올려도 1.8배라 수수료로는 못 막는다.
+//  그래서 하락 상품의 한도를 300주로 낮게 시작했다 (맨 위 수익 약 57만. 저장소 주인 결정). 올리기 전에 같은 계산을 다시 해 볼 것
+// 손익 순위 (같은 날, 건의 반영: "주식 수익률 공개"): 보유(stock/h)는 처음부터 누구나 읽을 수 있다. 판에서 순위를 열 때 한 번 읽어
+//  평가 손익(지금 팔면 받는 돈 − 산 값) + 실현 손익(r)으로 줄 세운다. r 은 팔 때 화면이 더하는 값이고 규칙이 대조하지 않는다(표시용. 이날부터 쌓인다)
 // 아래 숫자와 식은 database.rules.json 의 stock 블록(손으로 넣은 줄)과 같아야 한다 (tests/stock.test.mjs 가 대조, 허용·거부는 tests/rules-gate.test.mjs)
 export type StockSym = 'a' | 'b' | 'c';
 export interface StockDef { sym: StockSym; name: string; icon: string; amp: number; mul: number; desc: string }
@@ -30,11 +40,14 @@ export const TICK_MS = 300000;        // 가격이 바뀌는 간격 (5분)
 export const STOCK_BASE = 1000;       // 되돌아오는 중심 가격 (시작 가격)
 export const STOCK_MIN = 100, STOCK_MAX = 9999;
 export const STOCK_CAP = 1000;        // 종목당 보유 한도 (주). 2026-11-20 에 100 → 1000 (건의 "무한 매수"에 사용자가 정한 값. 최고 수익도 손실도 그만큼 커진다)
+export const STOCK_INV_CAP = 300;     // 하락 상품의 종목당 보유 한도 (주). 낮게 시작했다: 머리말의 계산
+export const STOCK_INV_NUM = 1000000; // 하락 상품의 값 = 이 수 / 가격 (내림). 가격 1,000 에서 값도 1,000
 export const STOCK_FEE_DIV = 50;      // 수수료 = 거래액 / 50 (2%), 올림
 export const HIST_SLOTS = 96;         // 가격 기록 칸 수 (5분 × 96 = 8시간. 굴림 번호 % 96 자리에 덮어쓴다)
 
 export interface StockPrice { v: number; at: number; sa: number }
-export interface StockHold { q: number; a?: number } // q: 보유 수, a: 산 값의 합 (평단 표시용. 규칙은 보지 않는다)
+// q: 보유 수, a: 산 값의 합 (평단 표시용. 규칙은 보지 않는다). iq·ia: 하락 상품의 보유 수·산 값의 합. r: 실현 손익의 합 (순위 표시용. 규칙은 보지 않는다)
+export interface StockHold { q?: number; a?: number; iq?: number; ia?: number; r?: number }
 
 // 다음 가격: v 에서 at(굴린 서버 시각)으로 한 번 움직인다. 규칙의 식과 연산 순서까지 같다 (둘 다 배정도 실수로 계산한다)
 export function stepPrice(v: number, at: number, sym: StockSym): number {
@@ -51,3 +64,28 @@ export const stockFee = (n: number): number => (n + STOCK_FEE_DIV - 1 - ((n + ST
 export const buyCost = (q: number, price: number): number => q * price + stockFee(q * price);   // 사는 데 드는 코인
 export const sellNet = (q: number, price: number): number => q * price - stockFee(q * price);   // 팔아서 받는 코인
 export const histIndex = (at: number): number => Math.floor(at / TICK_MS);
+// 하락 상품의 값: 종목 가격이 내리면 오른다. 규칙의 (1000000 / v - 1000000 / v % 1) 과 같다
+export const invPrice = (v: number): number => Math.floor(STOCK_INV_NUM / v);
+
+// 손익 순위의 한 줄. open: 지금 들고 있는 것의 평가 손익(지금 팔면 받는 돈 − 산 값), real: 실현 손익, pct: 들고 있는 것의 수익률(%) 또는 null(든 것이 없다)
+export interface StockRankRow { uid: string; cost: number; worth: number; open: number; real: number; total: number; pct: number | null; held: { sym: StockSym; q: number; iq: number }[] }
+export function stockRank(all: Record<string, Partial<Record<StockSym, StockHold>> | null> | null | undefined, price: (sym: StockSym) => number): StockRankRow[] {
+  const rows: StockRankRow[] = [];
+  for (const [uid, hs] of Object.entries(all || {})) {
+    let cost = 0, worth = 0, real = 0;
+    const held: StockRankRow['held'] = [];
+    for (const s of STOCKS) {
+      const h = hs?.[s.sym];
+      if (!h) continue;
+      const v = price(s.sym), q = h.q || 0, iq = h.iq || 0;
+      real += h.r || 0;
+      if (v > 0 && q > 0) { cost += h.a || 0; worth += sellNet(q, v); }
+      if (v > 0 && iq > 0) { cost += h.ia || 0; worth += sellNet(iq, invPrice(v)); }
+      if (q > 0 || iq > 0) held.push({ sym: s.sym, q, iq });
+    }
+    if (!held.length && !real) continue; // 사고판 적이 없거나 기록을 남기기 전에 다 판 사람
+    const open = worth - cost;
+    rows.push({ uid, cost, worth, open, real, total: open + real, pct: cost > 0 ? (open / cost) * 100 : null, held });
+  }
+  return rows.sort((a, b) => b.total - a.total || (a.uid < b.uid ? -1 : 1));
+}

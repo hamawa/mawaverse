@@ -1072,3 +1072,23 @@ test('캐롤: 가락의 마디 길이·화음이 맞고, 크리스마스 철에�
   assert.doesNotThrow(() => audio.setScene('main', false, true));
   audio.stopSound();
 });
+
+test('칭호: 재미 칭호 19개는 3만, 달성 칭호 2개는 조건이 있고, 빛깔을 따로 정한 것은 그리는 쪽에 있다', async () => {
+  const { TITLES, TITLE_NEEDS, ALL_ITEMS, itemById, isOwnItem } = await import('../src/shared/shop.ts');
+  const ids = TITLES.map((t) => t.id);
+  assert.equal(new Set(ids).size, ids.length, '칭호 id 가 겹치지 않는다');
+  assert.equal(new Set(ALL_ITEMS.map((i) => i.id)).size, ALL_ITEMS.length, '품목 id 가 겹치지 않는다');
+  for (const t of TITLES) { assert.ok(t.id.startsWith('tt-') && t.kind === 'title' && itemById(t.id) === t && isOwnItem(t.id), t.id); assert.ok(t.name.length <= 8, `${t.name}: 이름표 너비`); }
+  const fun = TITLES.filter((t) => t.price === 30000 && t.id !== 'tt-xmas');
+  assert.equal(fun.length, 19);
+  for (const name of ['핑크공주', '동네 개', '마을 거지', '마을 도둑놈', '마을 카사노바', '마을 졸부', '마을 술꾼', '골목대장', '귀염둥이', '마을 인싸', '마을 아싸', '마을 관종', '동네 바보', '소비요정', '돈미새', '노예', '될놈될', '인생역전', '인생여전']) assert.ok(fun.some((t) => t.name === name), name);
+  // 달성 칭호: 조건이 있는 것은 칭호 목록에 있고, 낚시·채집 하나씩
+  assert.deepEqual(Object.keys(TITLE_NEEDS).sort(), ['tt-fisher', 'tt-netter']);
+  for (const [id, need] of Object.entries(TITLE_NEEDS)) { assert.ok(ids.includes(id), id); assert.ok(need.n >= 100000 && ['fish', 'bug'].includes(need.what)); }
+  assert.deepEqual([TITLE_NEEDS['tt-fisher'].what, TITLE_NEEDS['tt-netter'].what], ['fish', 'bug']);
+  const cos = readFileSync(new URL('../src/game/cosmetics.ts', import.meta.url), 'utf8');
+  for (const s of ["it.id === 'tt-pink'", 'TITLE_NEEDS[it.id]']) assert.ok(cos.includes(s), s);
+  // 상점: 조건을 못 채우면 살 수 없고 선물 단추가 없다
+  const ui = readFileSync(new URL('../src/game/shopui.ts', import.meta.url), 'utf8');
+  for (const s of ['const locked = !!need && !owned && (done === null || done < need.n)', 'if (locked) { btn.disabled = true;', 'gold || need || (isXmasItem(item.id) && !xmasNow()) ? [btn]']) assert.ok(ui.includes(s), s);
+});

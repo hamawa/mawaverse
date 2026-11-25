@@ -1863,7 +1863,17 @@ export class World implements WorldCtx {
   // 거래소 (2026-11-19, 건의 반영): 내 메뉴에서 연다
   openStock(): void {
     this.input.releaseAll();
-    openStock({ stock: this.stock, balance: () => this.wallet.balance, toast: (m, e) => this.toast(m, e), onWallet: (fn) => this.wallet.listen(fn) });
+    openStock({
+      stock: this.stock, uid: this.uid, balance: () => this.wallet.balance, toast: (m, e) => this.toast(m, e), onWallet: (fn) => this.wallet.listen(fn),
+      // 손익 순위의 닉네임: 나·접속해 있는 사람은 가진 값으로, 그 밖은 프로필에서 한 번 읽는다 (판이 닉네임을 기억해 둔다)
+      nickOf: async (uid) => {
+        if (uid === this.uid) return this.profile.nick;
+        const on = this.players.get(uid)?.st.n;
+        if (on) return on;
+        const n = (await get(ref(db, `users/${uid}/nick`))).val();
+        return typeof n === 'string' ? n : null;
+      },
+    });
   }
   openShop(): void {
     this.input.releaseAll();
@@ -1872,6 +1882,12 @@ export class World implements WorldCtx {
       onlineList: () => [...this.players.values()].map((p) => ({ uid: p.uid, nick: p.st.n })),
       previewFx: (id) => this.previewFx(id),
       namePet: (id) => { void this.petNameFlow(id); },
+      // 달성 칭호의 조건 (2026-11-25): 내 도감의 마릿수를 더한다. 칭호 탭을 처음 열 때 한 번 읽는다
+      catchTotals: async () => {
+        const sum = async (path: string): Promise<number> => Object.values(((await get(ref(db, path))).val() as Record<string, { c?: number }> | null) || {}).reduce((s, e) => s + (e?.c || 0), 0);
+        const [fish, bug] = await Promise.all([sum(`fish/book/${this.uid}`), sum(`bug/book/${this.uid}`)]);
+        return { fish, bug };
+      },
       // 선물 받을 사람을 아이디로 찾기: ids/{키} → uid → 닉네임
       lookupId: async (id) => {
         const uid = (await get(ref(db, `ids/${idPathKey(id)}`))).val();

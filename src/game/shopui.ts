@@ -6,7 +6,7 @@ import { drawHat, nameStyle, titleStyle, petCanvas, mountCanvas, petLookCanvas }
 import {
   HATS, NAME_COLORS, FX, TITLES, BUBBLES, GOLD_COST, PET_GOODS, PET_HATS, PET_GLASSES, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
-  BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance, isXmasItem,
+  BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance, isXmasItem, TITLE_NEEDS,
 } from '../shared/shop';
 import { xmasSeason } from '../shared/season';
 import { serverNow } from '../firebase/db';
@@ -22,6 +22,7 @@ export interface ShopHost {
   lookupId?: (id: string) => Promise<{ uid: string; nick: string } | null>; // 아이디로 찾기
   namePet?: (id: string) => void;                                      // 펫 이름 짓기 (2026-11-20)
   previewFx?: (id: string) => void;                                    // 이펙트를 잠깐 입혀 본다 (2026-11-19 건의. 내 화면에만)
+  catchTotals?: () => Promise<{ fish: number; bug: number }>;          // 내 누적 낚시·채집 마릿수 (달성 칭호의 조건. 2026-11-25)
 }
 
 // 선물 받을 사람 고르기 (2026-11-09): 접속 중인 사람 목록 + 아이디 입력, 메시지(선택)
@@ -142,6 +143,8 @@ export function openShop(h: ShopHost): void {
     tabBtns.set(t.id, b); tabs.append(b);
   }
   const prices = h.config.prices;
+  // 달성 칭호 (2026-11-25): 조건은 내 누적 마릿수다. 칭호 탭을 처음 열 때 한 번 읽는다 (못 읽으면 잠긴 채로 둔다)
+  let totals: { fish: number; bug: number } | null = null, totalsAsked = false;
 
   // 🎁 선물 버튼: 보관함 품목(모자·이름표·이펙트·장비·낚싯대·잠자리채)은 남에게 사 줄 수 있다 (2026-11-09)
   const giftBtn = (item: ShopItem, price: number) => {
@@ -223,9 +226,15 @@ export function openShop(h: ShopHost): void {
     } else if (item.desc) card.append(el('div', { class: 'ds', text: item.desc }));
     const pet = kind === 'pet';
     const gold = GOLD_COST[item.id] || 0; // 금덩이가 함께 드는 품목 (순금 이름표)
+    // 달성 칭호: 조건을 채우기 전에는 살 수 없다 (가진 뒤에는 보통 칭호와 같다). 선물 단추도 없다
+    const need = kind === 'title' ? TITLE_NEEDS[item.id] : undefined;
+    const done = need && totals ? totals[need.what] : null;
+    const locked = !!need && !owned && (done === null || done < need.n);
+    if (need && !owned) card.append(el('div', { class: 'ds', text: done === null ? '기록을 읽는 중…' : `${locked ? '🔒' : '✅'} ${need.label} ${done.toLocaleString('ko-KR')} / ${need.n.toLocaleString('ko-KR')}마리` }));
     card.append(el('div', { class: 'pr', text: owned ? (eq ? (pet ? '데리고 있음' : '착용 중') : '보유') : gold ? `${fmtCoins(price)} + ${fmtGold(gold)}` : fmtCoins(price) }));
     const btn = el('button', { class: 'btn small' + (owned ? '' : ' primary'), text: owned ? (eq ? (pet ? '집에 두기' : '해제') : (pet ? '데리고 다니기' : '착용')) : '구매' });
-    if (!owned && h.wallet.balance < price) { btn.disabled = true; btn.title = '코인이 모자랍니다'; }
+    if (locked) { btn.disabled = true; btn.title = '조건을 채우면 살 수 있어요'; }
+    else if (!owned && h.wallet.balance < price) { btn.disabled = true; btn.title = '코인이 모자랍니다'; }
     else if (!owned && gold && h.wallet.gold < gold) { btn.disabled = true; btn.title = '금덩이가 모자랍니다 (금광에서 캘 수 있어요)'; }
     btn.onclick = async () => {
       btn.disabled = true;
@@ -240,7 +249,7 @@ export function openShop(h: ShopHost): void {
       } catch { h.toast('처리하지 못했습니다.', true); }
       render();
     };
-    card.append(el('div', { class: 'row', style: 'gap:4px;justify-content:center' }, gold || (isXmasItem(item.id) && !xmasNow()) ? [btn] : [btn, giftBtn(item, price)])); // 금덩이 품목은 선물할 수 없다 (규칙). 철이 지난 크리스마스 한정도 선물 단추가 없다
+    card.append(el('div', { class: 'row', style: 'gap:4px;justify-content:center' }, gold || need || (isXmasItem(item.id) && !xmasNow()) ? [btn] : [btn, giftBtn(item, price)])); // 금덩이 품목은 선물할 수 없다 (규칙). 철이 지난 크리스마스 한정과 달성 칭호도 선물 단추가 없다
     // 만렙 펫을 데리고 있으면: 타고 다닐지 내려서 데리고 다닐지 고른다 (2026-11-12 건의 반영)
     if (pet && owned && eq && petCanRide(xp)) {
       const rb = el('button', { class: 'btn small', text: h.wallet.rideOn() ? '🐾 내려서 데리고 다니기' : '🏇 타고 다니기', style: 'margin-top:4px' });
@@ -537,6 +546,10 @@ export function openShop(h: ShopHost): void {
     xnote.style.display = xmasNow() ? '' : 'none';
     head.append(el('span', { text: `잔액 ${fmtCoins(h.wallet.balance)}${h.wallet.gold > 0 ? ` · ${fmtGold(h.wallet.gold)}` : ''}` }), el('span', { class: 'muted', text: `누적 ${fmtCoins(h.wallet.wallet.e || 0)} · 낚시·게임 점수 1점 = 1코인` }));
     tabBtns.forEach((b, id) => b.classList.toggle('active', id === tab));
+    if (tab === 'title' && !totalsAsked && h.catchTotals) {
+      totalsAsked = true;
+      void h.catchTotals().then((t) => { totals = t; if (tab === 'title') render(); }).catch(() => {});
+    }
     pane.innerHTML = '';
     if (tab === 'fish') pane.append(fishPane());
     else if (tab === 'gear') pane.append(gearPane());

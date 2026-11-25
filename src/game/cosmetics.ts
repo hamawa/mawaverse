@@ -1,7 +1,7 @@
 // 꾸미기 그리기: 모자 픽셀 아트, 이름표 색, 이동 이펙트 파티클. render.ts 와 상점 미리보기가 같이 쓴다
 import { FRAME_W, FRAME_H } from './sprites';
 import type { Dir } from '../shared/types';
-import { NAME_COLORS, TITLES } from '../shared/shop';
+import { NAME_COLORS, TITLES, TITLE_NEEDS } from '../shared/shop';
 
 // ---- 모자 ----
 // 16px 너비 픽셀 아트. 문자는 팔레트 키, '.' 은 투명. 맨 아랫줄이 머리 꼭대기(첫 불투명 줄)보다 overlap 만큼 아래에 온다
@@ -862,6 +862,8 @@ export function titleStyle(id: string | null | undefined): { text: string; color
   const it = id ? TITLES.find((t) => t.id === id) : undefined;
   if (!it) return null;
   if (it.id === 'tt-xmas') return { text: it.name, color: '#fff6e0', bg: 'rgba(150, 24, 32, 0.88)', border: '#4cbf6a' }; // 크리스마스 한정 (2026-11-21): 값과 상관없이 빨강·초록
+  if (it.id === 'tt-pink') return { text: it.name, color: '#fff0f7', bg: 'rgba(206, 70, 136, 0.88)', border: '#ffc2dd' };   // 핑크공주 (2026-11-25): 이름값을 하게 분홍
+  if (TITLE_NEEDS[it.id]) return { text: it.name, color: '#ffe9a8', bg: 'rgba(90, 60, 0, 0.8)', border: '#ffd84d' };        // 달성 칭호: 값(1,000)과 상관없이 금빛 (15만짜리와 같은 모양)
   if (it.price >= 1000000) return { text: it.name, color: 'rainbow', bg: 'rgba(20, 6, 30, 0.85)', border: '#ffd84d' };
   if (it.price >= 300000) return { text: it.name, color: '#ffd84d', bg: 'rgba(60, 20, 90, 0.85)', border: '#d9a8ff' };
   if (it.price >= 150000) return { text: it.name, color: '#ffe9a8', bg: 'rgba(90, 60, 0, 0.8)', border: '#ffd84d' };

@@ -1169,6 +1169,48 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('반영 전: 옛 가격으로 팔기', 'deny', () => ok.ref().update({ 'wallet/OK/c': c3 + S.sellNet(6, 800) + S.sellNet(1, 1000), 'wallet/OK/e': 200000, [`${HO}/a/q`]: 0 }));
   await root.ref(`${HO}/b`).set({ q: 1 });
   await expect('반영 전: 보유를 지워서 옛 가격으로 팔기', 'deny', () => ok.ref().update({ 'wallet/OK/c': c3 + S.sellNet(6, 800) + S.sellNet(1, 1000), 'wallet/OK/e': 200000, [`${HO}/a`]: null }));
+  // 하락 상품 (2026-11-25): 값 = 1,000,000 ÷ 가격(내림). 보유 칸은 iq·ia, 한도 300주
+  {
+    const W = 500000, WO = 'wallet/OK';
+    await seed();
+    await root.ref().update({ [WO]: { c: W, e: W }, [HO]: null });
+    const ic = S.invPrice(1500); // 666
+    await expect('하락 상품 사기: 3주, 정확한 값', 'allow', () => ok.ref().update({ [`${WO}/c`]: W - S.buyCost(3, ic), [`${HO}/c/iq`]: 3, [`${HO}/c/ia`]: S.buyCost(3, ic) }));
+    const w1 = W - S.buyCost(3, ic);
+    await expect('하락 상품 사기: 종목 가격으로 계산', 'deny', () => ok.ref().update({ [`${WO}/c`]: w1 - S.buyCost(1, 1500), [`${HO}/c/iq`]: 4 }));
+    await expect('하락 상품 사기: 값을 올림해서 계산', 'deny', () => ok.ref().update({ [`${WO}/c`]: w1 - S.buyCost(1, ic + 1), [`${HO}/c/iq`]: 4 }));
+    await expect('하락 상품 사기: 코인은 그대로 두고 보유만', 'deny', () => ok.ref(`${HO}/c/iq`).set(50));
+    await expect('하락 상품 사기: 소수 주', 'deny', () => ok.ref().update({ [`${WO}/c`]: w1 - S.buyCost(1, ic), [`${HO}/c/iq`]: 3.5 }));
+    await root.ref(`${HO}/c/iq`).set(S.STOCK_INV_CAP);
+    await expect(`하락 상품 사기: 한도(${S.STOCK_INV_CAP}주) 넘기`, 'deny', () => ok.ref().update({ [`${WO}/c`]: w1 - S.buyCost(1, ic), [`${HO}/c/iq`]: S.STOCK_INV_CAP + 1 }));
+    await root.ref(`${HO}/c/iq`).set(3);
+    await expect('하락 상품 팔기: 받는 돈을 부풀리기', 'deny', () => ok.ref().update({ [`${WO}/c`]: w1 + 5000, [`${WO}/e`]: W + 5000, [`${HO}/c/iq`]: 2 }));
+    await expect('하락 상품 팔기: 가진 것보다 많이', 'deny', () => ok.ref().update({ [`${WO}/c`]: w1 + S.sellNet(4, ic), [`${WO}/e`]: W + S.sellNet(4, ic), [`${HO}/c/iq`]: -1 }));
+    await expect('하락 상품 팔기: 2주, 정확한 값 (실현 손익 기록과 함께)', 'allow', () => ok.ref().update({ [`${WO}/c`]: w1 + S.sellNet(2, ic), [`${WO}/e`]: W + S.sellNet(2, ic), [`${HO}/c/iq`]: 1, [`${HO}/c/ia`]: 680, [`${HO}/c/r`]: -52 }));
+    const w2 = w1 + S.sellNet(2, ic), e2 = W + S.sellNet(2, ic);
+    await expect('실현 손익 칸에 글자', 'deny', () => ok.ref(`${HO}/c/r`).set('많이'));
+    await expect('보통 주식과 하락 상품을 한 번에 사기', 'allow', () => ok.ref().update({ [`${WO}/c`]: w2 - S.buyCost(1, 1000) - S.buyCost(2, S.invPrice(1000)), [`${HO}/a/q`]: 1, [`${HO}/a/iq`]: 2 }));
+    const w3 = w2 - S.buyCost(1, 1000) - S.buyCost(2, S.invPrice(1000));
+    await expect('한 번에 사면서 하락 상품 값은 빼먹기', 'deny', () => ok.ref().update({ [`${WO}/c`]: w3 - S.buyCost(1, 800), [`${HO}/b/q`]: 1, [`${HO}/b/iq`]: 1 }));
+    // 굴려 놓고 반영하기 전에는 하락 상품도 사고팔 수 없다 (지우기 포함)
+    await root.ref(`${P}/c`).update({ at: T0 - 5 });
+    await expect('반영 전: 하락 상품 팔기', 'deny', () => ok.ref().update({ [`${WO}/c`]: w3 + S.sellNet(1, ic), [`${WO}/e`]: e2 + S.sellNet(1, ic), [`${HO}/c/iq`]: 0 }));
+    await expect('반영 전: 하락 상품 보유를 지워서 팔기', 'deny', () => ok.ref().update({ [`${WO}/c`]: w3 + S.sellNet(1, ic), [`${WO}/e`]: e2 + S.sellNet(1, ic), [`${HO}/c`]: null }));
+    await root.ref(`${P}/c`).update({ at: T0 - 1000 });
+    await expect('하락 상품 보유를 지우면서 코인 받기 (전부 판 것으로 계산된다)', 'allow', () => ok.ref().update({ [`${WO}/c`]: w3 + S.sellNet(1, ic), [`${WO}/e`]: e2 + S.sellNet(1, ic), [`${HO}/c`]: null }));
+    // 화면의 값과 규칙의 값이 같은가: 여러 가격에서 한 주씩 사 본다 (내림이 어긋나면 그 가격에서 하락 상품을 못 산다)
+    let seedI = 777, agreeI = 0, strict = 0;
+    const rndI = () => (seedI = (seedI * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const VALS = [100, 101, 333, 666, 667, 999, 1000, 1001, 1500, 3000, 7777, 9998, 9999, ...Array.from({ length: 27 }, () => 100 + Math.floor(rndI() * 9900))];
+    for (const v of VALS) {
+      await root.ref().update({ [`${P}/a`]: { v, at: T0 - 400000, sa: T0 - 400000 }, [WO]: { c: W, e: W }, [`${HO}/a`]: { iq: 0 } });
+      // 1,000,000 이 나누어떨어지지 않는 가격에서는 한 코인만 달라도 거부돼야 한다
+      try { await ok.ref().update({ [`${WO}/c`]: W - S.buyCost(1, S.invPrice(v)) - 1, [`${HO}/a/iq`]: 1 }); } catch { strict++; }
+      try { await ok.ref().update({ [`${WO}/c`]: W - S.buyCost(1, S.invPrice(v)), [`${HO}/a/iq`]: 1 }); agreeI++; } catch { console.error(`  ✖ 하락 상품의 값이 어긋남: v=${v} → ${S.invPrice(v)}`); }
+    }
+    await expect(`하락 상품 값 대조: ${VALS.length}개 가격 모두 규칙이 받고(${agreeI}) 한 코인 다른 값은 거부한다(${strict})`, 'allow', async () => { if (agreeI !== VALS.length || strict !== VALS.length) throw new Error('mismatch'); });
+    await seed();
+  }
   // 탈퇴: 지갑과 함께면 지울 수 있다. 관리자는 언제나
   await expect('탈퇴: 지갑과 보유를 같이 지우기', 'allow', () => ok.ref().update({ 'wallet/OK': null, [HO]: null }));
   await root.ref('stock/h/OTHER/a').set({ q: 1 });

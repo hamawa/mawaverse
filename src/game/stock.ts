@@ -6,7 +6,7 @@ import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
 import { sfx } from './audio';
 import type { WorldCtx } from './state';
-import { STOCKS, TICK_MS, STOCK_CAP, HIST_SLOTS, stepPrice, settled, buyCost, sellNet, histIndex, stockOf, type StockSym, type StockPrice, type StockHold } from '../shared/stock';
+import { STOCKS, TICK_MS, STOCK_CAP, STOCK_INV_CAP, HIST_SLOTS, stepPrice, settled, buyCost, sellNet, histIndex, stockOf, invPrice, stockRank, type StockSym, type StockPrice, type StockHold, type StockRankRow } from '../shared/stock';
 
 const CHECK_MS = 4000;       // 굴릴 때가 됐는지·반영이 밀렸는지 보는 간격
 const ROLL_JITTER_MS = 6000; // 굴릴 때가 되면 이 안에서 저마다 다른 만큼 기다린다 (여럿이 한꺼번에 쓰면 한 명만 통과하고 나머지는 거부된 요청이 된다)
@@ -42,6 +42,9 @@ export class StockMgr {
 
   price(sym: StockSym): number { return this.prices[sym]?.v ?? 0; }
   held(sym: StockSym): number { return this.holds[sym]?.q ?? 0; }
+  // 하락 상품 (2026-11-25): 값은 종목 가격에서 나온다 (가격이 내리면 오른다)
+  heldInv(sym: StockSym): number { return this.holds[sym]?.iq ?? 0; }
+  invPrice(sym: StockSym): number { const v = this.price(sym); return v > 0 ? invPrice(v) : 0; }
   // 다음 가격 변동까지 남은 시간 (ms. 가장 늦게 굴린 종목 기준. 값이 없으면 0)
   untilNext(): number {
     const ats = STOCKS.map((s) => this.prices[s.sym]?.at ?? 0).filter((t) => t > 0);
@@ -79,35 +82,47 @@ export class StockMgr {
     try { await update(ref(db), upd); this.settleAfter = performance.now() + SETTLE_WAIT_MS; } catch { /* 다른 화면이 먼저 굴렸다 */ } finally { this.busy = false; }
   }
 
-  // 사기: 코인이 가격 × 수량 + 수수료만큼 줄고 보유가 는다 (쓰기 한 번. 규칙이 금액을 본다)
-  async buy(sym: StockSym, q: number): Promise<TradeResult> {
+  // 사기: 코인이 값 × 수량 + 수수료만큼 줄고 보유가 는다 (쓰기 한 번. 규칙이 금액을 본다). inv: 하락 상품 (값 = invPrice(가격), 보유 칸 iq·ia)
+  async buy(sym: StockSym, q: number, inv = false): Promise<TradeResult> {
     const p = this.prices[sym];
     if (!p || !stockOf(sym) || q < 1 || q % 1 !== 0) return 'fail';
     if (!settled(p)) return 'wait';
-    if (this.held(sym) + q > STOCK_CAP) return 'cap';
-    const cost = buyCost(q, p.v);
+    if ((inv ? this.heldInv(sym) : this.held(sym)) + q > (inv ? STOCK_INV_CAP : STOCK_CAP)) return 'cap';
+    const cost = buyCost(q, inv ? invPrice(p.v) : p.v);
     if (this.w.wallet.balance < cost) return 'coins';
     const base = `stock/h/${this.w.uid}/${sym}`;
     try {
-      await update(ref(db), { [`wallet/${this.w.uid}/c`]: increment(-cost), [`${base}/q`]: increment(q), [`${base}/a`]: increment(cost) });
+      await update(ref(db), { [`wallet/${this.w.uid}/c`]: increment(-cost), [`${base}/${inv ? 'iq' : 'q'}`]: increment(q), [`${base}/${inv ? 'ia' : 'a'}`]: increment(cost) });
       sfx('coin');
       return 'ok';
     } catch { return this.prices[sym]?.v !== p.v || !settled(this.prices[sym]) ? 'changed' : 'fail'; }
   }
-  // 팔기: 보유가 줄고 코인이 가격 × 수량 − 수수료만큼 는다. 지갑 규칙에 맞게 획득(e)도 같이 올린다
-  async sell(sym: StockSym, q: number): Promise<TradeResult> {
+  // 팔기: 보유가 줄고 코인이 값 × 수량 − 수수료만큼 는다. 지갑 규칙에 맞게 획득(e)도 같이 올린다.
+  // 실현 손익(r = 받은 돈 − 판 주식을 산 값)도 같은 쓰기에 더한다: 손익 순위에 쓰는 표시용 값이다 (규칙이 대조하지 않는다)
+  async sell(sym: StockSym, q: number, inv = false): Promise<TradeResult> {
     const p = this.prices[sym], h = this.holds[sym];
     if (!p || !stockOf(sym) || q < 1 || q % 1 !== 0) return 'fail';
-    if (!h || h.q < q) return 'none';
+    const have = (inv ? h?.iq : h?.q) || 0, paid = (inv ? h?.ia : h?.a) || 0;
+    if (have < q) return 'none';
     if (!settled(p)) return 'wait';
-    const net = sellNet(q, p.v);
-    const left = h.q - q, a = left > 0 ? Math.max(0, Math.round((h.a || 0) * (left / h.q))) : 0; // 남은 주식의 산 값 (평단은 그대로)
+    const net = sellNet(q, inv ? invPrice(p.v) : p.v);
+    const left = have - q, a = left > 0 ? Math.max(0, Math.round(paid * (left / have))) : 0; // 남은 것의 산 값 (평단은 그대로)
     const base = `stock/h/${this.w.uid}/${sym}`;
     try {
-      await update(ref(db), { [`wallet/${this.w.uid}/c`]: increment(net), [`wallet/${this.w.uid}/e`]: increment(net), [`${base}/q`]: increment(-q), [`${base}/a`]: a });
+      await update(ref(db), {
+        [`wallet/${this.w.uid}/c`]: increment(net), [`wallet/${this.w.uid}/e`]: increment(net),
+        [`${base}/${inv ? 'iq' : 'q'}`]: increment(-q), [`${base}/${inv ? 'ia' : 'a'}`]: a, [`${base}/r`]: increment(net - (paid - a)),
+      });
       sfx('coin');
       return 'ok';
     } catch { return this.prices[sym]?.v !== p.v || !settled(this.prices[sym]) ? 'changed' : 'fail'; }
+  }
+  // 손익 순위 (2026-11-25): 모두의 보유를 한 번 읽어 지금 가격으로 줄 세운다 (판에서 순위를 열 때만. 구독하지 않는다)
+  async ranking(): Promise<StockRankRow[]> {
+    try {
+      const all = (await get(ref(db, 'stock/h'))).val() as Record<string, Partial<Record<StockSym, StockHold>>> | null;
+      return stockRank(all, (sym) => this.price(sym));
+    } catch { return []; }
   }
   // 가격 기록 (그래프용): 판을 열 때 한 번 읽는다. 굴림 번호 순으로, 너무 오래된 것(8시간 넘게 지난 칸)은 뺀다
   async history(sym: StockSym): Promise<HistPoint[]> {

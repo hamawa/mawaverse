@@ -301,6 +301,29 @@ export function netChance(base: number, tier: number): number { return tier >= 2
 // 보관함 품목이라 기존 구매 규칙(가격표의 값을 내면 own 등록)을 그대로 쓰고, homes 규칙이 "그 품목을 가졌는가"를 본다. 선물은 안 된다 (화면에 없다)
 // 칭호 (2026-11-18): 닉네임 바로 위에 뜨는 한 줄. 코인으로 사서 하나를 단다 (착용 칸 tt). 자랑용이라 효과는 없다
 export const TITLES: ShopItem[] = [
+  // 재미 칭호 (2026-11-25, 게시판 건의 반영: 이름은 건의한 사람들이 지었다. 값은 저장소 주인 결정: 전부 3만. 그때 칭호를 가진 사람이 23명 중 4명뿐이었다)
+  { id: 'tt-pink', kind: 'title', name: '핑크공주', price: 30000, icon: '🎀', desc: '분홍이 아니면 안 되는 사람.' }, // 빛깔은 cosmetics.ts titleStyle 이 따로 정한다 (분홍)
+  { id: 'tt-dog', kind: 'title', name: '동네 개', price: 30000, icon: '🐶', desc: '온 동네를 쏘다니는 사람.' },
+  { id: 'tt-beggar', kind: 'title', name: '마을 거지', price: 30000, icon: '🍚', desc: '지갑이 늘 가벼운 사람.' },
+  { id: 'tt-thief', kind: 'title', name: '마을 도둑놈', price: 30000, icon: '🕶', desc: '눈 깜짝할 사이에 가져가는 사람.' },
+  { id: 'tt-casanova', kind: 'title', name: '마을 카사노바', price: 30000, icon: '🌹', desc: '누구에게나 다정한 사람.' },
+  { id: 'tt-newrich', kind: 'title', name: '마을 졸부', price: 30000, icon: '💸', desc: '갑자기 지갑이 두둑해진 사람.' },
+  { id: 'tt-drunk', kind: 'title', name: '마을 술꾼', price: 30000, icon: '🍺', desc: '한 잔이 열 잔이 되는 사람.' },
+  { id: 'tt-alley', kind: 'title', name: '골목대장', price: 30000, icon: '🚩', desc: '이 골목은 내가 지키는 사람.' },
+  { id: 'tt-cutie', kind: 'title', name: '귀염둥이', price: 30000, icon: '🐥', desc: '귀여움으로 다 넘어가는 사람.' },
+  { id: 'tt-insider', kind: 'title', name: '마을 인싸', price: 30000, icon: '🎉', desc: '모르는 사람이 없는 사람.' },
+  { id: 'tt-outsider', kind: 'title', name: '마을 아싸', price: 30000, icon: '🎧', desc: '혼자가 제일 편한 사람.' },
+  { id: 'tt-attention', kind: 'title', name: '마을 관종', price: 30000, icon: '📸', desc: '관심이 밥인 사람.' },
+  { id: 'tt-fool', kind: 'title', name: '동네 바보', price: 30000, icon: '🤪', desc: '웃으면 복이 오는 사람.' },
+  { id: 'tt-spender', kind: 'title', name: '소비요정', price: 30000, icon: '🛍', desc: '코인이 남아나지 않는 사람.' },
+  { id: 'tt-money', kind: 'title', name: '돈미새', price: 30000, icon: '🤑', desc: '코인만 보고 달리는 사람.' },
+  { id: 'tt-slave', kind: 'title', name: '노예', price: 30000, icon: '⛓', desc: '오늘도 일하는 사람.' },
+  { id: 'tt-destined', kind: 'title', name: '될놈될', price: 30000, icon: '🍀', desc: '뭘 해도 되는 사람.' },
+  { id: 'tt-reversal', kind: 'title', name: '인생역전', price: 30000, icon: '📈', desc: '한 방에 뒤집은 사람.' },
+  { id: 'tt-same', kind: 'title', name: '인생여전', price: 30000, icon: '😑', desc: '한 방을 기다리는 사람.' },
+  // 달성 칭호 (같은 날, 건의 반영): 조건(TITLE_NEEDS)을 채운 사람만 산다. 조건은 상점 화면이 지킨다 (크리스마스 한정과 같다: 규칙은 보통 구매로 본다). 선물할 수 없다
+  { id: 'tt-fisher', kind: 'title', name: '강태공', price: 1000, icon: '🎣', desc: '낚시 30만 마리를 채운 사람만 달 수 있다.' },
+  { id: 'tt-netter', kind: 'title', name: '잠자리채', price: 1000, icon: '🥅', desc: '채집 10만 마리를 채운 사람만 달 수 있다.' },
   { id: 'tt-angler', kind: 'title', name: '낚시 중독', price: 50000, icon: '🎣', desc: '물가를 떠나지 않는 사람.' },
   { id: 'tt-bug', kind: 'title', name: '곤충 박사', price: 50000, icon: '🐞', desc: '풀밭의 모든 것을 아는 사람.' },
   { id: 'tt-miner', kind: 'title', name: '황금 손', price: 80000, icon: '⛏', desc: '곡괭이를 놓지 않는 사람.' },
@@ -363,6 +386,12 @@ export const XMAS_IDS: ReadonlySet<string> = new Set(['santa', 'rudolph', 'ph_sa
 export const isXmasItem = (id: string): boolean => XMAS_IDS.has(id);
 // 지금 내놓는 품목인가 (xmas: 크리스마스 철인가). 철이 아니어도 이미 가진 사람에게는 보여야 착용·해제를 할 수 있다: 그건 부르는 쪽이 본다
 export const onSale = (id: string, xmas: boolean): boolean => xmas || !XMAS_IDS.has(id);
+// 달성 칭호의 조건 (2026-11-25): 내 도감의 누적 마릿수(fish/book·bug/book 의 c 를 더한 값)가 n 이상이어야 살 수 있다.
+// 건의는 낚시·채집 100만 마리였는데 그날 1등이 낚시 9.7만·채집 2.7만이었다(운영 3주 반): 가장 많이 하는 사람이 두 달쯤 뒤에 닿는 값으로 낮췄다
+export const TITLE_NEEDS: Record<string, { what: 'fish' | 'bug'; n: number; label: string }> = {
+  'tt-fisher': { what: 'fish', n: 300000, label: '낚시' },
+  'tt-netter': { what: 'bug', n: 100000, label: '채집' },
+};
 export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...TITLES, ...BUBBLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }

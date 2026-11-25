@@ -87,3 +87,60 @@ test('규칙에 든 숫자와 식이 코드와 같다', () => {
   // 보유만 지워서 규칙을 비켜 가지 못한다: 지갑이 남아 있으면 지울 수 없다
   assert.ok(rules.h.$uid['.write'].includes("newData.exists() || !newData.parent().parent().parent().child('wallet/' + $uid).exists()"));
 });
+
+test('하락 상품: 값은 1,000,000 ÷ 가격(내림)이고, 가격이 내리면 오른다', () => {
+  assert.equal(S.invPrice(1000), 1000);
+  assert.equal(S.invPrice(500), 2000);
+  assert.equal(S.invPrice(2000), 500);
+  assert.equal(S.invPrice(1500), 666);
+  assert.equal(S.invPrice(S.STOCK_MIN), 10000);
+  assert.equal(S.invPrice(S.STOCK_MAX), 100);
+  for (let v = S.STOCK_MIN; v <= S.STOCK_MAX; v++) {
+    const p = S.invPrice(v);
+    assert.ok(Number.isInteger(p) && p >= 100 && p <= 10000, `v=${v} → ${p}`);
+    if (v > S.STOCK_MIN) assert.ok(p <= S.invPrice(v - 1), `v=${v}: 가격이 오르면 값은 오르지 않는다`);
+    // 규칙의 식 (x - x % 1) 과 같은 값이다. 소수부가 0 이 아니면 1/9999 이상이라 실수 오차에 걸리지 않는다
+    const x = 1000000 / v, frac = x % 1;
+    assert.equal(x - frac, p);
+    assert.ok(frac === 0 || frac > 0.00009, `v=${v} 소수부 ${frac}`);
+  }
+  assert.ok(S.STOCK_INV_CAP < S.STOCK_CAP, '하락 상품의 한도는 보통 종목보다 낮다');
+  // 가격이 20% 내리면 하락 상품은 25% 오른다 (수수료 전)
+  assert.equal(S.invPrice(800), 1250);
+  assert.ok(S.sellNet(10, S.invPrice(800)) > S.buyCost(10, S.invPrice(1000)));
+});
+
+test('손익 순위: 평가 손익과 실현 손익을 더해 줄 세운다', () => {
+  const price = (sym) => ({ a: 1000, b: 800, c: 2000 }[sym]);
+  const rows = S.stockRank({
+    u1: { a: { q: 10, a: 9000 } },                                  // 평가: sellNet(10, 1000) - 9000
+    u2: { c: { iq: 10, ia: 10200, r: 300 }, b: { q: 0, a: 0, r: -5000 } }, // 하락 상품: 값 500
+    u3: { a: { q: 0, a: 0, r: 7000 } },                              // 다 팔았다: 실현만
+    u4: { a: { q: 0, a: 0 } },                                       // 기록 전에 다 판 사람은 안 나온다
+    u5: null,
+  }, price);
+  assert.deepEqual(rows.map((r) => r.uid), ['u3', 'u1', 'u2']);
+  const [r3, r1, r2] = rows;
+  assert.deepEqual([r3.total, r3.open, r3.real, r3.pct, r3.held.length], [7000, 0, 7000, null, 0]);
+  assert.equal(r1.open, S.sellNet(10, 1000) - 9000);
+  assert.equal(r1.total, r1.open);
+  assert.ok(Math.abs(r1.pct - (r1.open / 9000) * 100) < 1e-9);
+  assert.equal(r2.worth, S.sellNet(10, 500));
+  assert.equal(r2.total, S.sellNet(10, 500) - 10200 + 300 - 5000);
+  assert.deepEqual(r2.held, [{ sym: 'c', q: 0, iq: 10 }]);
+  assert.deepEqual(S.stockRank(null, price), []);
+});
+
+test('규칙: 하락 상품의 금액 식·한도·반영 확인이 코드와 같다', () => {
+  const h = rules.h.$uid['.validate'], sym = rules.h.$uid.$sym;
+  for (const s of S.STOCKS) {
+    const v = `root.child('stock/p/${s.sym}/v').val()`;
+    assert.ok(h.includes(`(${S.STOCK_INV_NUM} / ${v} - ${S.STOCK_INV_NUM} / ${v} % 1)`), `${s.name} 하락 상품의 값`);
+    assert.ok(h.includes(`newData.child('${s.sym}/iq')`) && h.includes(`data.child('${s.sym}/iq')`), `${s.name} 하락 상품 보유`);
+    // 반영되지 않은 가격으로는 하락 상품도 거래할 수 없다
+    assert.ok(new RegExp(`\\(\\(.{0,220}child\\('${s.sym}/iq'\\).{0,220}\\) \\|\\| root\\.child\\('stock/p/${s.sym}/sa'\\)\\.val\\(\\) == root\\.child\\('stock/p/${s.sym}/at'\\)\\.val\\(\\)\\)`).test(h), `${s.name} 반영 확인`);
+  }
+  assert.ok(sym.iq['.validate'].includes(`<= ${S.STOCK_INV_CAP}`) && sym.iq['.validate'].includes('% 1 == 0') && sym.iq['.validate'].includes('>= 0'));
+  assert.ok(sym.ia && sym.r && sym.$other['.validate'] === false);
+  assert.ok(sym['.validate'].includes("newData.hasChild('q') || newData.hasChild('iq')"));
+});
