@@ -143,7 +143,7 @@ test('가입 알림: --dry 는 보내지도 적지도 않는다', async () => {
 test('가입 알림: 워크플로가 이 도구를 5분마다 돌리고 필요한 값을 넘긴다', () => {
   const yml = readFileSync(new URL('../.github/workflows/signup-notify.yml', import.meta.url), 'utf8');
   const src = readFileSync(new URL('../tools/signup-notify.mjs', import.meta.url), 'utf8');
-  assert.match(yml, /cron: '2-59\/5 \* \* \* \*'/);
+  assert.match(yml, /cron: '2\/5 \* \* \* \*'/);
   assert.match(yml, /run: node tools\/signup-notify\.mjs/);
   for (const name of ['FIREBASE_SERVICE_ACCOUNT', 'DATABASE_URL', 'DISCORD_WEBHOOK_URL']) {
     assert.match(yml, new RegExp(`^\\s+${name}: \\$\\{\\{ secrets\\.`, 'm'), name);
