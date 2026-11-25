@@ -143,7 +143,10 @@ for (const [k, name] of Object.entries(holidays)) {
   hol[day] = `${k} ${name}`;
 }
 
-const write = (f, o, pretty) => fs.writeFileSync(path.join(ROOT, f), JSON.stringify(o, null, pretty ? 1 : 0) + '\n');
+// 만든 파일은 ASCII 로만 쓴다: 닉네임 규칙의 정규식에 한글·기호 범위가 글자로 들어 있다 (2026-11-25). 올리는 길에서 글자가 깨지면 그 정규식이 엉뚱한 범위가 되어 가입·닉네임 변경이 막힌다.
+//  \uXXXX 로 적어 두면 받는 쪽이 JSON 을 풀 때 같은 글자가 된다 (공휴일 이름도 같이 바뀌지만 뜻은 같다)
+const ascii = (s) => s.replace(/[\u0080-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+const write = (f, o, pretty) => fs.writeFileSync(path.join(ROOT, f), ascii(JSON.stringify(o, null, pretty ? 1 : 0)) + '\n');
 write('database.rules.deploy.json', deploy);
 write('database.rules.test.json', test);
 write('holidays.deploy.json', hol, true);

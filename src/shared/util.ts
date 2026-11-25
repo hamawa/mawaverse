@@ -52,12 +52,23 @@ export function normKey(s: string): string {
 export function nickKey(nick: string): string { return safeKey(normKey(nick)); }
 export function idKey(id: string): string { return normKey(id); }
 
+// 닉네임에 쓸 수 있는 글자의 범위 (2026-11-25, 저장소 주인 요청: 닉네임에 이모지를 넣어 이름표 앞의 표시(🏆 · 🎣 · 🧸 …)를 단 것처럼 꾸민 사람들이 나왔다).
+// 이모지와 그림 기호가 든 구역을 통째로 뺀 목록이다. 빠진 것: ©(A9) · ®(AE) · U+2000~2BFF(폭 없는 글자·화살표·도형·★ ♥ ❄ 같은 기호·딩벳)
+//  · 〰(3030) · 〽(303D) · ㊗(3297) · ㊙(3299) · 사용자 정의 구역 · 이형 선택자(FE0F) · 보조 평면 전부(U+10000 이상: 그림 이모지는 다 여기 있다). 빈칸도 범위 밖이다.
+// 이모지만 골라 막지 않은 것은 ★ ♥ ❄ 처럼 글자이면서 이모지인 것이 그 구역에 섞여 있어서다 (어떤 것은 되고 어떤 것은 안 되면 더 헷갈린다).
+// 보안 규칙(database.rules.json 의 users/$uid/nick 정규식)이 같은 범위를 글자로 적어 둔다: 고치면 둘 다 (tests/nick.test.mjs 가 대조, 허용·거부는 tests/rules-gate.test.mjs)
+export const NICK_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x21, 0xa8], [0xaa, 0xac], [0xaf, 0x1fff], [0x2c00, 0x302f], [0x3031, 0x303c], [0x303e, 0x3296], [0x3298, 0x3298], [0x329a, 0xd7ff], [0xf900, 0xfdff], [0xff01, 0xffee],
+];
+export function nickCharOk(cp: number): boolean { return NICK_RANGES.some(([a, b]) => cp >= a && cp <= b); }
+
 export function validateNick(nick: string): string | null {
   const n = nick.normalize('NFC').trim();
   if (n.length < 2) return '닉네임은 2자 이상이어야 합니다.';
   if (n.length > 12) return '닉네임은 12자 이하여야 합니다.';
   if (/\s/.test(n)) return '닉네임에 공백은 쓸 수 없습니다.';
   if (/[/\\<>]/.test(n)) return '닉네임에 / \\ < > 문자는 쓸 수 없습니다.';
+  for (const ch of n) if (!nickCharOk(ch.codePointAt(0)!)) return '닉네임에 이모지나 그림 기호(★ ♥ 등)는 쓸 수 없습니다.';
   return null;
 }
 

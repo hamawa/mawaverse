@@ -67,7 +67,7 @@
         "snowBrokenAt": { ".validate": "newData.isNumber() && (newData.val() == data.val() || (newData.val() == now && (!data.exists() || data.val() <= now - 10000)))" },
         "nick": {
           ".read": "auth != null",
-          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 12"
+          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 12 && newData.val().matches(/^[!-\u00A8\u00AA-\u00AC\u00AF-\u1FFF\u2C00-\u302F\u3031-\u303C\u303E-\u3296\u3298\u329A-\uD7FF\uF900-\uFDFF\uFF01-\uFFEE]+$/)"
         },
         "own": { ".read": "auth != null", "$item": { ".write": "auth != null && newData.exists()", ".validate": "newData.isBoolean() && (data.val() === true || (newData.val() === true && ((auth.uid == $uid && root.child('wallet/' + $uid + '/b').val() == $item && !root.child('wallet/' + $uid + '/gt').exists()) || (auth.uid != $uid && root.child('wallet/' + auth.uid + '/b').val() == $item && root.child('wallet/' + auth.uid + '/gt').val() == $uid))))" } },
         "gifts": { "$item": { ".write": "auth != null && newData.exists()", ".validate": "newData.val() === true && (auth.uid != $uid && root.child('wallet/' + auth.uid + '/b').val() == $item && root.child('wallet/' + auth.uid + '/gt').val() == $uid)" } },

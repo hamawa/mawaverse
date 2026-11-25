@@ -116,6 +116,14 @@ await expect('실명: 로그인 안 한 사람', 'deny', () => anon.ref('signups
 await expect('프로필: 다른 사용자가 남의 프로필(아이디 포함) 읽기', 'deny', () => ok.ref('users/PEND').get());
 await expect('프로필: 닉네임만은 승인된 사용자가 읽기', 'allow', () => ok.ref('users/PEND/nick').get());
 await expect('프로필: 대기 중인 사용자는 남의 닉네임도 못 읽음', 'deny', () => pend.ref('users/OK/nick').get());
+// 닉네임에 이모지·그림 기호 금지 (2026-11-25: 이모지로 이름표 앞의 표시를 흉내 낸 닉네임이 나왔다. 범위는 src/shared/util.ts NICK_RANGES 와 같다)
+await expect('닉네임: 한글·영문·숫자·흔한 기호', 'allow', () => ok.ref('users/OK/nick').set('마와Verse_1.~'));
+await expect('닉네임: 자모·한자·가나', 'allow', () => ok.ref('users/OK/nick').set('ㅋㅋ漢字かなカナ'));
+for (const [why, nick] of [['그림 이모지(앞)', '🏆승인됨'], ['그림 이모지(뒤)', '승인됨🧸'], ['눈송이 U+2744', '승인❄'], ['별', '★승인됨'], ['하트', '승인♥'], ['숫자 키캡', '1\uFE0F\u20E3등승인'], ['국기', '🇰🇷승인'],
+  ['폭 없는 글자', '승인\u200B됨'], ['이형 선택자만', '승인\uFE0F됨'], ['빈칸', '승인 됨'], ['저작권 기호', '승인©'], ['한자 이모지 ㊗', '㊗승인']]) {
+  await expect(`닉네임: ${why} 거부`, 'deny', () => ok.ref('users/OK/nick').set(nick));
+}
+await expect('닉네임: 원래대로', 'allow', () => ok.ref('users/OK/nick').set('승인됨'));
 await expect('승인: 본인이 자기를 승인', 'deny', () => pend.ref('approved/PEND').set(true));
 await expect('승인: 다른 사용자가 승인', 'deny', () => ok.ref('approved/PEND').set(true));
 await expect('승인: 다른 사용자가 승인 목록 읽기', 'deny', () => ok.ref('approved').get());

@@ -15,7 +15,7 @@
     "deploy": "npm run build && npm run rules && firebase deploy && npm run deploy:holidays",
     "deploy:rules": "npm run rules && firebase deploy --only database && npm run deploy:holidays",
     "deploy:holidays": "firebase database:set /holidays holidays.deploy.json --force",
-    "test": "node --test tests/hours.test.mjs tests/portals.test.mjs tests/maps.test.mjs tests/portal-runtime.test.mjs tests/mine.test.mjs tests/winterplay.test.mjs tests/snowpenalty.test.mjs tests/snowfight.test.mjs tests/casino.test.mjs tests/slots.test.mjs tests/duel.test.mjs tests/stock.test.mjs tests/poker.test.mjs tests/chat.test.mjs tests/home.test.mjs tests/fishing.test.mjs tests/ambience.test.mjs tests/derby.test.mjs tests/derby-core.test.mjs tests/derby-ui.test.mjs tests/derby-view.test.mjs tests/derby-rules.test.mjs",
+    "test": "node --test tests/hours.test.mjs tests/portals.test.mjs tests/maps.test.mjs tests/portal-runtime.test.mjs tests/mine.test.mjs tests/winterplay.test.mjs tests/snowpenalty.test.mjs tests/snowfight.test.mjs tests/casino.test.mjs tests/slots.test.mjs tests/duel.test.mjs tests/stock.test.mjs tests/poker.test.mjs tests/chat.test.mjs tests/home.test.mjs tests/fishing.test.mjs tests/ambience.test.mjs tests/derby.test.mjs tests/derby-core.test.mjs tests/derby-ui.test.mjs tests/derby-view.test.mjs tests/derby-rules.test.mjs tests/nick.test.mjs",
     "test:rules": "npm run rules && firebase emulators:exec --only database --project demo-mawaverse \"node tests/rules-gate.test.mjs\"",
     "admin": "node tools/admin-cli.mjs"
   },
