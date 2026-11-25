@@ -165,7 +165,7 @@ Java 11 이상과 Firebase CLI(`npm i -g firebase-tools`)가 필요합니다.
 
 가입 신청이 들어오면 관리자의 디스코드로 알림을 보낼 수 있습니다(선택). 늘 켜 두는 서버가 없어서 GitHub Actions([.github/workflows/signup-notify.yml](.github/workflows/signup-notify.yml))가 5분마다 승인 대기 목록을 확인합니다. GitHub 의 예약 실행은 자주 밀리므로 알림은 보통 5~20분 뒤에 옵니다.
 
-1. 디스코드에서 알림을 받을 채널의 **채널 편집 > 연동 > 웹후크 > 새 웹후크**를 만들고 **웹후크 URL 복사**를 누릅니다.
+1. 디스코드에서 알림을 받을 채널의 **채널 편집 > 연동 > 웹후크 > 새 웹후크**를 만들고 **웹후크 URL 복사**를 누릅니다. 폰이 울리게 하려면 그 채널의 알림 설정을 **모든 메시지**로 둡니다("@mentions만"이면 글은 와도 알림이 울리지 않습니다).
 2. 저장소 **Settings > Secrets and variables > Actions > New repository secret** 에 이름 `DISCORD_WEBHOOK_URL`, 값은 복사한 주소로 넣습니다.
 3. 다음 확인 때 "가입 알림이 연결됐습니다"라는 글이 한 번 옵니다. 바로 보려면 Actions 탭의 **Signup notify > Run workflow**.
 
