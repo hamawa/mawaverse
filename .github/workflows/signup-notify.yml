@@ -1,0 +1,33 @@
+# 가입 신청이 들어오면 디스코드로 알린다. 서버가 없어서 5분마다 확인한다(GitHub 사정으로 더 늦게 돌 때가 많다).
+# 하는 일과 설계는 tools/signup-notify.mjs 머리말, 준비는 README 의 "가입 알림".
+# 쓰는 Secrets: FIREBASE_SERVICE_ACCOUNT, VITE_FIREBASE_DATABASE_URL (배포와 같은 것), DISCORD_WEBHOOK_URL (디스코드 웹후크 주소).
+# DISCORD_WEBHOOK_URL 이 없으면 아무것도 하지 않고 성공으로 끝난다.
+# 저장소가 공개라 실행 기록도 공개다: 기록에는 건수만 남는다.
+name: Signup notify
+
+on:
+  schedule:
+    # 정각을 피한다(정각에 걸린 예약 실행이 가장 많이 밀린다)
+    - cron: '2-59/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signup-notify
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check signups and notify
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          DATABASE_URL: ${{ secrets.VITE_FIREBASE_DATABASE_URL }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: node tools/signup-notify.mjs

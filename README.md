@@ -135,6 +135,8 @@ Java 11 이상과 Firebase CLI(`npm i -g firebase-tools`)가 필요합니다.
 | `VITE_FIREBASE_PROJECT_ID` | 〃 |
 | `VITE_FIREBASE_APP_ID` | 〃 |
 
+가입 알림을 쓰려면 `DISCORD_WEBHOOK_URL` 도 넣습니다(아래 "가입 알림"). 없어도 배포는 됩니다.
+
 직접 배포하려면 `firebase login` 후 `npm run deploy` 를 실행합니다.
 
 ## 운영 참고
@@ -158,6 +160,21 @@ Java 11 이상과 Firebase CLI(`npm i -g firebase-tools`)가 필요합니다.
 3. 1번을 했다면 대신 `node tools/gen-derby.mjs secret --replace` — 다음 경주부터 결과표를 새로 만듭니다(지금·지난 경주는 그대로. 남은 칸도 화면이 칸에 적힌 그대로 공개하므로 정산됩니다). `race/cover` 의 `f` 가 새 버전 칸의 첫 경주가 됩니다. 도구가 `raceData/v` 와 결과표 버전이 다르면 알려 주고, 버전이 다른 범위 뒤에 `--replace` 없이 이으려 하면 아무것도 올리지 않고 멈춥니다.
 
 남은 기간은 `race/cover` 의 `e`(덮은 마지막 경주 + 1. 경주 번호 = 서버 시각 ÷ 360000)로 봅니다. 결과가 공개된 지난 경주의 칸은 정산에 쓰이지 않지만(공개된 결과가 `race/x` 에 남습니다) 지우지 않아도 됩니다(한 달 약 1MB, 아무도 내려받지 않습니다).
+
+### 가입 알림 (디스코드)
+
+가입 신청이 들어오면 관리자의 디스코드로 알림을 보낼 수 있습니다(선택). 늘 켜 두는 서버가 없어서 GitHub Actions([.github/workflows/signup-notify.yml](.github/workflows/signup-notify.yml))가 5분마다 승인 대기 목록을 확인합니다. GitHub 의 예약 실행은 자주 밀리므로 알림은 보통 5~20분 뒤에 옵니다.
+
+1. 디스코드에서 알림을 받을 채널의 **채널 편집 > 연동 > 웹후크 > 새 웹후크**를 만들고 **웹후크 URL 복사**를 누릅니다.
+2. 저장소 **Settings > Secrets and variables > Actions > New repository secret** 에 이름 `DISCORD_WEBHOOK_URL`, 값은 복사한 주소로 넣습니다.
+3. 다음 확인 때 "가입 알림이 연결됐습니다"라는 글이 한 번 옵니다. 바로 보려면 Actions 탭의 **Signup notify > Run workflow**.
+
+- 알림 글에는 건수와 관리자 페이지 주소만 들어갑니다. 실명·가입 사유·닉네임은 디스코드로 나가지 않고, 도구([tools/signup-notify.mjs](tools/signup-notify.mjs))도 그 값을 읽지 않습니다.
+- 신청 하나에 알림은 한 번입니다.
+- `DISCORD_WEBHOOK_URL` 이 없으면 아무것도 하지 않습니다. 끄려면 그 Secret 을 지우거나 Actions 탭에서 워크플로를 Disable 합니다.
+- 웹후크 주소를 아는 사람은 그 채널에 글을 쓸 수 있습니다. 저장소나 채팅에 적지 않습니다.
+- 저장소에 60일 동안 활동이 없으면 GitHub 이 예약 실행을 끕니다(Actions 탭에서 다시 켭니다).
+- 카카오톡으로는 보내지 못합니다: "나에게 보내기"는 알림이 울리지 않는 메모 기능입니다.
 
 ### 보안 규칙
 
