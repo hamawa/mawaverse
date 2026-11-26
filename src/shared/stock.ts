@@ -63,6 +63,15 @@ export const settled = (p: StockPrice | null | undefined): boolean => !!p && p.s
 export const stockFee = (n: number): number => (n + STOCK_FEE_DIV - 1 - ((n + STOCK_FEE_DIV - 1) % STOCK_FEE_DIV)) / STOCK_FEE_DIV;
 export const buyCost = (q: number, price: number): number => q * price + stockFee(q * price);   // 사는 데 드는 코인
 export const sellNet = (q: number, price: number): number => q * price - stockFee(q * price);   // 팔아서 받는 코인
+// 사고팔기 확인창 (2026-11-26, v62, 저장소 주인 요청). 확인창을 띄워 둔 사이에 가격이 바뀌었으면(굴림·반영) 거래하지 않는다:
+// 창에 적힌 값과 다른 값에 사고팔게 된다. a: 물을 때의 가격, b: 지금 가격
+export const sameQuote = (a: StockPrice | null | undefined, b: StockPrice | null | undefined): boolean => !!a && !!b && a.v === b.v && a.at === b.at && settled(b);
+// 가진 have 주(산 값의 합 paid) 가운데 q 주를 1주 value 에 팔면 남는 돈 (받는 돈 − 그 주식을 산 값). 확인창에 보여 준다.
+// 식은 StockMgr.sell 이 적는 실현 손익과 같다 (남은 것의 산 값을 반올림하고 나머지를 판 것의 산 값으로 본다)
+export const sellGain = (q: number, value: number, have: number, paid: number): number => {
+  const left = have - q, keep = left > 0 ? Math.max(0, Math.round(paid * (left / have))) : 0;
+  return sellNet(q, value) - (paid - keep);
+};
 export const histIndex = (at: number): number => Math.floor(at / TICK_MS);
 // 하락 상품의 값: 종목 가격이 내리면 오른다. 규칙의 (1000000 / v - 1000000 / v % 1) 과 같다
 export const invPrice = (v: number): number => Math.floor(STOCK_INV_NUM / v);

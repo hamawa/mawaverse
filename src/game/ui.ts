@@ -156,12 +156,13 @@ export function promptModal(title: string, label: string, initial = '', maxLengt
   });
 }
 
+// Esc·창 바깥 누르기로 닫아도 "취소"로 끝난다 (2026-11-26). 전에는 그렇게 닫으면 끝나지 않아서, 묻기 전에 꺼 둔 단추나 "묻는 중" 표시가 그대로 남았다
 export function confirmModal(msg: string, okLabel = '확인'): Promise<boolean> {
   return new Promise((res) => {
     modal('확인', el('p', { text: msg }), [
       { label: '취소', onClick: () => res(false) },
       { label: okLabel, primary: true, onClick: () => res(true) },
-    ]);
+    ], false, () => res(false));
   });
 }
 

@@ -144,3 +144,47 @@ test('규칙: 하락 상품의 금액 식·한도·반영 확인이 코드와 �
   assert.ok(sym.ia && sym.r && sym.$other['.validate'] === false);
   assert.ok(sym['.validate'].includes("newData.hasChild('q') || newData.hasChild('iq')"));
 });
+
+test('확인창: 묻는 사이에 가격이 바뀌면 거래하지 않고, 팔 때 남는 돈은 실현 손익과 같은 식이다', () => {
+  const q0 = { v: 1000, at: 5000, sa: 5000 };
+  assert.equal(S.sameQuote(q0, { ...q0 }), true);
+  assert.equal(S.sameQuote(q0, { v: 1001, at: 5000, sa: 5000 }), false, '값이 바뀜');
+  assert.equal(S.sameQuote(q0, { v: 1000, at: 9000, sa: 9000 }), false, '다시 굴렸는데 값이 우연히 같음');
+  assert.equal(S.sameQuote(q0, { v: 1000, at: 9000, sa: 5000 }), false, '굴렸고 아직 반영 전');
+  assert.equal(S.sameQuote(q0, undefined), false);
+  assert.equal(S.sameQuote(undefined, q0), false);
+  // 전부 팔기: 받는 돈 − 산 값
+  assert.equal(S.sellGain(10, 1000, 10, 9000), S.sellNet(10, 1000) - 9000);
+  assert.equal(S.sellGain(10, 800, 10, 9000), S.sellNet(10, 800) - 9000);
+  assert.ok(S.sellGain(10, 800, 10, 9000) < 0);
+  // 일부 팔기: 남은 것의 산 값을 반올림하고 나머지를 판 것의 산 값으로 본다 (StockMgr.sell 과 같다)
+  assert.equal(S.sellGain(3, 1000, 10, 9001), S.sellNet(3, 1000) - (9001 - Math.round(9001 * 0.7)));
+  assert.equal(S.sellGain(1, 500, 3, 1000), S.sellNet(1, 500) - (1000 - Math.round(1000 * (2 / 3))));
+  // 나눠 팔아도 판 것의 산 값을 다 더하면 처음 산 값이다
+  let have = 7, paid = 7777, sum = 0;
+  for (const q of [2, 4, 1]) { const g = S.sellGain(q, 1000, have, paid); const cost = S.sellNet(q, 1000) - g; sum += cost; paid -= cost; have -= q; }
+  assert.equal(sum, 7777);
+  const mgr = readFileSync(new URL('../src/game/stock.ts', import.meta.url), 'utf8');
+  assert.ok(mgr.includes('const left = have - q, a = left > 0 ? Math.max(0, Math.round(paid * (left / have))) : 0;'), 'StockMgr.sell 의 식이 바뀌면 sellGain 도 같이 고칠 것');
+});
+
+test('확인창: 거래소 사기·팔기와 상점 소모품 구매는 묻고 나서 보낸다 (펫 먹이는 묻지 않는다)', () => {
+  const read = (f) => readFileSync(new URL(f, import.meta.url), 'utf8');
+  const stock = read('../src/game/stockui.ts');
+  // 사기·팔기 단추는 ask 를 거치고, ask 는 확인 → 가격이 그대로인지 → 거래 순서다
+  assert.ok(!/(buy|sell)\.onclick = \(\) => void trade\(/.test(stock), '단추가 trade 를 바로 부르지 않는다');
+  assert.equal((stock.match(/\.onclick = \(\) => void ask\(/g) || []).length, 2);
+  const ask = stock.slice(stock.indexOf('const ask = async'), stock.indexOf('const trade = async'));
+  const order = ['await confirmModal(', 'sameQuote(quote, h.stock.prices[sym])', 'await trade('].map((x) => ask.indexOf(x));
+  assert.ok(order.every((i) => i > 0) && order[0] < order[1] && order[1] < order[2]);
+  // 확인창은 Esc·바깥 누르기로 닫아도 끝난다 (안 그러면 "묻는 중"이 풀리지 않아 다시 누를 수 없다)
+  assert.ok(read('../src/game/ui.ts').includes('], false, () => res(false));'));
+  const shop = read('../src/game/shopui.ts');
+  for (const [call, times] of [['h.wallet.buyBait(', 1], ['h.wallet.buyBats(', 1], ['h.wallet.buyDarks(', 1], ['h.wallet.buyScrolls(', 2]]) {
+    let at = -1, n = 0;
+    while ((at = shop.indexOf(call, at + 1)) >= 0) { n++; const before = shop.slice(Math.max(0, at - 260), at); assert.ok(before.includes('await confirmModal('), `${call} 앞에 확인창`); }
+    assert.equal(n, times, call);
+  }
+  const feed = shop.indexOf('h.wallet.feedPet(');
+  assert.ok(feed > 0 && !shop.slice(feed - 260, feed).includes('confirmModal('), '펫 먹이는 묻지 않는다 (연달아 누른다)');
+});

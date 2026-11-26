@@ -2,9 +2,9 @@
 // 2026-11-25 (건의 반영): 탭 셋으로 나눴다. 📈 종목 · 📉 하락 상품(종목의 가격이 내리면 오른다) · 📊 손익 순위(모두의 평가·실현 손익).
 // 하락 상품을 종목 칸 안에 한 줄씩 덧붙였더니 폰에서 화면이 1.5배로 길어져서 탭으로 갈랐다: 탭마다 길이는 전과 같다
 import { el } from '../shared/util';
-import { modal, withCloseX } from './ui';
+import { modal, withCloseX, confirmModal } from './ui';
 import { fmtCoins } from '../shared/shop';
-import { STOCKS, STOCK_CAP, STOCK_INV_CAP, TICK_MS, buyCost, sellNet, settled, invPrice, stockOf, type StockDef, type StockSym, type StockRankRow } from '../shared/stock';
+import { STOCKS, STOCK_CAP, STOCK_INV_CAP, TICK_MS, buyCost, sellNet, sellGain, sameQuote, settled, invPrice, stockOf, type StockDef, type StockSym, type StockRankRow } from '../shared/stock';
 import type { StockMgr, HistPoint, TradeResult } from './stock';
 
 // nickOf: 순위에 나온 사람의 닉네임 (접속해 있지 않은 사람은 한 번 읽는다. 못 읽으면 null)
@@ -49,6 +49,7 @@ export function openStock(h: StockHost): void {
   const nicks = new Map<string, string>();
   const qtyOf = { base: 1, inv: 1 };
   let busy = false;
+  let asking = false; // 확인창을 띄워 둔 동안 (또 눌러 창이 겹치지 않게)
   let view: View = 'base';
   let rank: StockRankRow[] | null = null;
   const render = (): void => {
@@ -110,11 +111,16 @@ export function openStock(h: StockHost): void {
     const buy = el('button', { class: 'btn small primary', text: canBuy > 0 ? `${canBuy}주 사기 ${fmtCoins(buyCost(canBuy, now))}` : `${cap}주 한도` });
     buy.dataset.buy = s.sym;
     buy.disabled = busy || canBuy <= 0 || !settled(p) || h.balance() < buyCost(canBuy, now);
-    buy.onclick = () => void trade(() => st.buy(s.sym, canBuy, inv), `${label} ${canBuy}주를 샀어요.`, inv ? INV_CAP_MSG : undefined);
+    buy.onclick = () => void ask(s.sym, `${label} ${canBuy}주를 ${fmtCoins(buyCost(canBuy, now))}에 살까요? (1주 ${num(now)} · 수수료 2% 포함)`, '사기',
+      () => st.buy(s.sym, canBuy, inv), `${label} ${canBuy}주를 샀어요.`, inv ? INV_CAP_MSG : undefined);
     const sell = el('button', { class: 'btn small', text: canSell > 0 ? `${canSell}주 팔기 +${num(sellNet(canSell, now))}` : '팔 것 없음' });
     sell.dataset.sell = s.sym;
     sell.disabled = busy || canSell <= 0 || !settled(p);
-    sell.onclick = () => void trade(() => st.sell(s.sym, canSell, inv), `${label} ${canSell}주를 팔았어요.`);
+    // 팔면 남는 돈도 같이 보여 준다 (손해 보고 파는 것을 모르고 누르지 않게)
+    const gain = canSell > 0 && paid > 0 ? sellGain(canSell, now, q, paid) : null;
+    const gainText = gain === null ? '' : gain >= 0 ? ` 산 값보다 ${num(gain)} 이익이에요.` : ` 산 값보다 ${num(-gain)} 손해예요.`;
+    sell.onclick = () => void ask(s.sym, `${label} ${canSell}주를 ${fmtCoins(sellNet(canSell, now))}에 팔까요? (1주 ${num(now)} · 수수료 2% 뺀 값)${gainText}`, '팔기',
+      () => st.sell(s.sym, canSell, inv), `${label} ${canSell}주를 팔았어요.`);
     row.append(info, el('div', { class: 'stock-side' }, [spark(line.slice(-48)), el('div', { class: 'row', style: 'gap:6px;justify-content:flex-end;flex-wrap:wrap' }, [buy, sell])]));
     return row;
   };
@@ -145,6 +151,18 @@ export function openStock(h: StockHost): void {
       rank = rows;
       if (open === m && view === 'rank') render();
     });
+  };
+  // 사고팔기 전에 한 번 더 묻는다 (2026-11-26, 저장소 주인 요청). 묻는 사이에 가격이 바뀌었으면 거래하지 않고 알린다:
+  // StockMgr 는 누른 순간의 가격으로 거래하므로, 그대로 보내면 창에 적힌 값과 다른 값에 사고팔게 된다
+  const ask = async (sym: StockSym, msg: string, okLabel: string, fn: () => Promise<TradeResult>, okMsg: string, capMsg?: string): Promise<void> => {
+    if (busy || asking) return;
+    const quote = h.stock.prices[sym];
+    asking = true;
+    const yes = await confirmModal(msg, okLabel);
+    asking = false;
+    if (!yes || open !== m) return;
+    if (!sameQuote(quote, h.stock.prices[sym])) { h.toast(MSG.changed, true); return; }
+    await trade(fn, okMsg, capMsg);
   };
   const trade = async (fn: () => Promise<TradeResult>, okMsg: string, capMsg?: string): Promise<void> => {
     if (busy) return;
