@@ -6,7 +6,7 @@ import { drawHat, nameStyle, titleStyle, petCanvas, mountCanvas, petLookCanvas }
 import {
   HATS, NAME_COLORS, FX, TITLES, BUBBLES, GOLD_COST, PET_GOODS, PET_HATS, PET_GLASSES, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
-  BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance, isXmasItem, TITLE_NEEDS,
+  BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance, isXmasItem, TITLE_NEEDS, SELL_PCT, sellPrice,
 } from '../shared/shop';
 import { xmasSeason } from '../shared/season';
 import { serverNow } from '../firebase/db';
@@ -250,6 +250,21 @@ export function openShop(h: ShopHost): void {
       render();
     };
     card.append(el('div', { class: 'row', style: 'gap:4px;justify-content:center' }, gold || need || (isXmasItem(item.id) && !xmasNow()) ? [btn] : [btn, giftBtn(item, price)])); // 금덩이 품목은 선물할 수 없다 (규칙). 철이 지난 크리스마스 한정과 달성 칭호도 선물 단추가 없다
+    // 판매 (2026-11-26): 가진 치장템을 지금 값의 SELL_PCT % 에 판다. 펫·금덩이 품목에는 없다 (shop.ts canSell)
+    const refund = owned ? sellPrice(item, prices) : 0;
+    if (refund > 0) {
+      const sb = el('button', { class: 'btn small', text: `판매 +${refund.toLocaleString('ko-KR')}`, title: `지금 값의 ${SELL_PCT}% 를 돌려받습니다` });
+      sb.dataset.sellitem = item.id;
+      sb.onclick = async () => {
+        sb.disabled = true;
+        const limited = isXmasItem(item.id) && !xmasNow() ? ' 지금은 다시 살 수 없는 한정 품목입니다.' : '';
+        if (!(await confirmModal(`${item.name}을(를) ${fmtCoins(refund)}에 팔까요? (지금 값의 ${SELL_PCT}%) 판 뒤에는 다시 사야 합니다.${limited}`))) { sb.disabled = false; return; }
+        if (await h.wallet.sellItem(item, refund)) { sfx('coin'); h.toast(`${item.icon} ${item.name}을(를) 팔았습니다. +${refund.toLocaleString('ko-KR')}코인`); }
+        else h.toast('팔지 못했습니다. 잠시 후 다시 시도하세요.', true);
+        render();
+      };
+      card.append(el('div', { class: 'row', style: 'justify-content:center;margin-top:4px' }, [sb]));
+    }
     // 만렙 펫을 데리고 있으면: 타고 다닐지 내려서 데리고 다닐지 고른다 (2026-11-12 건의 반영)
     if (pet && owned && eq && petCanRide(xp)) {
       const rb = el('button', { class: 'btn small', text: h.wallet.rideOn() ? '🐾 내려서 데리고 다니기' : '🏇 타고 다니기', style: 'margin-top:4px' });

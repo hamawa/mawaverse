@@ -1073,15 +1073,15 @@ test('캐롤: 가락의 마디 길이·화음이 맞고, 크리스마스 철에�
   audio.stopSound();
 });
 
-test('칭호: 재미 칭호 19개는 3만, 달성 칭호 2개는 조건이 있고, 빛깔을 따로 정한 것은 그리는 쪽에 있다', async () => {
+test('칭호: 재미 칭호 21개는 3만, 달성 칭호 2개는 조건이 있고, 빛깔을 따로 정한 것은 그리는 쪽에 있다', async () => {
   const { TITLES, TITLE_NEEDS, ALL_ITEMS, itemById, isOwnItem } = await import('../src/shared/shop.ts');
   const ids = TITLES.map((t) => t.id);
   assert.equal(new Set(ids).size, ids.length, '칭호 id 가 겹치지 않는다');
   assert.equal(new Set(ALL_ITEMS.map((i) => i.id)).size, ALL_ITEMS.length, '품목 id 가 겹치지 않는다');
   for (const t of TITLES) { assert.ok(t.id.startsWith('tt-') && t.kind === 'title' && itemById(t.id) === t && isOwnItem(t.id), t.id); assert.ok(t.name.length <= 8, `${t.name}: 이름표 너비`); }
   const fun = TITLES.filter((t) => t.price === 30000 && t.id !== 'tt-xmas');
-  assert.equal(fun.length, 19);
-  for (const name of ['핑크공주', '동네 개', '마을 거지', '마을 도둑놈', '마을 카사노바', '마을 졸부', '마을 술꾼', '골목대장', '귀염둥이', '마을 인싸', '마을 아싸', '마을 관종', '동네 바보', '소비요정', '돈미새', '노예', '될놈될', '인생역전', '인생여전']) assert.ok(fun.some((t) => t.name === name), name);
+  assert.equal(fun.length, 21);
+  for (const name of ['핑크공주', '동네 개', '마을 거지', '마을 도둑놈', '마을 카사노바', '마을 졸부', '마을 술꾼', '골목대장', '귀염둥이', '마을 인싸', '마을 아싸', '마을 관종', '동네 바보', '소비요정', '돈미새', '노예', '될놈될', '인생역전', '인생여전', '소녀가장', '소년가장']) assert.ok(fun.some((t) => t.name === name), name);
   // 달성 칭호: 조건이 있는 것은 칭호 목록에 있고, 낚시·채집 하나씩
   assert.deepEqual(Object.keys(TITLE_NEEDS).sort(), ['tt-fisher', 'tt-netter']);
   for (const [id, need] of Object.entries(TITLE_NEEDS)) { assert.ok(ids.includes(id), id); assert.ok(need.n >= 100000 && ['fish', 'bug'].includes(need.what)); }
@@ -1091,4 +1091,39 @@ test('칭호: 재미 칭호 19개는 3만, 달성 칭호 2개는 조건이 있�
   // 상점: 조건을 못 채우면 살 수 없고 선물 단추가 없다
   const ui = readFileSync(new URL('../src/game/shopui.ts', import.meta.url), 'utf8');
   for (const s of ['const locked = !!need && !owned && (done === null || done < need.n)', 'if (locked) { btn.disabled = true;', 'gold || need || (isXmasItem(item.id) && !xmasNow()) ? [btn]']) assert.ok(ui.includes(s), s);
+});
+
+test('치장템 판매: 치장템만, 지금 값의 30% (내림), 금덩이 품목과 펫·장비는 팔 수 없다', async () => {
+  const { SELL_PCT, canSell, sellPrice, itemById, ALL_ITEMS, GOLD_COST, TITLES, HATS, FX, BUBBLES, NAME_COLORS, PET_HATS, PET_GLASSES, PET_GOODS, ROD_GOODS } = await import('../src/shared/shop.ts');
+  assert.equal(SELL_PCT, 30);
+  for (const list of [TITLES, HATS, FX, BUBBLES, NAME_COLORS, PET_HATS, PET_GLASSES]) for (const it of list) assert.equal(canSell(it), !GOLD_COST[it.id], it.id);
+  for (const it of [...PET_GOODS, ...ROD_GOODS]) assert.equal(canSell(it), false, it.id);
+  for (const it of ALL_ITEMS) if (!['hat', 'name', 'fx', 'title', 'bubble', 'pethat', 'petglass'].includes(it.kind)) assert.equal(sellPrice(it, null), 0, it.id);
+  for (const id of Object.keys(GOLD_COST)) assert.equal(sellPrice(itemById(id), null), 0, id);
+  assert.equal(canSell(undefined), false);
+  assert.equal(sellPrice(undefined, null), 0);
+  // 값은 가격표가 먼저다 (관리자가 값을 바꾸면 환불도 따라간다)
+  const pink = itemById('tt-pink');
+  assert.equal(sellPrice(pink, null), 9000);
+  assert.equal(sellPrice(pink, { 'tt-pink': 50000 }), 15000);
+  assert.equal(sellPrice(pink, { 'tt-pink': 33333 }), 9999);
+  assert.equal(sellPrice(itemById('tt-fisher'), null), 300);
+  // 샀다 팔기를 되풀이해도 남지 않는다
+  for (const it of ALL_ITEMS) assert.ok(sellPrice(it, null) * 2 < Math.max(1, it.price), it.id);
+});
+
+test('치장템 판매: 판 것(false)은 다음 접속 때 다시 주지 않는다. 이 기기에서 방금 값을 낸 것만 준다', async () => {
+  const { shouldDeliver } = await import('../src/shared/shop.ts');
+  assert.equal(shouldDeliver(true, false), false);       // 이미 가졌다
+  assert.equal(shouldDeliver(true, true), false);
+  assert.equal(shouldDeliver(undefined, false), true);   // 값은 냈는데 등록이 안 됐다
+  assert.equal(shouldDeliver(null, false), true);
+  assert.equal(shouldDeliver(false, false), false);      // 가졌다가 팔았다
+  assert.equal(shouldDeliver(false, true), true);        // 판 것을 다시 사다가 끊겼다
+  const src = readFileSync(new URL('../src/game/wallet.ts', import.meta.url), 'utf8');
+  // 지갑: 판 품목은 지우지 않고 false 로 두고, 환불과 한 번의 쓰기로 보낸다. 접속할 때의 마저 등록은 shouldDeliver 를 거친다
+  for (const s of ["[`users/${uid}/own/${item.id}`]: false", '[`wallet/${uid}/c`]: increment(refund), [`wallet/${uid}/e`]: increment(refund)', 'shouldDeliver(has, this.pendingIs(`${b}>${gt}`))', 'shouldDeliver(this.w.profile.own?.[b], this.pendingIs(b))']) assert.ok(src.includes(s), s);
+  // 규칙: 가진 칸을 false 로 내리는 것은 주인만
+  const rules = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules;
+  assert.ok(rules.users.$uid.own.$item['.validate'].includes('(data.val() === true && (newData.val() === true || auth.uid == $uid))'));
 });

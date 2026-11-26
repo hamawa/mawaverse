@@ -14,7 +14,7 @@ export interface UserProfile {
   lastMsg?: number;
   lastAll?: number;
   lastPos?: { x: number; y: number; d?: Dir; m?: string } | null; // d: 바라보던 방향 (다시 들어올 때 복원), m: 맵 id (없으면 기본 맵)
-  own?: Record<string, true>;      // 상점에서 산 꾸미기 (품목 id)
+  own?: Record<string, boolean>;   // 상점에서 산 꾸미기 (품목 id → true). false 는 가졌다가 판 것 (2026-11-26. 가진 것으로 치지 않는다)
   eq?: Equip | null;                // 착용 중인 꾸미기
   gifts?: Record<string, true>;    // 선물로 받은 품목 (보낸 사람이 own 과 함께 적는다)
   gift?: GiftMark | null;          // 마지막으로 받은 선물 (알림용)

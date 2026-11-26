@@ -473,7 +473,9 @@ function derbyBlocks(ind) {
 // 본인 등록은 선물 대상(gt)이 없을 때만, 남(선물한 사람)의 등록은 그 사람 지갑의 b 가 이 품목이고 gt 가 받는 사람일 때만 (2026-11-09 선물)
 const myBuy = (pre) => `(auth.uid == $uid && root.child('${pre}wallet/' + $uid + '/b').val() == $item && !root.child('${pre}wallet/' + $uid + '/gt').exists())`;
 const giftBuy = (pre) => `(auth.uid != $uid && root.child('${pre}wallet/' + auth.uid + '/b').val() == $item && root.child('${pre}wallet/' + auth.uid + '/gt').val() == $uid)`;
-const ownRule = (pre) => `newData.isBoolean() && (data.val() === true || (newData.val() === true && (${myBuy(pre)} || ${giftBuy(pre)})))`;
+// 가진 칸(true)을 false 로 내리는 것은 주인만 한다 (2026-11-26. 치장템 판매가 이렇게 내린다: 지우지 않고 false 로 두어 "팔았다"는 표시로 쓴다).
+// 전에는 가진 칸이면 누가 어떤 값으로 쓰든 받아서, 고친 화면이 남의 물건을 false 로 바꿔 없앨 수 있었다
+const ownRule = (pre) => `newData.isBoolean() && ((data.val() === true && (newData.val() === true || auth.uid == $uid)) || (newData.val() === true && (${myBuy(pre)} || ${giftBuy(pre)})))`;
 // 선물받은 품목 표시: 선물한 사람만 쓴다 (본인이 자기 물건을 선물로 둔갑시켜 의심 지표에서 빼지 못하게)
 const giftsRule = (pre) => `newData.val() === true && ${giftBuy(pre)}`;
 // 마지막 선물 표시 (받는 사람 알림용): 선물한 사람이 결제한 그 품목으로만

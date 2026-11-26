@@ -162,7 +162,7 @@ export const PUSH_GOODS: ShopItem[] = [
   { id: 'push2', kind: 'push', name: '번개 손', price: 1000, icon: '⚡', desc: '밀치기 쿨타임 5초 → 3초. 영구. 날쌘 손이 있어야 함.' },
 ];
 export const PUSH_COOLDOWN_BY_TIER = [10000, 5000, 3000]; // 보유 단계별 쿨타임(ms)
-export function pushTierOf(own?: Record<string, true> | null): number { return own?.push2 ? 2 : own?.push1 ? 1 : 0; }
+export function pushTierOf(own?: Record<string, boolean> | null): number { return own?.push2 ? 2 : own?.push1 ? 1 : 0; }
 
 // 만 코인 영구 장비. 장풍·말랑이 보따리는 가지고만 있으면 적용(범위는 game/area.ts: 앞 4칸 × 옆 4칸), 갑옷 둘은 입고 벗는다 (users/{uid}/eq 의 pa·ta, presence 에도 실림)
 export const GEAR_GOODS: ShopItem[] = [
@@ -257,7 +257,7 @@ export const ICE_ROD_ID = 'iceRod';
 export const ICE_ROD_TIER = 2;     // ROD_BOOST·ROD_JUNK 에서 명품(2)과 같은 배수
 export const ICE_ROD_STARS = 20;   // 낚시 확률에 쓰는 고정 성 (starFactor)
 export const ICE_ROD: ShopItem = { id: ICE_ROD_ID, kind: 'rod', name: '얼음 낚싯대', price: 1000, icon: '🧊', desc: '겨울 맵 낚시 전용. 명품 낚싯대 20성급 성능(희귀 이상 2.5배·꽝 1/4)으로 고정이라 강화할 수 없고 킹 사이즈도 없다. 영구.' };
-export function rodTierOf(own?: Record<string, true> | null, family: RodFamily = 'normal'): number {
+export function rodTierOf(own?: Record<string, boolean> | null, family: RodFamily = 'normal'): number {
   if (family === 'ice') return own?.[ICE_ROD_ID] ? ICE_ROD_TIER : 0;
   return own?.rod3 ? 3 : own?.rod2 ? 2 : own?.rod1 ? 1 : 0;
 }
@@ -293,7 +293,7 @@ export const NET_GOODS: ShopItem[] = [
   { id: 'net1', kind: 'net', name: '튼튼한 잠자리채', price: 3000, icon: '🥅', desc: '채집에 실패할 확률이 절반으로. 영구.' },
   { id: 'net2', kind: 'net', name: '황금 잠자리채', price: 10000, icon: '🏆', desc: '휘두르면 무조건 잡는다. 튼튼한 잠자리채가 있어야 함. 영구.' },
 ];
-export function netTierOf(own?: Record<string, true> | null): number { return own?.net2 ? 2 : own?.net1 ? 1 : 0; }
+export function netTierOf(own?: Record<string, boolean> | null): number { return own?.net2 ? 2 : own?.net1 ? 1 : 0; }
 // 잠자리채 등급을 반영한 채집 성공 확률
 export function netChance(base: number, tier: number): number { return tier >= 2 ? 1 : tier === 1 ? 1 - (1 - base) / 2 : base; }
 
@@ -321,6 +321,8 @@ export const TITLES: ShopItem[] = [
   { id: 'tt-destined', kind: 'title', name: '될놈될', price: 30000, icon: '🍀', desc: '뭘 해도 되는 사람.' },
   { id: 'tt-reversal', kind: 'title', name: '인생역전', price: 30000, icon: '📈', desc: '한 방에 뒤집은 사람.' },
   { id: 'tt-same', kind: 'title', name: '인생여전', price: 30000, icon: '😑', desc: '한 방을 기다리는 사람.' },
+  { id: 'tt-girlhead', kind: 'title', name: '소녀가장', price: 30000, icon: '👧', desc: '오늘도 집안을 먹여 살리는 사람.' }, // 2026-11-26 (저장소 주인 요청)
+  { id: 'tt-boyhead', kind: 'title', name: '소년가장', price: 30000, icon: '👦', desc: '어깨가 무거운 사람.' },
   // 달성 칭호 (같은 날, 건의 반영): 조건(TITLE_NEEDS)을 채운 사람만 산다. 조건은 상점 화면이 지킨다 (크리스마스 한정과 같다: 규칙은 보통 구매로 본다). 선물할 수 없다
   { id: 'tt-fisher', kind: 'title', name: '강태공', price: 1000, icon: '🎣', desc: '낚시 30만 마리를 채운 사람만 달 수 있다.' },
   { id: 'tt-netter', kind: 'title', name: '잠자리채', price: 1000, icon: '🥅', desc: '채집 10만 마리를 채운 사람만 달 수 있다.' },
@@ -392,6 +394,18 @@ export const TITLE_NEEDS: Record<string, { what: 'fish' | 'bug'; n: number; labe
   'tt-fisher': { what: 'fish', n: 300000, label: '낚시' },
   'tt-netter': { what: 'bug', n: 100000, label: '채집' },
 };
+// 치장템 판매 (2026-11-26, 저장소 주인 요청): 보관함의 치장템을 지금 가격표 값의 SELL_PCT % 에 판다 (wallet.ts sellItem).
+//  - 30% 는 낮게 시작한 값이다(저장소 주인 결정): 샀다 팔면 70% 가 사라져야 치장템이 코인을 쓰게 하는 구실이 남는다. 50% 면 "잠깐 쓰고 반값에 돌려받기"가 된다
+//  - 선물로 받은 것도 판다(저장소 주인 결정). 펫·장비·낚싯대·집 품목은 팔 수 없고, 금덩이가 든 품목도 팔 수 없다(금덩이를 돌려줄 길이 없다)
+//  - 판 품목은 보관함에서 지우지 않고 false 로 둔다: 지갑의 마지막 구매 표시(b)가 그 품목인 채로 칸이 비어 있으면, 다음 접속 때
+//    "값은 냈는데 등록이 안 된 구매"로 보고 공짜로 다시 등록해 주기 때문이다 (선물이면 준 사람의 화면이 다시 준다). false 는 "가졌다가 판 것"이다
+export const SELL_PCT = 30;
+const SELL_KINDS: readonly ItemKind[] = ['hat', 'name', 'fx', 'title', 'bubble', 'pethat', 'petglass'];
+export function canSell(item: ShopItem | undefined): item is ShopItem { return !!item && SELL_KINDS.includes(item.kind) && !GOLD_COST[item.id]; }
+export function sellPrice(item: ShopItem | undefined, prices?: Record<string, number> | null): number { return canSell(item) ? Math.floor((priceOf(item, prices) * SELL_PCT) / 100) : 0; }
+// 값을 냈는데 보유 등록이 안 된 구매를 마저 등록할지. own: 그 품목의 보관함 값(true 가짐 · false 가졌다가 팖 · 없음).
+// 판 것은 다시 주지 않는다. 다만 이 기기에서 방금 값을 내고 아직 등록을 못 끝낸 것(pendingHere)이면 준다: 판 품목을 다시 사다가 끊긴 경우
+export function shouldDeliver(own: unknown, pendingHere: boolean): boolean { return own === true ? false : own === false ? pendingHere : true; }
 export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...TITLES, ...BUBBLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }

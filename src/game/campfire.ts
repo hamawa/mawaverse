@@ -11,7 +11,7 @@ export type LightResult = 'ok' | 'noitem' | 'nowood' | 'indoor' | 'blocked' | 'h
 export interface FireHost {
   uid: string; mapId: string; map: MapData;
   me: { x: number; y: number; dir: Dir; moving: boolean };
-  profile: { own?: Record<string, true> | null };
+  profile: { own?: Record<string, boolean> | null };
   occupied(x: number, y: number): boolean;
 }
 const AHEAD: Record<number, [number, number]> = { 0: [0, 1], 1: [-1, 0], 2: [1, 0], 3: [0, -1] };

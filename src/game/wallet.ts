@@ -1,7 +1,7 @@
 import { ref, get, set, query, orderByChild, equalTo, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
+import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, canSell, shouldDeliver, type ShopItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
 import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
@@ -658,6 +658,7 @@ export class WalletMgr {
       return n;
     });
     if (!ok) return false;
+    this.markPending(itemId);
     await this.deliver(itemId);
     this.listeners.forEach((f) => f());
     return true;
@@ -665,6 +666,7 @@ export class WalletMgr {
   // 꾸미기·장비 구매: 지갑에서 값을 빼며 무엇을 샀는지(b) 적고, 이어서 보관함에 넣는다 (규칙이 b 를 보고 보유 등록을 허용)
   async buyCosmetic(itemId: string, price: number): Promise<boolean> {
     if (!(await this.spend(itemId, price))) return false;
+    this.markPending(itemId);
     await this.deliver(itemId);
     return true;
   }
@@ -672,7 +674,33 @@ export class WalletMgr {
     try { await update(ref(db), { [`users/${this.w.uid}/own/${itemId}`]: true }); } catch (e) { console.warn('보유 등록 실패', e); return false; }
     const p = this.w.profile;
     p.own = { ...(p.own || {}), [itemId]: true };
+    this.markPending(null);
     return true;
+  }
+  // 값을 냈고 등록을 아직 못 끝낸 구매를 이 브라우저에 적어 둔다 (2026-11-26). 판 품목(보관함 값 false)을 다시 사다가 끊겼을 때만 쓰인다:
+  // 그 칸이 false 인 것만으로는 "팔았다"와 "다시 샀는데 등록이 안 됐다"를 가를 수 없다. 선물은 '품목>받는 사람'
+  private pendKey(): string { return `mv-pend-${this.w.uid}`; }
+  private markPending(v: string | null): void {
+    try { if (v) localStorage.setItem(this.pendKey(), v); else localStorage.removeItem(this.pendKey()); } catch { /* 저장소를 못 쓰면 표시 없이 간다 */ }
+  }
+  private pendingIs(v: string): boolean { try { return localStorage.getItem(this.pendKey()) === v; } catch { return false; } }
+  // 치장템 판매 (2026-11-26, shop.ts sellPrice): 환불(잔액·누적 획득이 같이 오른다)과 보관함 내리기를 쓰기 한 번에 한다. 착용 중이면 먼저 벗는다.
+  // 보관함 칸은 지우지 않고 false 로 둔다 (shop.ts 의 판매 머리말: 지우면 다음 접속 때 공짜로 되돌아올 수 있다). 규칙: 가진 칸을 false 로 내리는 것은 주인만
+  private selling = false;
+  async sellItem(item: ShopItem, refund: number): Promise<boolean> {
+    if (this.selling || !canSell(item) || !this.owns(item.id) || refund <= 0 || refund % 1 !== 0) return false;
+    this.selling = true;
+    try {
+      const kind = item.kind as CosmeticKind, uid = this.w.uid, w = this.wallet;
+      if (this.equipped(kind) === item.id) await this.equip(kind, null);
+      const upd: Record<string, unknown> = { [`wallet/${uid}/c`]: increment(refund), [`wallet/${uid}/e`]: increment(refund), [`users/${uid}/own/${item.id}`]: false };
+      for (const k of ['wt', 'we', 'md'] as const) if (w[k] !== undefined) upd[`wallet/${uid}/${k}`] = null; // 옛 칸이 남은 지갑이면 같이 지운다 (earn 과 같다)
+      await update(ref(db), upd);
+      this.w.profile.own = { ...(this.w.profile.own || {}), [item.id]: false };
+      if (this.pendingIs(item.id)) this.markPending(null);
+      this.listeners.forEach((f) => f());
+      return true;
+    } catch (e) { console.warn('판매 실패', e); return false; } finally { this.selling = false; }
   }
   // 선물 (2026-11-09): 내 지갑에서 값을 빼며 b=품목, gt=받는 사람을 적고, 받는 사람의 보유(own)·선물 표시(gifts, gift)를 한 번에 쓴다.
   // 규칙: gt 가 있으면 그 품목의 보유 등록은 받는 사람에게만 된다 (한 번 결제 = 한 번 등록). 'owned' 는 상대가 이미 가진 경우
@@ -680,23 +708,27 @@ export class WalletMgr {
     try { if ((await get(ref(db, `users/${to.uid}/own/${itemId}`))).val() === true) return 'owned'; } catch { /* 읽기 실패면 그냥 진행 */ }
     const ok = await this.spend(itemId, price, (n) => ({ ...n, gt: to.uid }));
     if (!ok) return 'coins';
+    this.markPending(`${itemId}>${to.uid}`);
     return (await this.deliverGift(itemId, to.uid, msg)) ? 'ok' : 'fail';
   }
   private async deliverGift(itemId: string, toUid: string, msg: string): Promise<boolean> {
     const mark: GiftMark = { f: this.w.uid, fn: this.w.profile.nick, i: itemId, at: serverTimestamp() as unknown as number, ...(msg ? { m: msg.slice(0, GIFT_MSG_MAX) } : {}) };
     try {
       await update(ref(db), { [`users/${toUid}/own/${itemId}`]: true, [`users/${toUid}/gifts/${itemId}`]: true, [`users/${toUid}/gift`]: mark });
+      this.markPending(null);
       return true;
     } catch (e) { console.warn('선물 전달 실패', e); return false; }
   }
-  // 값은 냈는데 보유 등록이 안 된 구매(도중에 끊김)가 있으면 접속할 때 마저 등록한다. 선물(gt)이면 받는 사람에게
+  // 값은 냈는데 보유 등록이 안 된 구매(도중에 끊김)가 있으면 접속할 때 마저 등록한다. 선물(gt)이면 받는 사람에게.
+  // 보관함 값이 false 면 가졌다가 판 것이라 다시 주지 않는다 (shop.ts shouldDeliver. 2026-11-26 판매 기능: 안 그러면 판 물건이 접속할 때마다 공짜로 돌아온다)
   private async deliverPending(): Promise<void> {
     const b = this.wallet.b, gt = this.wallet.gt;
     if (!b || !isOwnItem(b)) return;
     if (gt) {
-      try { if ((await get(ref(db, `users/${gt}/own/${b}`))).val() === true) return; } catch { return; }
-      await this.deliverGift(b, gt, '');
-    } else if (!this.owns(b) && (await this.deliver(b))) this.listeners.forEach((f) => f());
+      let has: unknown;
+      try { has = (await get(ref(db, `users/${gt}/own/${b}`))).val(); } catch { return; }
+      if (shouldDeliver(has, this.pendingIs(`${b}>${gt}`))) await this.deliverGift(b, gt, '');
+    } else if (shouldDeliver(this.w.profile.own?.[b], this.pendingIs(b)) && (await this.deliver(b))) this.listeners.forEach((f) => f());
   }
   owns(itemId: string): boolean { return !!this.w.profile.own?.[itemId]; }
   equipped(kind: CosmeticKind): string | null { const v = this.w.profile.eq?.[EQUIP_KEY[kind]]; return typeof v === 'string' ? v : null; }

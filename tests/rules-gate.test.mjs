@@ -1486,6 +1486,34 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await root.ref().update({ users: null, wallet: null, 'fish/contest': null, 'fish/cprize': null, 'fish/defs': null, 'bug/defs': null, 'approved/THIRD': null, 'approved/OTHER': null });
 }
 
+// ---------- 치장템 판매 (2026-11-26): 보관함 칸을 false 로 내리면서 환불을 받는다 (shop.ts sellPrice, wallet.ts sellItem) ----------
+{
+  await setNow('2026-11-14 12:00:00');
+  await root.ref().update({
+    'users/OK': { ...profile('ok', '승인됨'), own: { 'tt-pink': true, hat1: true } }, 'users/OTHER': { ...profile('other', '다른이'), own: { hat2: true } }, 'approved/OTHER': true,
+    'wallet/OK': { c: 1000, e: 1000, b: 'tt-pink' }, 'wallet/OTHER': { c: 50000, e: 50000 },
+  });
+  // 남의 보관함은 내릴 수 없다 (2026-11-26 전에는 가진 칸이면 아무나 false 로 바꿀 수 있었다: 남의 물건을 없애는 구멍)
+  await expect('판매: 남의 보관함 물건을 없음(false)으로 바꾸기', 'deny', () => other.ref('users/OK/own/hat1').set(false));
+  await expect('판매: 남의 보관함 물건을 지우기', 'deny', () => other.ref('users/OK/own/hat1').remove());
+  await expect('판매: 갖지 않은 물건에 없음 표시 만들기', 'deny', () => ok.ref('users/OK/own/nothing').set(false));
+  // 판매: 환불(잔액·누적 획득이 같이 오른다)과 보관함 내리기를 쓰기 한 번에
+  await expect('판매: 내 물건을 내리며 환불 받기', 'allow', () => ok.ref().update({ 'wallet/OK/c': 10000, 'wallet/OK/e': 10000, 'users/OK/own/tt-pink': false }));
+  await expect('판 물건은 착용할 수 없다 (프로필)', 'deny', () => ok.ref('users/OK/eq/tt').set('tt-pink'));
+  await expect('판 물건은 착용할 수 없다 (접속 표시)', 'deny', () => ok.ref('players/OK/tt').set('tt-pink'));
+  // 판 물건을 되살리는 길은 다시 사는 것뿐이다 (보유 등록은 지갑의 마지막 구매 표시가 그 품목일 때만)
+  await root.ref('wallet/OK/b').set('hat9');
+  await expect('판 물건을 값 없이 되살리기', 'deny', () => ok.ref('users/OK/own/tt-pink').set(true));
+  await root.ref('wallet/OK/b').set('tt-pink');
+  await expect('판 물건을 다시 사서 등록하기', 'allow', () => ok.ref('users/OK/own/tt-pink').set(true));
+  // 선물 받은 것을 판 뒤 다시 선물 받기: 준 사람의 구매 표시가 있어야 한다
+  await root.ref('users/OK/own/hat1').set(false);
+  await expect('판 물건을 남이 값 없이 되살리기', 'deny', () => other.ref('users/OK/own/hat1').set(true));
+  await root.ref('wallet/OTHER').update({ b: 'hat1', gt: 'OK' });
+  await expect('판 물건을 다시 선물 받기', 'allow', () => other.ref().update({ 'users/OK/own/hat1': true, 'users/OK/gifts/hat1': true }));
+  await root.ref().update({ users: null, wallet: null, 'approved/OTHER': null, 'players/OK/tt': null });
+}
+
 const { derbyEmulatorCases } = await import('./derby-rules.test.mjs');
 await derbyEmulatorCases({ root, as, expect });
 
