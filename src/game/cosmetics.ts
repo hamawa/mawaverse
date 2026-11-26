@@ -130,6 +130,121 @@ Object.assign(HAT_ART, {
     '..dd........dd..',
   ] },
 } satisfies Record<string, HatArt>);
+// 건의 반영 (2026-11-26): 프로펠러 모자 · 풍선 · 머리핀 넷 · 날개 둘. 전부 모자 칸에 쓴다 (모자와 같이 쓸 수 없다).
+// 풍선(너비 24)과 날개(천사 36 · 악마 32: 프레임 양옆으로 6px · 4px 씩 나간다)는 머리 아래까지 내려온다: overlap 이 줄 수보다 클 수 있다 (hatAbove 는 0 아래로 내려가지 않는다).
+// 날개는 몸의 윤곽 바깥에만 그려서 등 뒤에 있는 것처럼 보인다. 천사 날개는 저장소 주인이 후보 셋(둥근 깃털 · 위로 펼친 날개 · 아래로 접은 날개)에서 접은 날개를 골랐다
+Object.assign(HAT_ART, {
+  propeller: { overlap: 3, pal: { b: '#3d8ef0', k: '#1d4a94', y: '#ffd43b', r: '#e0433a', g: '#35b563', d: '#1f7a40' }, rows: [
+    '..bbbbb..bbbbb..',
+    '..kbbbb..bbbbk..',
+    '.......yy.......',
+    '.......kk.......',
+    '.....yyrrbb.....',
+    '....yyyrrbbb....',
+    '...yyyyrrbbbb...',
+    '...yyyyrrbbbb...',
+    '..gggggggggggg..',
+    '..dddddddddddd..',
+  ] },
+  balloon: { overlap: 20, pal: { r: '#ff5b6e', w: '#ffd6dc', d: '#c93a52', s: '#f4f4f4' }, rows: [
+    '..................rrr...',
+    '.................rrrrr..',
+    '................rrrrrrr.',
+    '...............rrwwrrrrr',
+    '...............rwwrrrrrr',
+    '...............rwrrrrrrd',
+    '...............rrrrrrrrd',
+    '................rrrrrrd.',
+    '.................rrrrd..',
+    '..................rdd...',
+    '...................d....',
+    '...................s....',
+    '....................s...',
+    '....................s...',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '.....................s..',
+    '....................s...',
+    '....................s...',
+    '....................s...',
+    '....................s...',
+    '...................s....',
+  ] },
+  pinheart: { overlap: 8, pal: { p: '#ff6fa5', w: '#ffd6e6', d: '#d6457e' }, rows: [
+    '..........pp.pp.',
+    '.........pwppppp',
+    '.........ppppppd',
+    '..........ppppd.',
+    '...........ppd..',
+    '............d...',
+  ] },
+  pinstar: { overlap: 8, pal: { y: '#ffd84d', w: '#fff6c2', d: '#d9a520' }, rows: [
+    '............y...',
+    '............y...',
+    '.........ywyyyyy',
+    '..........yyyyd.',
+    '...........yyd..',
+    '..........yy.yd.',
+    '..........y...d.',
+  ] },
+  pindrop: { overlap: 9, pal: { b: '#4fb3ff', w: '#dff3ff', d: '#2478c8' }, rows: [
+    '............b...',
+    '............b...',
+    '...........bbb..',
+    '...........bbb..',
+    '..........bwbbb.',
+    '..........bwbbd.',
+    '..........bbbbd.',
+    '...........bdd..',
+  ] },
+  pinbolt: { overlap: 8, pal: { y: '#ffe14d', d: '#f29b1d' }, rows: [
+    '.............yy.',
+    '............yy..',
+    '...........yy...',
+    '..........yyyyd.',
+    '............yd..',
+    '...........yd...',
+    '..........yd....',
+  ] },
+  wingangel: { overlap: 25, pal: { o: '#7f93b5', w: '#ffffff', s: '#cfdcf0' }, rows: [
+    '....oooo....................oooo....',
+    '..oowwwwo..................owwwwoo..',
+    '.owwwwwwwo................owwwwwwwo.',
+    'owwwwwwwww................wwwwwwwwwo',
+    'owwwwwwwww................wwwwwwwwwo',
+    'owswwwwwww................wwwwwwwswo',
+    'owswwswwwo................owwwswwswo',
+    'owswwswwwo................owwwswwswo',
+    'owswwswwo..................owwswwswo',
+    '.oswwswwo..................owwswwso.',
+    '.owswswwo..................owwswswo.',
+    '..oswswo....................owswso..',
+    '..owsowo....................owoswo..',
+    '...oo.oo....................oo.oo...',
+  ] },
+  wingdevil: { overlap: 20, pal: { k: '#2a1038', p: '#8b2fc9' }, rows: [
+    'k..............................k',
+    'kk............................kk',
+    'kpk..........................kpk',
+    'kppk........................kppk',
+    'kpppkk....................kkpppk',
+    'kpppppkk................kkpppppk',
+    'kpppppp..................ppppppk',
+    'kpkppkp..................pkppkpk',
+    'kk.kp.k..................k.pk.kk',
+    'k...k......................k...k',
+  ] },
+} satisfies Record<string, HatArt>);
 export const HAT_IDS = Object.keys(HAT_ART);
 
 const hatCache = new Map<string, HTMLCanvasElement>();
@@ -139,7 +254,7 @@ function hatCanvas(id: string): HTMLCanvasElement | null {
   let cv = hatCache.get(id);
   if (!cv) {
     cv = document.createElement('canvas');
-    cv.width = 16; cv.height = art.rows.length;
+    cv.width = Math.max(16, ...art.rows.map((r) => r.length)); cv.height = art.rows.length; // 보통 16. 풍선·날개는 24
     const c = cv.getContext('2d')!;
     art.rows.forEach((row, y) => {
       for (let x = 0; x < row.length; x++) { const k = row[x]; if (k !== '.' && art.pal[k]) { c.fillStyle = art.pal[k]; c.fillRect(x, y, 1, 1); } }
@@ -154,11 +269,11 @@ export function drawHat(ctx: CanvasRenderingContext2D, id: string, dx: number, d
   const cv = hatCanvas(id);
   if (!cv) return;
   const art = HAT_ART[id];
-  const sx = dx + Math.floor((FRAME_W - 16) / 2) + (dir === 1 ? -1 : dir === 2 ? 1 : 0);
+  const sx = dx + Math.floor((FRAME_W - cv.width) / 2) + (dir === 1 ? -1 : dir === 2 ? 1 : 0);
   ctx.drawImage(cv, sx, dy + top - cv.height + art.overlap);
 }
 // 모자가 스프라이트의 첫 불투명 줄보다 위로 솟는 픽셀 수 (머리 위 말풍선·이모트 위치용)
-export function hatAbove(id: string): number { const art = HAT_ART[id]; return art ? art.rows.length - art.overlap : 0; }
+export function hatAbove(id: string): number { const art = HAT_ART[id]; return art ? Math.max(0, art.rows.length - art.overlap) : 0; }
 
 // ---- 펫 (2026-11-09) ----
 // 12px 너비 픽셀 아트(정면). 주인의 한 칸 뒤 타일에 그린다. 걸을 때는 통통 튀고, 가만히 있으면 숨 쉬듯 1px 들썩인다
@@ -891,7 +1006,7 @@ export function rainbowGradient(ctx: CanvasRenderingContext2D, x0: number, x1: n
 // 걷는 동안 GHOST_GAP_MS 마다 지금 모습을 한 장 찍어 두고, GHOST_LIFE_MS 동안 흐려지게 그린다. 사람마다 캔버스 GHOST_MAX 장을 돌려 쓴다(매번 새로 만들지 않는다)
 export const AFTERIMAGE_FX = 'shasha';
 const GHOST_GAP_MS = 45, GHOST_LIFE_MS = 380, GHOST_MAX = 9;
-const GHOST_PAD_X = 4, GHOST_PAD_TOP = 16; // 모자가 캐릭터 틀 밖으로 나가는 만큼의 여백
+const GHOST_PAD_X = 6, GHOST_PAD_TOP = 16; // 모자가 캐릭터 틀 밖으로 나가는 만큼의 여백 (옆: 천사 날개 6px · 위: 풍선 12px)
 interface Ghost { x: number; y: number; at: number; h: number; cv: HTMLCanvasElement }
 const ghostTrail = new Map<string, { list: Ghost[]; pool: HTMLCanvasElement[] }>();
 
@@ -925,6 +1040,7 @@ export function drawAfterimages(ctx: CanvasRenderingContext2D, uid: string, now:
 }
 
 // ---- 이동 이펙트 (파티클) ----
+const NOTE_COLORS = ['#ff7eb3', '#ffd84d', '#7fd8ff', '#9be37a', '#c79bff'];
 interface Particle { x: number; y: number; vx: number; vy: number; born: number; life: number; kind: string; hue: number; size: number }
 const parts: Particle[] = [];
 const lastSpawn = new Map<string, number>();
@@ -942,7 +1058,7 @@ export function spawnFx(uid: string, kind: string, fx: number, fy: number, now: 
     parts.push({
       x: fx + (Math.random() - 0.5) * 10, y: fy - Math.random() * 3,
       vx: Math.cos(a) * sp, vy: kind === 'dust' ? -0.008 : -0.03 - Math.random() * 0.02,
-      born: now, life: kind === 'rainbowtrail' || kind === 'petal' || kind === 'snowfx' ? 700 : kind === 'heart' || kind === 'stardust' ? 650 : 450,
+      born: now, life: kind === 'rainbowtrail' || kind === 'petal' || kind === 'snowfx' || kind === 'notes' ? 700 : kind === 'heart' || kind === 'stardust' ? 650 : 450,
       kind, hue: (now / 4 + i * 40) % 360, size: 1.5 + Math.random() * 1.5,
     });
   }
@@ -960,6 +1076,14 @@ export function drawFx(ctx: CanvasRenderingContext2D, now: number): void {
       case 'dust': ctx.fillStyle = '#cdbc9c'; ctx.beginPath(); ctx.arc(x, y, p.size * (1 + t), 0, Math.PI * 2); ctx.fill(); break;
       case 'sparkle': { ctx.fillStyle = t < 0.5 ? '#fff8c0' : '#ffd84d'; const r = p.size * (1.3 - t * 0.6); ctx.fillRect(x - r, y - 0.5, r * 2, 1); ctx.fillRect(x - 0.5, y - r, 1, r * 2); break; }
       case 'heart': ctx.fillStyle = '#ff7eb3'; ctx.font = '8px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('♥', x, y); break;
+      // 음표 (2026-11-26 건의): 색색의 음표가 살랑살랑 떠오른다. 어두운 테두리를 먼저 깔아 밝은 바닥에서도 보이게 한다
+      case 'notes': {
+        const sway = Math.sin((now - p.born) / 150 + p.hue) * 2, g = Math.floor(p.hue) % 2 ? '♪' : '♫';
+        ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(20, 20, 40, 0.55)'; ctx.fillText(g, x + sway + 0.6, y + 0.6);
+        ctx.fillStyle = NOTE_COLORS[Math.floor(p.hue / 7) % NOTE_COLORS.length]; ctx.fillText(g, x + sway, y);
+        break;
+      }
       case 'fire': ctx.fillStyle = t < 0.4 ? '#ffd166' : t < 0.75 ? '#ff7b2e' : '#8a2a0a'; ctx.beginPath(); ctx.arc(x, y, p.size * (1.2 - t * 0.7), 0, Math.PI * 2); ctx.fill(); break;
       // 비싼 이펙트 (2026-11-18): 꽃잎은 살랑살랑 내려앉고, 별가루는 금빛 별이 반짝인다
       case 'petal': { ctx.fillStyle = p.hue % 2 < 1 ? '#ffb7d5' : '#ff8fc0'; const sway = Math.sin((now - p.born) / 120 + p.hue) * 2; ctx.beginPath(); ctx.ellipse(x + sway, y + t * 6, p.size * 1.2, p.size * 0.7, p.hue, 0, Math.PI * 2); ctx.fill(); break; }

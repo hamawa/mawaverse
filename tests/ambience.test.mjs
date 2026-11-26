@@ -1081,7 +1081,7 @@ test('칭호: 재미 칭호 21개는 3만, 달성 칭호 2개는 조건이 있�
   for (const t of TITLES) { assert.ok(t.id.startsWith('tt-') && t.kind === 'title' && itemById(t.id) === t && isOwnItem(t.id), t.id); assert.ok(t.name.length <= 8, `${t.name}: 이름표 너비`); }
   const fun = TITLES.filter((t) => t.price === 30000 && t.id !== 'tt-xmas');
   assert.equal(fun.length, 21);
-  for (const name of ['핑크공주', '동네 개', '마을 거지', '마을 도둑놈', '마을 카사노바', '마을 졸부', '마을 술꾼', '골목대장', '귀염둥이', '마을 인싸', '마을 아싸', '마을 관종', '동네 바보', '소비요정', '돈미새', '노예', '될놈될', '인생역전', '인생여전', '소녀가장', '소년가장']) assert.ok(fun.some((t) => t.name === name), name);
+  for (const name of ['핑크공주', '동네 개', '마을 거지', '마을 도둑놈', '마을 카사노바', '마을 졸부', '알콜중독', '골목대장', '귀염둥이', '마을 인싸', '마을 아싸', '마을 관종', '동네 바보', '소비요정', '돈미새', '노예', '될놈될', '인생역전', '인생여전', '소녀가장', '소년가장']) assert.ok(fun.some((t) => t.name === name), name);
   // 달성 칭호: 조건이 있는 것은 칭호 목록에 있고, 낚시·채집 하나씩
   assert.deepEqual(Object.keys(TITLE_NEEDS).sort(), ['tt-fisher', 'tt-netter']);
   for (const [id, need] of Object.entries(TITLE_NEEDS)) { assert.ok(ids.includes(id), id); assert.ok(need.n >= 100000 && ['fish', 'bug'].includes(need.what)); }
@@ -1146,4 +1146,39 @@ test('금 이름표: 다섯 빛깔 모두 금덩이 3,000 + 5만 코인이고 �
     assert.ok(m, `${id}: nameStyle`);
     assert.ok(new RegExp(`^  ${m[1]}: \\[`, 'm').test(cos), `${id}: 흐르는 빛깔 ${m[1]}`);
   }
+});
+
+test('건의 꾸미기: 모자 칸 여덟 가지와 음표 이펙트는 그림이 있고 값이 정한 대로다', async () => {
+  const { HATS, FX, itemById, canSell } = await import('../src/shared/shop.ts');
+  const want = { propeller: 30000, balloon: 30000, pinheart: 20000, pinstar: 20000, pindrop: 20000, pinbolt: 20000, wingangel: 100000, wingdevil: 100000 };
+  for (const [id, price] of Object.entries(want)) {
+    const it = itemById(id);
+    assert.ok(it && HATS.includes(it) && it.kind === 'hat', id);
+    assert.equal(it.price, price, id);
+    assert.equal(canSell(it), true, id);
+  }
+  const notes = itemById('notes');
+  assert.ok(notes && FX.includes(notes) && notes.price === 50000);
+  // 그림: 품목마다 줄들이 있고, 모든 줄의 너비가 같으며(짝수: 가운데 맞춤), 쓰인 글자는 팔레트에 있다
+  const cos = readFileSync(new URL('../src/game/cosmetics.ts', import.meta.url), 'utf8').replace(/\r/g, '');
+  for (const id of Object.keys(want)) {
+    const m = new RegExp(`\\n  ${id}: \\{ overlap: (\\d+), pal: \\{([^}]*)\\}, rows: \\[\\n([\\s\\S]*?)\\n  \\] \\}`).exec(cos);
+    assert.ok(m, `${id}: 그림이 없다`);
+    const rows = [...m[3].matchAll(/'([^']*)'/g)].map((x) => x[1]), keys = new Set([...m[2].matchAll(/(\w): '/g)].map((x) => x[1]));
+    assert.ok(rows.length >= 6, id);
+    assert.equal(new Set(rows.map((r) => r.length)).size, 1, `${id}: 줄 너비가 다르다`);
+    assert.ok(rows[0].length % 2 === 0 && rows[0].length >= 16 && rows[0].length <= 36, `${id}: 너비 ${rows[0].length}`);
+    for (const r of rows) for (const ch of r) assert.ok(ch === '.' || keys.has(ch), `${id}: 팔레트에 없는 글자 ${ch}`);
+    assert.ok(Number(m[1]) <= 26, `${id}: 발 아래로 내려가지 않는다`);
+  }
+  // 날개는 좌우가 거울이다
+  for (const id of ['wingangel', 'wingdevil']) {
+    const m = new RegExp(`\\n  ${id}: [^\\n]*\\n([\\s\\S]*?)\\n  \\] \\}`).exec(cos);
+    for (const x of m[1].matchAll(/'([^']*)'/g)) assert.equal(x[1], [...x[1]].reverse().join(''), `${id}: ${x[1]}`);
+  }
+  // 음표: 그리는 갈래와 수명이 있다. 머리 위로 솟지 않는 그림(머리핀·날개)이 말풍선 자리를 아래로 끌어내리지 않는다
+  for (const s of ["case 'notes': {", "kind === 'snowfx' || kind === 'notes' ? 700", 'Math.max(0, art.rows.length - art.overlap)', 'cv.width = Math.max(16, ...art.rows.map((r) => r.length))', 'Math.floor((FRAME_W - cv.width) / 2)']) assert.ok(cos.includes(s), s);
+  // 상점 미리보기와 잔상에 여백이 있다 (풍선 12px 위 · 천사 날개 6px 옆)
+  assert.ok(cos.includes('const GHOST_PAD_X = 6, GHOST_PAD_TOP = 16;'));
+  assert.ok(readFileSync(new URL('../src/game/shopui.ts', import.meta.url), 'utf8').includes('const HAT_PAD_X = 6, HAT_PAD_TOP = 12;'));
 });

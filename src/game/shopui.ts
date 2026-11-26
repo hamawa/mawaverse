@@ -82,16 +82,18 @@ function petPreview(id: string, scale = 1, ride = false): HTMLElement {
   return cv;
 }
 
-// 내 아바타에 모자를 씌운 미리보기 (2배)
+// 내 아바타에 모자를 씌운 미리보기 (2배). 머리 위로 솟는 것(풍선 12px)과 양옆으로 나가는 것(날개 6px)이 잘리지 않게 여백을 둔다
+// (2026-11-26 전에는 여백이 없어서, 머리 꼭대기가 프레임 맨 위인 캐릭터는 높은 모자의 윗부분이 잘려 보였다)
+const HAT_PAD_X = 6, HAT_PAD_TOP = 12;
 function hatPreview(avatar: string, hat: string | null): HTMLCanvasElement {
   const spr = getSprite(avatar, 0, 0, 'none');
   const cv = document.createElement('canvas');
-  cv.width = FRAME_W * 2; cv.height = FRAME_H * 2;
+  cv.width = (FRAME_W + HAT_PAD_X * 2) * 2; cv.height = (FRAME_H + HAT_PAD_TOP) * 2;
   const c = cv.getContext('2d')!;
   c.imageSmoothingEnabled = false;
   c.scale(2, 2);
-  c.drawImage(spr, 0, 0);
-  if (hat) drawHat(c, hat, 0, 0, spriteTop(spr), 0);
+  c.drawImage(spr, HAT_PAD_X, HAT_PAD_TOP);
+  if (hat) drawHat(c, hat, HAT_PAD_X, HAT_PAD_TOP, spriteTop(spr), 0);
   return cv;
 }
 // 이름표 미리보기

@@ -19,6 +19,16 @@ export const HATS: ShopItem[] = [
   { id: 'tophat', kind: 'hat', name: '실크햇', price: 80000, icon: '🎩', desc: '붉은 띠를 두른 신사 모자.' },
   { id: 'halo', kind: 'hat', name: '천사 링', price: 150000, icon: '😇', desc: '머리 위에 떠 있는 금빛 고리.' },
   { id: 'emperor', kind: 'hat', name: '황제관', price: 300000, icon: '👑', desc: '보석이 박힌 높은 관.' },
+  // 건의 반영 (2026-11-26): 모자 칸에 쓰는 꾸미기. 풍선·머리핀·날개도 모자 칸이라 모자와 같이 쓸 수 없다 (칸을 새로 만들면 착용 규칙·접속 표시가 늘어난다).
+  // 값은 저장소 주인이 골랐다: 머리핀 2만 · 모자·풍선 3만 · 날개 10만. 건의의 "대나무헬리콥터"는 만화 속 도구 이름이라 프로펠러 모자로 했다
+  { id: 'propeller', kind: 'hat', name: '프로펠러 모자', price: 30000, icon: '🚁', desc: '알록달록한 모자 위에 프로펠러가 달렸다.' },
+  { id: 'balloon', kind: 'hat', name: '풍선', price: 30000, icon: '🎈', desc: '손에 쥔 빨간 풍선이 머리 위에 둥실.' },
+  { id: 'pinheart', kind: 'hat', name: '하트 머리핀', price: 20000, icon: '💗', desc: '머리에 꽂는 분홍 하트.' },
+  { id: 'pinstar', kind: 'hat', name: '별 머리핀', price: 20000, icon: '⭐', desc: '머리에 꽂는 노란 별.' },
+  { id: 'pindrop', kind: 'hat', name: '물방울 머리핀', price: 20000, icon: '💧', desc: '머리에 꽂는 파란 물방울.' },
+  { id: 'pinbolt', kind: 'hat', name: '번개 머리핀', price: 20000, icon: '⚡', desc: '머리에 꽂는 번개.' },
+  { id: 'wingangel', kind: 'hat', name: '천사 날개', price: 100000, icon: '👼', desc: '등 뒤로 늘어뜨린 하얀 날개.' },
+  { id: 'wingdevil', kind: 'hat', name: '악마 날개', price: 100000, icon: '😈', desc: '등 뒤에 돋은 보랏빛 날개.' },
   // 크리스마스 한정 (2026-11-21. 아래 XMAS_IDS)
   { id: 'santa', kind: 'hat', name: '산타 모자', price: 20000, icon: '🎅', desc: '하얀 방울이 달린 빨간 모자. 크리스마스 한정.' },
   { id: 'rudolph', kind: 'hat', name: '루돌프 뿔 머리띠', price: 20000, icon: '🦌', desc: '사슴 뿔이 달린 머리띠. 크리스마스 한정.' },
@@ -59,6 +69,7 @@ export const FX: ShopItem[] = [
   { id: 'rainbowtrail', kind: 'fx', name: '무지개 꼬리', price: 2000, icon: '🌈', desc: '무지개가 꼬리처럼 따라온다.' }, // 2026-11-18: 이름표 색 '무지개'와 같은 id(rainbow)를 쓰고 있어 하나를 사면 둘 다 가진 것이 됐다. 이펙트 쪽 id 를 바꾸고, 그때까지 rainbow 를 가진 사람에게는 둘 다 줬다 (사용자 결정)
   { id: 'petal', kind: 'fx', name: '꽃잎', price: 100000, icon: '🌸', desc: '걸을 때마다 분홍 꽃잎이 흩날린다.' },
   { id: 'stardust', kind: 'fx', name: '별가루', price: 200000, icon: '🌟', desc: '금빛 별이 반짝이며 따라온다.' },
+  { id: 'notes', kind: 'fx', name: '음표', price: 50000, icon: '🎵', desc: '색색의 음표가 살랑살랑 떠오른다.' }, // 2026-11-26 건의
   { id: 'snowfx', kind: 'fx', name: '눈송이', price: 30000, icon: '❄', desc: '걸을 때 눈송이가 흩날린다. 크리스마스 한정.' }, // 2026-11-21 (XMAS_IDS)
   { id: 'shasha', kind: 'fx', name: '샤샤샥', price: 10000, icon: '👥', desc: '움직일 때 내 모습의 잔상이 줄줄이 남는다.' }, // 파티클이 아니라 캐릭터 잔상 (cosmetics.ts drawAfterimages, 2026-11-11)
 ];
@@ -316,7 +327,7 @@ export const TITLES: ShopItem[] = [
   { id: 'tt-thief', kind: 'title', name: '마을 도둑놈', price: 30000, icon: '🕶', desc: '눈 깜짝할 사이에 가져가는 사람.' },
   { id: 'tt-casanova', kind: 'title', name: '마을 카사노바', price: 30000, icon: '🌹', desc: '누구에게나 다정한 사람.' },
   { id: 'tt-newrich', kind: 'title', name: '마을 졸부', price: 30000, icon: '💸', desc: '갑자기 지갑이 두둑해진 사람.' },
-  { id: 'tt-drunk', kind: 'title', name: '마을 술꾼', price: 30000, icon: '🍺', desc: '한 잔이 열 잔이 되는 사람.' },
+  { id: 'tt-drunk', kind: 'title', name: '알콜중독', price: 30000, icon: '🍺', desc: '한 잔이 열 잔이 되는 사람.' }, // 2026-11-26 건의로 이름을 바꿨다 (처음 이름은 '마을 술꾼'. 그때 가진 사람이 없었다)
   { id: 'tt-alley', kind: 'title', name: '골목대장', price: 30000, icon: '🚩', desc: '이 골목은 내가 지키는 사람.' },
   { id: 'tt-cutie', kind: 'title', name: '귀염둥이', price: 30000, icon: '🐥', desc: '귀여움으로 다 넘어가는 사람.' },
   { id: 'tt-insider', kind: 'title', name: '마을 인싸', price: 30000, icon: '🎉', desc: '모르는 사람이 없는 사람.' },
