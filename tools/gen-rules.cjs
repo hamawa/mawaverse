@@ -491,6 +491,9 @@ function ownEqLines(pre, ind) {
     `${ind}"gift": { ".write": "auth != null && newData.exists()", ".validate": ${q(giftMarkRule(pre))} },`,
     `${ind}"eq": {`,
     `${ind}  "h": { ".validate": ${q(ownsStr(pre))} },`,
+    `${ind}  "hp": { ".validate": ${q(ownsStr(pre))} },`, // 머리핀 · 날개 · 손에 드는 것 (2026-11-26. 모자와 따로 쓴다)
+    `${ind}  "wg": { ".validate": ${q(ownsStr(pre))} },`,
+    `${ind}  "bl": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "nc": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "fx": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "tt": { ".validate": ${q(ownsStr(pre))} },`, // 칭호 (2026-11-18)
@@ -510,6 +513,9 @@ function ownEqLines(pre, ind) {
 function playerCosLines(pre, ind) {
   return [
     `${ind}"h": { ".validate": ${q(ownsStr(pre))} },`,
+    `${ind}"hp": { ".validate": ${q(ownsStr(pre))} },`,
+    `${ind}"wg": { ".validate": ${q(ownsStr(pre))} },`,
+    `${ind}"bl": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}"nc": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}"fx": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}"pt": { ".validate": ${q(ownsStr(pre))} },`,

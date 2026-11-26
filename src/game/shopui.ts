@@ -4,7 +4,7 @@ import { getSprite, FRAME_W, FRAME_H } from './sprites';
 import { spriteTop, drawLabel, drawBubble } from './render';
 import { drawHat, nameStyle, titleStyle, petCanvas, mountCanvas, petLookCanvas } from './cosmetics';
 import {
-  HATS, NAME_COLORS, FX, TITLES, BUBBLES, GOLD_COST, PET_GOODS, PET_HATS, PET_GLASSES, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
+  HATS, PINS, WINGS, HANDS, NAME_COLORS, FX, TITLES, BUBBLES, GOLD_COST, PET_GOODS, PET_HATS, PET_GLASSES, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
   BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance, isXmasItem, TITLE_NEEDS, SELL_PCT, sellPrice,
 } from '../shared/shop';
@@ -175,7 +175,7 @@ export function openShop(h: ShopHost): void {
     const card = el('div', { class: 'shop-card' + (eq ? ' eq' : '') });
     const xp = kind === 'pet' ? h.wallet.petXp(item.id) : 0;
     const riding = kind === 'pet' && petCanRide(xp) && h.wallet.rideOn(); // 만렙이고 타기를 고른 상태 (내려서 데리고 다니면 보통 모습)
-    if (kind === 'hat') card.append(hatPreview(h.profile.avatar, item.id));
+    if (kind === 'hat' || kind === 'pin' || kind === 'wing' || kind === 'hand') card.append(hatPreview(h.profile.avatar, item.id));
     else if (kind === 'name') card.append(namePreview(h.profile.nick, item.id));
     else if (kind === 'title') card.append(titlePreview(item.id));
     else if (kind === 'bubble') card.append(bubblePreview(item.id));
@@ -575,6 +575,15 @@ export function openShop(h: ShopHost): void {
       const list = tab === 'hat' ? HATS : tab === 'name' ? NAME_COLORS : tab === 'pet' ? PET_GOODS : tab === 'title' ? TITLES : tab === 'bubble' ? BUBBLES : FX;
       for (const item of onShelf(list)) grid.append(cosmeticCard(item, tab));
       pane.append(grid);
+      if (tab === 'hat') {
+        // 모자와 따로 쓰는 꾸미기 (2026-11-26): 칸이 달라서 모자와 같이, 서로도 같이 쓴다
+        for (const [title, items, kind] of [['💗 머리핀 · 모자와 같이 쓸 수 있어요', PINS, 'pin'], ['👼 날개 · 모자와 같이 쓸 수 있어요', WINGS, 'wing'], ['🎈 손에 드는 것 · 모자와 같이 쓸 수 있어요', HANDS, 'hand']] as const) {
+          pane.append(el('div', { style: 'font-weight:700;margin:14px 0 6px', text: title }));
+          const g2 = el('div', { class: 'shop-grid' });
+          for (const it of items) g2.append(cosmeticCard(it, kind));
+          pane.append(g2);
+        }
+      }
       if (tab === 'pet') {
         // 펫 꾸미기 (2026-11-20 건의): 모자·안경. 데리고 다니는 펫이 쓴다
         pane.append(el('div', { style: 'font-weight:700;margin:14px 0 6px', text: '🎀 펫 꾸미기 · 데리고 다니는 펫이 써요 (탈 때는 안 보여요)' }));

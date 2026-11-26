@@ -22,11 +22,11 @@ const EMOTE_SFX: Record<number, Sfx> = { 10: 'push', 11: 'swing', 12: 'toss', 13
 
 // 착용 중인 꾸미기를 presence 에 싣는다 (짧은 키). 규칙이 "가진 것만" 허용하므로 보유 목록에 없는 건 뺀다 (어긋난 데이터로 입장이 막히지 않게)
 // pl: 데리고 있는 펫의 누적 먹이 (지갑 px 값. 규칙이 지갑과 대조). 펫이 없으면 싣지 않는다
-function cosmetics(p: _UP, petXp: (id: string) => number): Pick<PlayerState, 'h' | 'nc' | 'fx' | 'tt' | 'bb' | 'pt' | 'pl' | 'pa' | 'ta' | 'nr' | 'ph' | 'pg' | 'pn'> {
+function cosmetics(p: _UP, petXp: (id: string) => number): Pick<PlayerState, 'h' | 'hp' | 'wg' | 'bl' | 'nc' | 'fx' | 'tt' | 'bb' | 'pt' | 'pl' | 'pa' | 'ta' | 'nr' | 'ph' | 'pg' | 'pn'> {
   const own = p.own || {};
   const has = (id?: string | null) => (id && own[id] ? id : null);
   const pt = has(p.eq?.pt);
-  return { h: has(p.eq?.h), nc: has(p.eq?.nc), fx: has(p.eq?.fx), tt: has(p.eq?.tt), bb: has(p.eq?.bb), pt, ...(pt && petXp(pt) > 0 ? { pl: petXp(pt) } : {}), pa: p.eq?.pa && own.pusharmor ? true : null, ta: p.eq?.ta && own.tossarmor ? true : null, nr: p.eq?.nr ? true : null,
+  return { h: has(p.eq?.h), hp: has(p.eq?.hp), wg: has(p.eq?.wg), bl: has(p.eq?.bl), nc: has(p.eq?.nc), fx: has(p.eq?.fx), tt: has(p.eq?.tt), bb: has(p.eq?.bb), pt, ...(pt && petXp(pt) > 0 ? { pl: petXp(pt) } : {}), pa: p.eq?.pa && own.pusharmor ? true : null, ta: p.eq?.ta && own.tossarmor ? true : null, nr: p.eq?.nr ? true : null,
     ph: pt ? has(p.eq?.ph) : null, pg: pt ? has(p.eq?.pg) : null, pn: (pt && cleanPetName(p.eq?.pns?.[pt])) || null }; // 펫 모자·안경·이름 (2026-11-20): 펫을 데리고 있을 때만
 }
 

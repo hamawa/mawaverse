@@ -264,6 +264,7 @@ export class World implements WorldCtx {
     Object.assign(this.me, { x: spawn.x, y: spawn.y, fromX: spawn.x, fromY: spawn.y, dispX: spawn.x, dispY: spawn.y, dir });
     this.resetWinter();
 
+    this.wallet.fixSlots(); // 모자 칸에 들어가 있던 풍선·머리핀·날개를 제 칸으로 (접속 표시를 올리기 전에)
     await this.net.join(spawn.x, spawn.y, dir);
     this.joinedAt = serverNow();
     this.online = true;
@@ -557,7 +558,7 @@ export class World implements WorldCtx {
       uid: this.uid, nickPre: (iGhost ? '👻 ' : '') + this.nickMarks(this.uid), nick: this.profile.nick, nickPost: (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: mySeat ? this.seatFace(mySeat) : me.dir, moving: me.moving, sit: !!mySeat && !me.moving,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: myDance ? 'dance' : me.pose, poseAt: myDance ? now : me.poseAt, emoteId: myDance ? 0 : me.emoteId, dance: myDance || undefined, bubble: me.bubble,
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
-      fishing: this.fishing.view(), hat: this.profile.eq?.h || null, nameColor: this.profile.eq?.nc || null, fx: this.myFx(now), title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null, bubbleSkin: this.profile.eq?.bb && this.profile.own?.[this.profile.eq.bb] ? this.profile.eq.bb : null,
+      fishing: this.fishing.view(), hat: this.profile.eq?.h || null, pin: this.wearing('hp'), wing: this.wearing('wg'), hand: this.wearing('bl'), nameColor: this.profile.eq?.nc || null, fx: this.myFx(now), title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null, bubbleSkin: this.profile.eq?.bb && this.profile.own?.[this.profile.eq.bb] ? this.profile.eq.bb : null,
       pet: this.pets.view(this.uid, loose ? null : this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
       ghost: iGhost, mining: this.mine.active, snowBrokenAt: this.snowBrokenAt, snowReady: this.snowfight.packed,
       progress: this.home.chopProgress(now) ?? this.mine.progress(now), // 나무·금을 캐는 중: 머리 위 진행 막대 (2026-11-18)
@@ -576,7 +577,7 @@ export class World implements WorldCtx {
         pose: dance ? 'dance' : rp.pose, poseAt: dance ? now : rp.poseAt, emoteId: dance ? 0 : rp.emoteId, dance: dance || undefined, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
-        hat: rp.st.h || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null, title: rp.st.tt || null, bubbleSkin: rp.st.bb || null,
+        hat: rp.st.h || null, pin: rp.st.hp || null, wing: rp.st.wg || null, hand: rp.st.bl || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null, title: rp.st.tt || null, bubbleSkin: rp.st.bb || null,
         pet: this.pets.view(rp.uid, loose ? null : rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0, !!rp.st.nr),
         ghost, mining: !!rp.st.mn, snowBrokenAt: rp.st.sn || 0,
       });
@@ -590,6 +591,8 @@ export class World implements WorldCtx {
   }
   // 내가 데리고 다니는 펫 (가진 것일 때만)
   private myPet(): string | null { const pt = this.profile.eq?.pt; return pt && this.profile.own?.[pt] ? pt : null; }
+  // 머리핀 · 날개 · 손에 드는 것 (2026-11-26): 착용했고 가지고 있는 것만
+  private wearing(key: 'hp' | 'wg' | 'bl'): string | null { const id = this.profile.eq?.[key]; return id && this.profile.own?.[id] ? id : null; }
 
   // ---------- 이동 ----------
   occupied(x: number, y: number): boolean {

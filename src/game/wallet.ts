@@ -1,7 +1,7 @@
 import { ref, get, set, query, orderByChild, equalTo, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, canSell, shouldDeliver, type ShopItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
+import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, itemById, canSell, shouldDeliver, type ShopItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
 import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
@@ -731,6 +731,18 @@ export class WalletMgr {
     } else if (shouldDeliver(this.w.profile.own?.[b], this.pendingIs(b)) && (await this.deliver(b))) this.listeners.forEach((f) => f());
   }
   owns(itemId: string): boolean { return !!this.w.profile.own?.[itemId]; }
+  // 풍선·머리핀·날개가 모자 칸에 들어가던 때(v60)에 착용한 것을 제 칸으로 옮긴다 (2026-11-26, v61. 접속할 때 한 번, 접속 표시를 올리기 전에).
+  // 옮기지 않으면 모자 칸이 그 품목으로 차 있어서 모자와 같이 쓸 수 없고, 상점의 모자 구역에는 그 품목이 없어 벗을 길도 없다
+  fixSlots(): void {
+    const p = this.w.profile, eq = p.eq, id = eq?.h, it = id ? itemById(id) : undefined;
+    if (!eq || !id || !it || (it.kind !== 'pin' && it.kind !== 'wing' && it.kind !== 'hand')) return;
+    const key = EQUIP_KEY[it.kind], uid = this.w.uid;
+    const upd: Record<string, unknown> = { [`users/${uid}/eq/h`]: null };
+    const next: Equip = { ...eq, h: null };
+    if (!eq[key]) { next[key] = id; upd[`users/${uid}/eq/${key}`] = id; } // 그 칸이 비어 있을 때만 (이미 다른 것을 꽂았으면 모자 칸만 비운다)
+    p.eq = next;
+    void update(ref(db), upd).catch(() => {});
+  }
   equipped(kind: CosmeticKind): string | null { const v = this.w.profile.eq?.[EQUIP_KEY[kind]]; return typeof v === 'string' ? v : null; }
   // 착용/해제: 프로필과 presence 에 같이 쓴다 (규칙: 가진 것만)
   async equip(kind: CosmeticKind, itemId: string | null): Promise<void> {

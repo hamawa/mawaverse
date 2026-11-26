@@ -1098,7 +1098,7 @@ test('치장템 판매: 치장템만, 지금 값의 30% (내림), 금덩이 품�
   assert.equal(SELL_PCT, 30);
   for (const list of [TITLES, HATS, FX, BUBBLES, NAME_COLORS, PET_HATS, PET_GLASSES]) for (const it of list) assert.equal(canSell(it), !GOLD_COST[it.id], it.id);
   for (const it of [...PET_GOODS, ...ROD_GOODS]) assert.equal(canSell(it), false, it.id);
-  for (const it of ALL_ITEMS) if (!['hat', 'name', 'fx', 'title', 'bubble', 'pethat', 'petglass'].includes(it.kind)) assert.equal(sellPrice(it, null), 0, it.id);
+  for (const it of ALL_ITEMS) if (!['hat', 'pin', 'wing', 'hand', 'name', 'fx', 'title', 'bubble', 'pethat', 'petglass'].includes(it.kind)) assert.equal(sellPrice(it, null), 0, it.id);
   for (const id of Object.keys(GOLD_COST)) assert.equal(sellPrice(itemById(id), null), 0, id);
   assert.equal(canSell(undefined), false);
   assert.equal(sellPrice(undefined, null), 0);
@@ -1149,14 +1149,18 @@ test('금 이름표: 다섯 빛깔 모두 금덩이 3,000 + 5만 코인이고 �
 });
 
 test('건의 꾸미기: 모자 칸 여덟 가지와 음표 이펙트는 그림이 있고 값이 정한 대로다', async () => {
-  const { HATS, FX, itemById, canSell } = await import('../src/shared/shop.ts');
+  const { HATS, PINS, WINGS, HANDS, FX, itemById, canSell } = await import('../src/shared/shop.ts');
   const want = { propeller: 30000, balloon: 30000, pinheart: 20000, pinstar: 20000, pindrop: 20000, pinbolt: 20000, wingangel: 100000, wingdevil: 100000 };
+  // 칸이 따로다: 프로펠러만 모자, 머리핀 넷·날개 둘·풍선은 저마다의 칸
+  const where = { propeller: [HATS, 'hat'], balloon: [HANDS, 'hand'], pinheart: [PINS, 'pin'], pinstar: [PINS, 'pin'], pindrop: [PINS, 'pin'], pinbolt: [PINS, 'pin'], wingangel: [WINGS, 'wing'], wingdevil: [WINGS, 'wing'] };
   for (const [id, price] of Object.entries(want)) {
     const it = itemById(id);
-    assert.ok(it && HATS.includes(it) && it.kind === 'hat', id);
+    assert.ok(it && where[id][0].includes(it) && it.kind === where[id][1], id);
     assert.equal(it.price, price, id);
     assert.equal(canSell(it), true, id);
   }
+  assert.deepEqual([PINS.length, WINGS.length, HANDS.length], [4, 2, 1]);
+  assert.ok(!HATS.some((h) => h.id in where && h.id !== 'propeller'), '모자 목록에는 프로펠러 모자만 남는다');
   const notes = itemById('notes');
   assert.ok(notes && FX.includes(notes) && notes.price === 50000);
   // 그림: 품목마다 줄들이 있고, 모든 줄의 너비가 같으며(짝수: 가운데 맞춤), 쓰인 글자는 팔레트에 있다
@@ -1181,4 +1185,23 @@ test('건의 꾸미기: 모자 칸 여덟 가지와 음표 이펙트는 그림�
   // 상점 미리보기와 잔상에 여백이 있다 (풍선 12px 위 · 천사 날개 6px 옆)
   assert.ok(cos.includes('const GHOST_PAD_X = 6, GHOST_PAD_TOP = 16;'));
   assert.ok(readFileSync(new URL('../src/game/shopui.ts', import.meta.url), 'utf8').includes('const HAT_PAD_X = 6, HAT_PAD_TOP = 12;'));
+});
+
+test('착용 칸: 머리핀 · 날개 · 손에 드는 것은 모자와 따로 쓰고, 규칙·접속 표시·그리기에 칸이 있다', async () => {
+  const { EQUIP_KEY } = await import('../src/shared/shop.ts');
+  assert.deepEqual([EQUIP_KEY.hat, EQUIP_KEY.pin, EQUIP_KEY.wing, EQUIP_KEY.hand], ['h', 'hp', 'wg', 'bl']);
+  assert.equal(new Set(Object.values(EQUIP_KEY)).size, Object.keys(EQUIP_KEY).length, '칸 이름이 겹치지 않는다');
+  // 규칙: 프로필의 착용 칸과 접속 표시 양쪽에 "가진 것만"으로 들어 있다 (접속 표시는 손으로 넣은 줄이다)
+  const rules = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules;
+  for (const k of ['h', 'hp', 'wg', 'bl']) {
+    for (const node of [rules.users.$uid.eq[k], rules.players.$uid[k]]) assert.ok(node && node['.validate'].includes("/own/' + newData.val()).val() === true"), k);
+  }
+  const read = (f) => readFileSync(new URL(f, import.meta.url), 'utf8');
+  // 접속 표시에 싣고, 남의 것을 그리고, 모자 뒤에 머리핀을 그린다
+  assert.ok(read('../src/game/net.ts').includes('hp: has(p.eq?.hp), wg: has(p.eq?.wg), bl: has(p.eq?.bl)'));
+  assert.ok(read('../src/game/world.ts').includes('pin: rp.st.hp || null, wing: rp.st.wg || null, hand: rp.st.bl || null'));
+  assert.ok(read('../src/game/render.ts').includes('const wear = [e.wing, e.hat, e.pin, e.hand].filter('));
+  // 모자 칸에 들어가 있던 것을 접속 표시를 올리기 전에 제 칸으로 옮긴다
+  const world = read('../src/game/world.ts');
+  assert.ok(world.indexOf('this.wallet.fixSlots();') > 0 && world.indexOf('this.wallet.fixSlots();') < world.indexOf('await this.net.join(spawn.x, spawn.y, dir);'));
 });

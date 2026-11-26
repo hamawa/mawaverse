@@ -130,7 +130,7 @@ Object.assign(HAT_ART, {
     '..dd........dd..',
   ] },
 } satisfies Record<string, HatArt>);
-// 건의 반영 (2026-11-26): 프로펠러 모자 · 풍선 · 머리핀 넷 · 날개 둘. 전부 모자 칸에 쓴다 (모자와 같이 쓸 수 없다).
+// 건의 반영 (2026-11-26): 프로펠러 모자 · 풍선 · 머리핀 넷 · 날개 둘. 그림은 전부 여기 있지만 착용 칸은 따로다 (shop.ts PINS · WINGS · HANDS: 모자와 같이 쓴다).
 // 풍선(너비 24)과 날개(천사 36 · 악마 32: 프레임 양옆으로 6px · 4px 씩 나간다)는 머리 아래까지 내려온다: overlap 이 줄 수보다 클 수 있다 (hatAbove 는 0 아래로 내려가지 않는다).
 // 날개는 몸의 윤곽 바깥에만 그려서 등 뒤에 있는 것처럼 보인다. 천사 날개는 저장소 주인이 후보 셋(둥근 깃털 · 위로 펼친 날개 · 아래로 접은 날개)에서 접은 날개를 골랐다
 Object.assign(HAT_ART, {
@@ -1011,7 +1011,7 @@ interface Ghost { x: number; y: number; at: number; h: number; cv: HTMLCanvasEle
 const ghostTrail = new Map<string, { list: Ghost[]; pool: HTMLCanvasElement[] }>();
 
 // 캐릭터를 그리기 직전에 부른다. spr 을 (dx, dy)에 높이 h 만큼 그릴 참이다 (h: 탑승으로 아래가 잘렸으면 그만큼 짧다)
-export function drawAfterimages(ctx: CanvasRenderingContext2D, uid: string, now: number, moving: boolean, spr: HTMLCanvasElement, dx: number, dy: number, h: number, hat: string | null, top: number, dir: Dir): void {
+export function drawAfterimages(ctx: CanvasRenderingContext2D, uid: string, now: number, moving: boolean, spr: HTMLCanvasElement, dx: number, dy: number, h: number, hats: readonly string[], top: number, dir: Dir): void {
   let tr = ghostTrail.get(uid);
   if (tr) {
     while (tr.list.length && now - tr.list[0].at > GHOST_LIFE_MS) tr.pool.push(tr.list.shift()!.cv);
@@ -1030,7 +1030,7 @@ export function drawAfterimages(ctx: CanvasRenderingContext2D, uid: string, now:
   cv.width = FRAME_W + GHOST_PAD_X * 2; cv.height = FRAME_H + GHOST_PAD_TOP; // 크기를 다시 넣으면 내용이 지워진다
   const c = cv.getContext('2d')!;
   c.drawImage(spr, GHOST_PAD_X, GHOST_PAD_TOP);
-  if (hat) drawHat(c, hat, GHOST_PAD_X, GHOST_PAD_TOP, top, dir);
+  for (const id of hats) drawHat(c, id, GHOST_PAD_X, GHOST_PAD_TOP, top, dir); // 모자 · 머리핀 · 날개 · 손에 드는 것
   // 그린 부분만 어둡게 덮는다
   c.globalCompositeOperation = 'source-atop';
   c.fillStyle = 'rgba(24, 20, 44, 0.6)';

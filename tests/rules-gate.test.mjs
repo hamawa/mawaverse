@@ -1084,6 +1084,15 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('칭호: 가진 것', 'allow', () => ok.ref('players/OK/tt').set('tt-angler'));
   await expect('칭호: 프로필 착용 칸', 'allow', () => ok.ref('users/OK/eq/tt').set('tt-angler'));
   await expect('칭호: 프로필 착용 칸에 없는 것', 'deny', () => ok.ref('users/OK/eq/tt').set('tt-legend'));
+  // 머리핀 · 날개 · 손에 드는 것 (2026-11-26): 모자와 따로 쓰는 칸. 가진 것만
+  await root.ref().update({ 'users/OK/own/pinheart': true, 'users/OK/own/balloon': true });
+  await expect('머리핀: 가진 것 (프로필)', 'allow', () => ok.ref('users/OK/eq/hp').set('pinheart'));
+  await expect('머리핀: 가진 것 (접속 표시)', 'allow', () => ok.ref('players/OK/hp').set('pinheart'));
+  await expect('날개: 갖지 않은 것 (프로필)', 'deny', () => ok.ref('users/OK/eq/wg').set('wingangel'));
+  await expect('날개: 갖지 않은 것 (접속 표시)', 'deny', () => ok.ref('players/OK/wg').set('wingangel'));
+  await expect('풍선: 가진 것 (프로필과 접속 표시를 한 번에)', 'allow', () => ok.ref().update({ 'users/OK/eq/bl': 'balloon', 'players/OK/bl': 'balloon' }));
+  await expect('착용 칸: 모르는 칸', 'deny', () => ok.ref('users/OK/eq/zz').set('balloon'));
+  await root.ref().update({ 'users/OK/eq/hp': null, 'users/OK/eq/bl': null, 'players/OK/hp': null, 'players/OK/bl': null });
   await expect('bubble skin: not owned', 'deny', () => ok.ref('players/OK/bb').set('bb-flame'));
   await root.ref('users/OK/own/bb-ink').set(true);
   await expect('bubble skin: owned', 'allow', () => ok.ref('players/OK/bb').set('bb-ink'));

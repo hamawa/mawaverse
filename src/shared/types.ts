@@ -48,6 +48,9 @@ export interface PlayerState {
   hb?: number;          // last heartbeat (server time)
   f?: { x: number; y: number; a?: number; r?: number; s?: number } | null; // 낚시 중이면 찌가 있는 물 타일 (a=1: 자동 회수 버프 중, r: 낚싯대 등급, s: 강화 성)
   h?: string | null;    // 착용한 모자
+  hp?: string | null;   // 머리핀 (2026-11-26. 모자와 따로 쓴다)
+  wg?: string | null;   // 날개
+  bl?: string | null;   // 손에 드는 것 (풍선)
   nc?: string | null;   // 이름표 색
   fx?: string | null;   // 이동 이펙트
   bb?: string | null;   // 말풍선 꾸미기 (2026-11-20. 일반 채팅 말풍선의 모양·글꼴. game/bubbles.ts)

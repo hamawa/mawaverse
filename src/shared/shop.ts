@@ -2,7 +2,7 @@
 // 가격은 config/prices/{id} 로 관리자가 덮어쓸 수 있다 (priceOf)
 import { snowActive } from './snowpenalty';
 
-export type ItemKind = 'hat' | 'name' | 'fx' | 'title' | 'bubble' | 'pet' | 'pethat' | 'petglass' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
+export type ItemKind = 'hat' | 'pin' | 'wing' | 'hand' | 'name' | 'fx' | 'title' | 'bubble' | 'pet' | 'pethat' | 'petglass' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
 export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
 export interface ShopItem { id: string; kind: ItemKind; name: string; price: number; icon: string; desc: string; color?: string }
 
@@ -19,16 +19,8 @@ export const HATS: ShopItem[] = [
   { id: 'tophat', kind: 'hat', name: '실크햇', price: 80000, icon: '🎩', desc: '붉은 띠를 두른 신사 모자.' },
   { id: 'halo', kind: 'hat', name: '천사 링', price: 150000, icon: '😇', desc: '머리 위에 떠 있는 금빛 고리.' },
   { id: 'emperor', kind: 'hat', name: '황제관', price: 300000, icon: '👑', desc: '보석이 박힌 높은 관.' },
-  // 건의 반영 (2026-11-26): 모자 칸에 쓰는 꾸미기. 풍선·머리핀·날개도 모자 칸이라 모자와 같이 쓸 수 없다 (칸을 새로 만들면 착용 규칙·접속 표시가 늘어난다).
-  // 값은 저장소 주인이 골랐다: 머리핀 2만 · 모자·풍선 3만 · 날개 10만. 건의의 "대나무헬리콥터"는 만화 속 도구 이름이라 프로펠러 모자로 했다
+  // 건의 반영 (2026-11-26). 건의의 "대나무헬리콥터"는 만화 속 도구 이름이라 프로펠러 모자로 했다. 값은 저장소 주인이 골랐다 (모자·풍선 3만 · 머리핀 2만 · 날개 10만)
   { id: 'propeller', kind: 'hat', name: '프로펠러 모자', price: 30000, icon: '🚁', desc: '알록달록한 모자 위에 프로펠러가 달렸다.' },
-  { id: 'balloon', kind: 'hat', name: '풍선', price: 30000, icon: '🎈', desc: '손에 쥔 빨간 풍선이 머리 위에 둥실.' },
-  { id: 'pinheart', kind: 'hat', name: '하트 머리핀', price: 20000, icon: '💗', desc: '머리에 꽂는 분홍 하트.' },
-  { id: 'pinstar', kind: 'hat', name: '별 머리핀', price: 20000, icon: '⭐', desc: '머리에 꽂는 노란 별.' },
-  { id: 'pindrop', kind: 'hat', name: '물방울 머리핀', price: 20000, icon: '💧', desc: '머리에 꽂는 파란 물방울.' },
-  { id: 'pinbolt', kind: 'hat', name: '번개 머리핀', price: 20000, icon: '⚡', desc: '머리에 꽂는 번개.' },
-  { id: 'wingangel', kind: 'hat', name: '천사 날개', price: 100000, icon: '👼', desc: '등 뒤로 늘어뜨린 하얀 날개.' },
-  { id: 'wingdevil', kind: 'hat', name: '악마 날개', price: 100000, icon: '😈', desc: '등 뒤에 돋은 보랏빛 날개.' },
   // 크리스마스 한정 (2026-11-21. 아래 XMAS_IDS)
   { id: 'santa', kind: 'hat', name: '산타 모자', price: 20000, icon: '🎅', desc: '하얀 방울이 달린 빨간 모자. 크리스마스 한정.' },
   { id: 'rudolph', kind: 'hat', name: '루돌프 뿔 머리띠', price: 20000, icon: '🦌', desc: '사슴 뿔이 달린 머리띠. 크리스마스 한정.' },
@@ -61,6 +53,21 @@ export const NAME_COLORS: ShopItem[] = [
   { id: 'ggblack', kind: 'name', name: '블랙 골드', price: 50000, icon: '⚫', desc: '검은 바탕에 금빛 글자. 금덩이 3,000개가 함께 든다.' },
 ];
 
+// 모자와 따로 쓰는 꾸미기 (2026-11-26, v61): 머리핀 · 날개 · 손에 드는 것. 저마다 착용 칸이 따로라 모자와 같이, 서로도 같이 쓴다 (EQUIP_KEY 의 hp · wg · bl).
+// 처음(v60, 같은 날)에는 전부 모자 칸에 넣었는데, 겹쳐 쓸 수 없다고 해서 저장소 주인 요청으로 나눴다. 그림은 모자와 같은 곳에 있다 (cosmetics.ts HAT_ART: 품목 id 로 찾는다)
+export const PINS: ShopItem[] = [
+  { id: 'pinheart', kind: 'pin', name: '하트 머리핀', price: 20000, icon: '💗', desc: '머리에 꽂는 분홍 하트.' },
+  { id: 'pinstar', kind: 'pin', name: '별 머리핀', price: 20000, icon: '⭐', desc: '머리에 꽂는 노란 별.' },
+  { id: 'pindrop', kind: 'pin', name: '물방울 머리핀', price: 20000, icon: '💧', desc: '머리에 꽂는 파란 물방울.' },
+  { id: 'pinbolt', kind: 'pin', name: '번개 머리핀', price: 20000, icon: '⚡', desc: '머리에 꽂는 번개.' },
+];
+export const WINGS: ShopItem[] = [
+  { id: 'wingangel', kind: 'wing', name: '천사 날개', price: 100000, icon: '👼', desc: '등 뒤로 늘어뜨린 하얀 날개.' },
+  { id: 'wingdevil', kind: 'wing', name: '악마 날개', price: 100000, icon: '😈', desc: '등 뒤에 돋은 보랏빛 날개.' },
+];
+export const HANDS: ShopItem[] = [
+  { id: 'balloon', kind: 'hand', name: '풍선', price: 30000, icon: '🎈', desc: '손에 쥔 빨간 풍선이 머리 위에 둥실.' },
+];
 export const FX: ShopItem[] = [
   { id: 'dust', kind: 'fx', name: '먼지', price: 800, icon: '💨', desc: '걸을 때 발밑에서 먼지가 폴폴.' },
   { id: 'sparkle', kind: 'fx', name: '반짝이', price: 1000, icon: '✨', desc: '지나간 자리가 반짝반짝.' },
@@ -419,13 +426,13 @@ export const TITLE_NEEDS: Record<string, { what: 'fish' | 'bug'; n: number; labe
 //  - 판 품목은 보관함에서 지우지 않고 false 로 둔다: 지갑의 마지막 구매 표시(b)가 그 품목인 채로 칸이 비어 있으면, 다음 접속 때
 //    "값은 냈는데 등록이 안 된 구매"로 보고 공짜로 다시 등록해 주기 때문이다 (선물이면 준 사람의 화면이 다시 준다). false 는 "가졌다가 판 것"이다
 export const SELL_PCT = 30;
-const SELL_KINDS: readonly ItemKind[] = ['hat', 'name', 'fx', 'title', 'bubble', 'pethat', 'petglass'];
+const SELL_KINDS: readonly ItemKind[] = ['hat', 'pin', 'wing', 'hand', 'name', 'fx', 'title', 'bubble', 'pethat', 'petglass'];
 export function canSell(item: ShopItem | undefined): item is ShopItem { return !!item && SELL_KINDS.includes(item.kind) && !GOLD_COST[item.id]; }
 export function sellPrice(item: ShopItem | undefined, prices?: Record<string, number> | null): number { return canSell(item) ? Math.floor((priceOf(item, prices) * SELL_PCT) / 100) : 0; }
 // 값을 냈는데 보유 등록이 안 된 구매를 마저 등록할지. own: 그 품목의 보관함 값(true 가짐 · false 가졌다가 팖 · 없음).
 // 판 것은 다시 주지 않는다. 다만 이 기기에서 방금 값을 내고 아직 등록을 못 끝낸 것(pendingHere)이면 준다: 판 품목을 다시 사다가 끊긴 경우
 export function shouldDeliver(own: unknown, pendingHere: boolean): boolean { return own === true ? false : own === false ? pendingHere : true; }
-export const ALL_ITEMS: ShopItem[] = [...HATS, ...NAME_COLORS, ...FX, ...TITLES, ...BUBBLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
+export const ALL_ITEMS: ShopItem[] = [...HATS, ...PINS, ...WINGS, ...HANDS, ...NAME_COLORS, ...FX, ...TITLES, ...BUBBLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }
 // 보관함(users/{uid}/own)에 들어가는 품목인가 (소모품인 자동 낚시·미끼·자동 채집·펫 먹이·강화 주문서는 지갑에만 기록된다)
@@ -456,10 +463,11 @@ export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?:
 export interface GiftMark { f: string; fn: string; i: string; m?: string; at: number }
 export const GIFT_MSG_MAX = 40;
 // users/{uid}/eq: 착용 중인 모자(h), 이름표 색(nc), 이동 이펙트(fx), 펫(pt), 철벽 갑옷(pa), 푹신 갑옷(ta). players/{uid} 에도 같은 키로 실린다
-export interface Equip { h?: string | null; nc?: string | null; fx?: string | null; tt?: string | null; bb?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null; ph?: string | null; pg?: string | null; pns?: Record<string, string> | null }
+export interface Equip { h?: string | null; hp?: string | null; wg?: string | null; bl?: string | null; nc?: string | null; fx?: string | null; tt?: string | null; bb?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null; ph?: string | null; pg?: string | null; pns?: Record<string, string> | null }
 // ph·pg: 펫 모자·안경 (2026-11-20). pns: 펫 이름 (펫 id → 이름. presence 에는 데리고 있는 펫의 이름만 pn 으로 싣는다)
 // sg: 스키 장갑을 낀 상태 (프로필에만. presence 에는 안 싣는다. 규칙: 보유해야 켤 수 있다)
 // nr: 만렙(Lv10) 펫을 타지 않고 데리고 다닌다 (2026-11-12 건의 반영. 없으면 지금까지처럼 탄다). 걷기 속도 등 펫 효과는 타든 안 타든 같다: 모습만 바뀐다
-export const EQUIP_KEY: Record<CosmeticKind, 'h' | 'nc' | 'fx' | 'tt' | 'bb' | 'pt' | 'ph' | 'pg'> = { hat: 'h', name: 'nc', fx: 'fx', title: 'tt', bubble: 'bb', pet: 'pt', pethat: 'ph', petglass: 'pg' }; // tt: 칭호 (2026-11-18)
+// hp 머리핀 · wg 날개 · bl 손에 드는 것(풍선): 2026-11-26. 모자(h)와 따로 쓴다
+export const EQUIP_KEY: Record<CosmeticKind, 'h' | 'hp' | 'wg' | 'bl' | 'nc' | 'fx' | 'tt' | 'bb' | 'pt' | 'ph' | 'pg'> = { hat: 'h', pin: 'hp', wing: 'wg', hand: 'bl', name: 'nc', fx: 'fx', title: 'tt', bubble: 'bb', pet: 'pt', pethat: 'ph', petglass: 'pg' }; // tt: 칭호 (2026-11-18)
 
 export const fmtCoins = (n: number): string => `💰 ${Math.floor(n).toLocaleString('ko-KR')}`;

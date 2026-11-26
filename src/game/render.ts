@@ -43,6 +43,9 @@ export interface Entity {
   pushDir: Dir;
   fishing: FishingView | null; // 낚시 중이면 찌 위치
   hat: string | null;          // 꾸미기 (상점)
+  pin?: string | null;         // 머리핀 · 날개 · 손에 드는 것 (2026-11-26. 모자와 같은 방식으로 그린다: cosmetics.ts HAT_ART)
+  wing?: string | null;
+  hand?: string | null;
   nameColor: string | null;
   fx: string | null;
   title?: string | null;       // 칭호 품목 id (닉네임 바로 위에 뜬다)
@@ -255,7 +258,9 @@ export function render(eng: Engine, st: RenderState): void {
       // 보이는 부분의 아래 끝이 수면에 오도록 내린다
       sink = Math.round(FRAME_H - SWIM_RAISE * depth) - visibleH + bobW;
     }
-    const above = e.hat ? Math.max(0, hatAbove(e.hat) - spriteTop(spr)) : 0;
+    // 몸에 붙는 꾸미기를 그리는 순서: 날개 → 모자 → 머리핀 → 손에 드는 것 (머리핀이 모자 챙에 가리지 않게 모자 뒤에 그린다)
+    const wear = [e.wing, e.hat, e.pin, e.hand].filter((x): x is string => !!x);
+    const above = wear.length ? Math.max(0, Math.max(...wear.map(hatAbove)) - spriteTop(spr)) : 0;
     // 탑승 (2026-11-10 저녁): 물 밖에서만 탈것(MOUNT_ART)을 그리고 캐릭터는 다리 아래 hide 줄을 가려 앉은 모양으로. 물속에선 펫을 아예 안 그린다 (물밑에 있는 셈, 평소 수영 모습)
     const ride = !!e.pet?.ride, rideShown = ride && depth <= 0;
     let hide = 0, lift = 0;
@@ -301,7 +306,7 @@ export function render(eng: Engine, st: RenderState): void {
           if (mp) { dx += mp.ox; dy = mp.seatY - (FRAME_H - hide) + (Math.round(py) - (e.y * TILE + TILE - FRAME_H)); } // 포즈(점프 등)로 움직인 만큼은 그대로
         }
         // 샤샤샥: 지나온 자리의 잔상을 먼저 그리고 그 위에 캐릭터 (물속·마피아 유령은 제외)
-        if (e.fx === AFTERIMAGE_FX && depth <= 0 && !e.ghost) drawAfterimages(ctx, e.uid, st.now, e.moving, spr, dx, dy, FRAME_H - hide, e.hat, spriteTop(spr), ddir);
+        if (e.fx === AFTERIMAGE_FX && depth <= 0 && !e.ghost) drawAfterimages(ctx, e.uid, st.now, e.moving, spr, dx, dy, FRAME_H - hide, wear, spriteTop(spr), ddir);
         if (e.ghost) ctx.globalAlpha = 0.45 + 0.1 * Math.sin(st.now / 400);
         if (depth <= 0) { if (hide) ctx.drawImage(spr, 0, 0, FRAME_W, FRAME_H - hide, dx, dy, FRAME_W, FRAME_H - hide); else ctx.drawImage(spr, dx, dy); }
         else {
@@ -319,7 +324,7 @@ export function render(eng: Engine, st: RenderState): void {
           ctx.strokeStyle = `rgba(124,196,240,${0.6 * depth})`;
           ctx.beginPath(); ctx.ellipse(cx, wy + 1, 14 * pulse, 5.5 * pulse, 0, 0, Math.PI); ctx.stroke();
         }
-        if (e.hat) drawHat(ctx, e.hat, dx, dy, spriteTop(spr), ddir);
+        for (const id of wear) drawHat(ctx, id, dx, dy, spriteTop(spr), ddir);
         if (e.fishing) drawRod(ctx, e, e.fishing, st.now);
         if (e.mining) drawPickaxe(ctx, e, st.now);
         if (e.snowReady) { const [hx, hy] = handPos(e); snowOrb(ctx, hx, hy + 4, 3); }
