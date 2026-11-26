@@ -1127,3 +1127,23 @@ test('치장템 판매: 판 것(false)은 다음 접속 때 다시 주지 않는
   const rules = JSON.parse(readFileSync(new URL('../database.rules.json', import.meta.url), 'utf8')).rules;
   assert.ok(rules.users.$uid.own.$item['.validate'].includes('(data.val() === true && (newData.val() === true || auth.uid == $uid))'));
 });
+
+test('금 이름표: 다섯 빛깔 모두 금덩이 3,000 + 5만 코인이고 흐르는 금빛으로 그린다', async () => {
+  const { NAME_COLORS, GOLD_COST, itemById, canSell } = await import('../src/shared/shop.ts');
+  const ids = ['ggrose', 'ggwhite', 'ggchamp', 'gggreen', 'ggblack'];
+  for (const id of ids) {
+    const it = itemById(id);
+    assert.ok(it && NAME_COLORS.includes(it) && it.kind === 'name', id);
+    assert.deepEqual([it.price, GOLD_COST[id]], [50000, 3000], id);
+    assert.equal(canSell(it), false, `${id}: 금덩이 품목은 팔 수 없다`);
+    assert.ok(it.desc.includes('금덩이 3,000개'), id);
+  }
+  assert.equal(GOLD_COST.ggname, 1000, '순금은 그대로');
+  // 그리기: 품목마다 빛깔이 있고, 그 빛깔은 흐르는 띠로 등록돼 있다 (없으면 글자가 안 칠해진다)
+  const cos = readFileSync(new URL('../src/game/cosmetics.ts', import.meta.url), 'utf8');
+  for (const id of ids) {
+    const m = new RegExp(`nc === '${id}'\\) return \\{ color: '(\\w+)'`).exec(cos);
+    assert.ok(m, `${id}: nameStyle`);
+    assert.ok(new RegExp(`^  ${m[1]}: \\[`, 'm').test(cos), `${id}: 흐르는 빛깔 ${m[1]}`);
+  }
+});

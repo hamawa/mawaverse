@@ -41,6 +41,14 @@ export const NAME_COLORS: ShopItem[] = [
   { id: 'ncneon', kind: 'name', name: '네온', price: 200000, icon: '💡', desc: '형광빛이 흐르는 글자.' },
   { id: 'ncdiamond', kind: 'name', name: '다이아', price: 300000, icon: '💎', desc: '얼음빛 글자에 반짝이는 테두리.' },
   { id: 'ggname', kind: 'name', name: '순금', price: 100000, icon: '⭐', desc: '금덩이를 녹여 만든 이름표. 금덩이 1,000개가 함께 든다.' },
+  // 금 이름표 다섯 빛깔 (2026-11-26, 저장소 주인 요청: 금광을 캘 명분). 순금과 같은 짜임에 금의 빛깔만 다르다 (cosmetics.ts nameStyle).
+  // 값은 저장소 주인이 골랐다: 금덩이 3,000 + 5만 코인. 금덩이를 순금(1,000)의 세 배로 둔 것은 금덩이가 금방 모여서다
+  // (곡괭이 10단계로 1,000개에 7분, 강화가 없으면 25분). 그날 라이브: 금덩이를 가진 사람 15/23명, 가운데 값 16개, 가장 많은 사람이 986개
+  { id: 'ggrose', kind: 'name', name: '로즈 골드', price: 50000, icon: '🌹', desc: '분홍빛이 도는 금 이름표. 금덩이 3,000개가 함께 든다.' },
+  { id: 'ggwhite', kind: 'name', name: '화이트 골드', price: 50000, icon: '⚪', desc: '은백색 금 이름표. 금덩이 3,000개가 함께 든다.' },
+  { id: 'ggchamp', kind: 'name', name: '샴페인 골드', price: 50000, icon: '🥂', desc: '연한 베이지빛 금 이름표. 금덩이 3,000개가 함께 든다.' },
+  { id: 'gggreen', kind: 'name', name: '그린 골드', price: 50000, icon: '💚', desc: '연둣빛이 도는 금 이름표. 금덩이 3,000개가 함께 든다.' },
+  { id: 'ggblack', kind: 'name', name: '블랙 골드', price: 50000, icon: '⚫', desc: '검은 바탕에 금빛 글자. 금덩이 3,000개가 함께 든다.' },
 ];
 
 export const FX: ShopItem[] = [
@@ -351,7 +359,7 @@ export const BUBBLES: ShopItem[] = [
 ];
 // 금덩이로 만드는 것 (2026-11-18, 금광 살리기: 킹 낚싯대를 만든 뒤에는 금덩이 쓸 곳이 없어 채광이 하루 2,400번에서 200번 아래로 줄었다). id 는 gg 로 시작한다: 지갑 규칙이 그 접두사로 가른다.
 // 코인 값(가격표)과 함께 금덩이가 정확히 이만큼 줄어야 한다 (gen-rules.cjs 의 GOLD_GOODS 와 같아야 한다). 선물할 수 없다
-export const GOLD_COST: Readonly<Record<string, number>> = { gg40: 200, gg41: 500, ggname: 1000 };
+export const GOLD_COST: Readonly<Record<string, number>> = { gg40: 200, gg41: 500, ggname: 1000, ggrose: 3000, ggwhite: 3000, ggchamp: 3000, gggreen: 3000, ggblack: 3000 };
 export const isGoldItem = (id: string): boolean => id in GOLD_COST;
 export const HOME_GOODS: ShopItem[] = [
   { id: 'house2', kind: 'home', name: '통나무집 짓는 값', price: 10000, icon: '🌲', desc: '통나무집으로 올릴 때 나무 300개와 함께 낸다.' },

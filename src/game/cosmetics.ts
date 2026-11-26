@@ -839,6 +839,12 @@ export function nameStyle(nc: string | null | undefined): NameStyle | null {
   if (nc === 'ncneon') return { color: 'neon', bg: 'rgba(10, 0, 30, 0.8)', border: '#ff5ce1' };
   if (nc === 'ncdiamond') return { color: '#d6f6ff', bg: 'rgba(10, 40, 70, 0.8)', border: '#8fe3ff' };
   if (nc === 'ggname') return { color: 'puregold', bg: 'rgba(60, 40, 0, 0.85)', border: '#fff2a8' };
+  // 금 이름표 (2026-11-26, 저장소 주인 요청: 금광을 캘 명분). 순금과 같은 짜임(흐르는 금빛 글자 + 어두운 바탕 + 밝은 테두리)에 금의 빛깔만 다르다
+  if (nc === 'ggrose') return { color: 'rosegold', bg: 'rgba(72, 28, 26, 0.85)', border: '#ffd2c4' };
+  if (nc === 'ggwhite') return { color: 'whitegold', bg: 'rgba(34, 40, 54, 0.85)', border: '#f4f8ff' };
+  if (nc === 'gggreen') return { color: 'greengold', bg: 'rgba(32, 46, 8, 0.85)', border: '#e6f59a' };
+  if (nc === 'ggblack') return { color: 'blackgold', bg: 'rgba(8, 8, 10, 0.92)', border: '#d9a53a' };
+  if (nc === 'ggchamp') return { color: 'champgold', bg: 'rgba(58, 48, 30, 0.85)', border: '#fff3d1' };
   const it = NAME_COLORS.find((x) => x.id === nc);
   return it?.color ? { color: it.color, bg: 'rgba(0, 0, 0, 0.55)' } : null;
 }
@@ -847,6 +853,11 @@ const FLOWS: Record<string, string[]> = {
   flame: ['#ffe066', '#ff9a3c', '#ff4d2e', '#ff9a3c', '#ffe066'],
   neon: ['#5cf2ff', '#ff5ce1', '#b388ff', '#5cf2ff', '#ff5ce1'],
   puregold: ['#fff2a8', '#ffd84d', '#c9952a', '#ffd84d', '#fff2a8'],
+  rosegold: ['#ffe4dc', '#f6b9a6', '#cf8672', '#f6b9a6', '#ffe4dc'],
+  whitegold: ['#ffffff', '#e3e9ef', '#a9b6c4', '#e3e9ef', '#ffffff'],
+  greengold: ['#f3ffc2', '#d3e374', '#93a83a', '#d3e374', '#f3ffc2'],
+  blackgold: ['#ffe9a8', '#d9a53a', '#8a6a1c', '#d9a53a', '#ffe9a8'],
+  champgold: ['#fffaea', '#f1dfb0', '#c8b07a', '#f1dfb0', '#fffaea'],
 };
 export function isLabelFlow(color: string): boolean { return color === 'rainbow' || color in FLOWS; }
 export function labelFlow(ctx: CanvasRenderingContext2D, color: string, x0: number, x1: number, now: number): CanvasGradient {

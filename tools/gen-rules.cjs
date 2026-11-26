@@ -27,7 +27,7 @@ const esNoUp = `${n('es')} <= ${d('es')}`, rsSame = `${n('rs')} == ${d('rs')}`;
 // 금광·킹 낚싯대 (2026-11-11). gn: 금덩이, ga: 마지막 채광 시각, ks: 킹 낚싯대 성. 아래 세 값은 shared/mine.ts·shared/shop.ts 와 같아야 한다
 const MINE_GAP_MS = 2500, MINE_MAX = 3, KING_CRAFT_GOLD = 100;
 // 금덩이가 함께 드는 품목 (2026-11-18): 품목 id → 금덩이 수. shared/shop.ts 의 GOLD_COST 와 같아야 한다 (tests/mine.test.mjs 가 대조). id 는 gg 로 시작한다
-const GOLD_GOODS = { gg40: 200, gg41: 500, ggname: 1000 };
+const GOLD_GOODS = { gg40: 200, gg41: 500, ggname: 1000, ggrose: 3000, ggwhite: 3000, ggchamp: 3000, gggreen: 3000, ggblack: 3000 };
 const gnSame = `${n('gn')} == ${d('gn')}`, gaSame = `${n('ga')} == ${d('ga')}`, ksSame = `${n('ks')} == ${d('ks')}`;
 // 빠따(bt): b='bat' 결제에서만 늘고, 그 밖의 쓰기에서는 줄기만 한다 (방어를 깨는 밀치기·말랑이·끌기 쓰기가 줄인다. 2026-11-11)
 // 어둠의 빠따(bd, 2026-11-17): 빠따와 같은 식이다. b='darkbat' 결제에서만 늘고, 그 밖의 쓰기에서는 줄기만 한다 (b=2 가 붙은 밀치기·말랑이·끌기 쓰기가 줄인다).
