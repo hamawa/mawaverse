@@ -349,6 +349,7 @@ export const TITLES: ShopItem[] = [
   { id: 'tt-same', kind: 'title', name: '인생여전', price: 30000, icon: '😑', desc: '한 방을 기다리는 사람.' },
   { id: 'tt-girlhead', kind: 'title', name: '소녀가장', price: 30000, icon: '👧', desc: '오늘도 집안을 먹여 살리는 사람.' }, // 2026-11-26 (저장소 주인 요청)
   { id: 'tt-boyhead', kind: 'title', name: '소년가장', price: 30000, icon: '👦', desc: '어깨가 무거운 사람.' },
+  { id: 'tt-hamawa', kind: 'title', name: '하마와', price: 30000, icon: '🦛', desc: '하마와와 한패인 사람.' }, // 2026-11-27 (저장소 주인 요청. 누구나 산다)
   // 달성 칭호 (같은 날, 건의 반영): 조건(TITLE_NEEDS)을 채운 사람만 산다. 조건은 상점 화면이 지킨다 (크리스마스 한정과 같다: 규칙은 보통 구매로 본다). 선물할 수 없다
   { id: 'tt-fisher', kind: 'title', name: '강태공', price: 1000, icon: '🎣', desc: '낚시 30만 마리를 채운 사람만 달 수 있다.' },
   { id: 'tt-netter', kind: 'title', name: '잠자리채', price: 1000, icon: '🥅', desc: '채집 10만 마리를 채운 사람만 달 수 있다.' },
