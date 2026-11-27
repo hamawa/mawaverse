@@ -6,7 +6,7 @@ import { drawHat, nameStyle, titleStyle, petCanvas, mountCanvas, petLookCanvas }
 import {
   HATS, PINS, WINGS, HANDS, NAME_COLORS, FX, TITLES, BUBBLES, GOLD_COST, PET_GOODS, PET_HATS, PET_GLASSES, FISH_GOODS, PUSH_GOODS, GEAR_GOODS, ROD_GOODS, NET_GOODS, TOGGLE_KEY, SKI_GLOVES, SKI_GLOVES_EQ, GIFT_MSG_MAX, priceOf, fmtCoins, autoItemMs, autoKindOf, type ShopItem, type CosmeticKind,
   PET_FOOD, PET_MAX_LEVEL, PET_RANGE_LEVEL, PET_GUARD_LEVEL, PET_SPEED_PER_LEVEL, PET_LEVEL_XP, petLevel, petNextXp, petScale, petCanRide, petGuard, foodPrice, foodCost, SCROLL, ROD_MAX_STARS, enhanceChance, starFactor,
-  BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance, isXmasItem, TITLE_NEEDS, SELL_PCT, sellPrice,
+  BAT, DARK_BAT, AVATAR_TICKET, NICK_TICKET, ICE_ROD, KING_ROD_ID, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, kingChance, isXmasItem, TITLE_NEEDS, SELL_PCT, sellPrice, CUSTOM_TITLE_ID, TITLE_NAME_FEE,
 } from '../shared/shop';
 import { xmasSeason } from '../shared/season';
 import { serverNow } from '../firebase/db';
@@ -21,6 +21,7 @@ export interface ShopHost {
   onlineList?: () => { uid: string; nick: string }[];                 // 선물 받을 사람 고르기 (접속 중)
   lookupId?: (id: string) => Promise<{ uid: string; nick: string } | null>; // 아이디로 찾기
   namePet?: (id: string) => void;                                      // 펫 이름 짓기 (2026-11-20)
+  nameTitle?: () => void;                                              // 작명 칭호의 글자 짓기 (2026-11-27)
   previewFx?: (id: string) => void;                                    // 이펙트를 잠깐 입혀 본다 (2026-11-19 건의. 내 화면에만)
   catchTotals?: () => Promise<{ fish: number; bug: number }>;          // 내 누적 낚시·채집 마릿수 (달성 칭호의 조건. 2026-11-25)
 }
@@ -98,10 +99,10 @@ function hatPreview(avatar: string, hat: string | null): HTMLCanvasElement {
 }
 // 이름표 미리보기
 // 칭호 미리보기: 게임 안에서 닉네임 위에 뜨는 모습 그대로
-function titlePreview(id: string): HTMLCanvasElement {
+function titlePreview(id: string, custom?: string): HTMLCanvasElement {
   const cv = document.createElement('canvas');
   cv.width = 140; cv.height = 26;
-  const st = titleStyle(id);
+  const st = titleStyle(id, custom);
   if (st) drawLabel(cv.getContext('2d')!, st.text, 70, 22, st.color, st.bg, 10, st.border);
   return cv;
 }
@@ -177,7 +178,7 @@ export function openShop(h: ShopHost): void {
     const riding = kind === 'pet' && petCanRide(xp) && h.wallet.rideOn(); // 만렙이고 타기를 고른 상태 (내려서 데리고 다니면 보통 모습)
     if (kind === 'hat' || kind === 'pin' || kind === 'wing' || kind === 'hand') card.append(hatPreview(h.profile.avatar, item.id));
     else if (kind === 'name') card.append(namePreview(h.profile.nick, item.id));
-    else if (kind === 'title') card.append(titlePreview(item.id));
+    else if (kind === 'title') card.append(titlePreview(item.id, item.id === CUSTOM_TITLE_ID ? h.wallet.titleName() || '내가 짓는 칭호' : undefined)); // 작명 칭호: 지은 글자(없으면 보기 글자)
     else if (kind === 'bubble') card.append(bubblePreview(item.id));
     else if (kind === 'pet') card.append(petPreview(item.id, petScale(xp), riding));
     else if (kind === 'pethat' || kind === 'petglass') card.append(petLookCanvas(h.wallet.equipped('pet') || 'petdog', kind === 'pethat' ? { hat: item.id } : { glass: item.id })); // 데리고 있는 펫(없으면 강아지)에게 입혀 본 모습
@@ -247,6 +248,7 @@ export function openShop(h: ShopHost): void {
           sfx('coin');
           await h.wallet.equip(kind, item.id);
           h.toast(pet ? `${item.icon} ${item.name} 입양! 바로 따라옵니다.` : `${item.icon} ${item.name} 구매! 바로 착용했습니다.`);
+          if (item.id === CUSTOM_TITLE_ID && h.nameTitle) { m.close(); h.nameTitle(); return; } // 작명 칭호: 산 김에 바로 글자를 짓는다 (나중에 카드의 단추로도 된다)
         } else await h.wallet.equip(kind, eq ? null : item.id);
       } catch { h.toast('처리하지 못했습니다.', true); }
       render();
@@ -278,6 +280,13 @@ export function openShop(h: ShopHost): void {
     if (pet && owned && h.namePet) {
       const nb = el('button', { class: 'btn small', text: petNm ? '✏ 이름 바꾸기' : '✏ 이름 짓기', style: 'margin-top:4px' });
       nb.onclick = () => { m.close(); h.namePet!(item.id); };
+      card.append(nb);
+    }
+    // 작명 칭호 (2026-11-27): 가진 사람은 글자를 짓고 바꾼다 (처음은 무료, 다시 바꿀 때마다 요금)
+    if (item.id === CUSTOM_TITLE_ID && owned && h.nameTitle) {
+      const nb = el('button', { class: 'btn small', text: h.wallet.titleName() ? `✏ 글자 바꾸기 ${fmtCoins(priceOf(TITLE_NAME_FEE, prices))}` : '✏ 글자 짓기', style: 'margin-top:4px' });
+      nb.dataset.titlename = '1';
+      nb.onclick = () => { m.close(); h.nameTitle!(); };
       card.append(nb);
     }
     return card;

@@ -1,6 +1,7 @@
 // 상점 품목과 지갑 형태. 게임·관리자 페이지가 같이 쓴다 (DOM/Firebase 의존 없음)
 // 가격은 config/prices/{id} 로 관리자가 덮어쓸 수 있다 (priceOf)
-import { snowActive } from './snowpenalty';
+import { snowActive, SNOW_PENALTY_TITLE } from './snowpenalty';
+import { nickCharOk } from './util';
 
 export type ItemKind = 'hat' | 'pin' | 'wing' | 'hand' | 'name' | 'fx' | 'title' | 'bubble' | 'pet' | 'pethat' | 'petglass' | 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'; // use: 소모품 (펫 먹이·강화 주문서. 지갑에만 기록, 2026-11-10)
 export type CosmeticKind = Exclude<ItemKind, 'fish' | 'use' | 'push' | 'gear' | 'rod' | 'net' | 'home' | 'ticket'>; // 착용하는 것들 (펫도 "착용": 한 번에 한 마리)
@@ -360,8 +361,35 @@ export const TITLES: ShopItem[] = [
   { id: 'tt-boss', kind: 'title', name: '카지노 큰손', price: 300000, icon: '🎰', desc: '판이 클수록 웃는 사람.' },
   { id: 'tt-mayor', kind: 'title', name: '명예 이장', price: 500000, icon: '🏅', desc: '마을이 인정한 사람.' },
   { id: 'tt-legend', kind: 'title', name: '살아있는 전설', price: 1000000, icon: '👑', desc: '더 설명이 필요 없는 사람.' },
+  { id: 'tt-custom', kind: 'title', name: '작명 칭호', price: 1500000, icon: '✏', desc: '내가 지은 글자를 칭호로 단다. 8자까지. 다시 바꿀 때는 요금.' }, // 2026-11-27 (CUSTOM_TITLE_ID. 글자는 착용 칸 ttn. 아래 "작명 칭호")
   { id: 'tt-xmas', kind: 'title', name: '메리 크리스마스', price: 30000, icon: '🎄', desc: '빨간 바탕에 초록 테두리. 크리스마스 한정.' }, // 2026-11-21 (XMAS_IDS. 빛깔은 cosmetics.ts titleStyle 이 따로 정한다)
 ];
+// 작명 칭호 (2026-11-27, v64, 저장소 주인 요청: 채팅에서 나온 건의). 사면 내가 지은 글자를 칭호로 단다 (모양은 100만 급과 같은 무지개 글자).
+// 글자는 프로필의 users/{uid}/eq/ttn 에 두고, 이 칭호를 달고 있을 때만 접속 표시의 ttn 에 싣는다 (펫 이름 pns · pn 과 같은 짜임).
+// 처음 짓는 것은 값에 들어 있고 다시 바꿀 때마다 요금을 낸다 (TITLE_NAME_FEE. 화면이 받는다: 닉네임·펫 이름과 같다. 규칙은 결제와 변경을 묶어 보지 않는다).
+// 글자의 범위는 닉네임과 같고(이모지·그림 기호 불가: util.ts NICK_RANGES) 낱말 사이의 빈칸만 더 받는다. 규칙의 정규식이 같은 범위를 적어 둔다 (tests/nick.test.mjs 가 대조).
+// 이미 있는 칭호의 이름(상점의 칭호·눈사람 벌칙 칭호)은 지을 수 없다 (화면이 지킨다: 달성 칭호·비싼 칭호를 흉내 내지 못하게).
+// 값 150만은 채팅에서 나온 값이다. 그날 라이브(23명): 가진 코인(지갑+금고) 가운데 8만 · 최고 80만 · 100만 이상 0명, 누적 획득 150만 이상 12명, 100만짜리 칭호를 산 사람 2명
+export const CUSTOM_TITLE_ID = 'tt-custom';
+export const TITLE_NAME_MAX = 8;
+export const TITLE_NAME_FEE: ShopItem = { id: 'ttnamefee', kind: 'use', name: '작명 칭호 글자 바꾸기', price: 50000, icon: '✏', desc: '작명 칭호의 글자를 바꿀 때마다 낸다.' };
+const titleSpaces = (v: string): string => v.normalize('NFC').replace(/\s+/g, ' ').trim();
+// 프로필·남의 접속 표시에서 읽은 글자를 그릴 수 있는 모양으로 (범위 밖 글자는 버린다)
+export function cleanTitleName(v: unknown): string {
+  if (typeof v !== 'string') return '';
+  const kept = [...titleSpaces(v)].filter((ch) => ch === ' ' || nickCharOk(ch.codePointAt(0)!)).join('').replace(/ +/g, ' ');
+  return [...kept].slice(0, TITLE_NAME_MAX).join('').trim();
+}
+// 지으려는 글자가 안 되는 까닭 (되면 null)
+export function titleNameError(v: string): string | null {
+  const t = titleSpaces(v);
+  if (!t) return '칭호 글자를 적어 주세요.';
+  if ([...t].length > TITLE_NAME_MAX) return `칭호는 ${TITLE_NAME_MAX}자까지 지을 수 있어요.`;
+  for (const ch of t) if (ch !== ' ' && !nickCharOk(ch.codePointAt(0)!)) return '칭호에 이모지나 그림 기호(★ ♥ 등)는 쓸 수 없습니다.';
+  const key = t.replace(/ /g, '');
+  if ([SNOW_PENALTY_TITLE, ...TITLES.filter((x) => x.id !== CUSTOM_TITLE_ID).map((x) => x.name)].some((n) => n.replace(/ /g, '') === key)) return '이미 있는 칭호의 이름은 쓸 수 없습니다.';
+  return null;
+}
 // 말풍선 꾸미기 (2026-11-20, 사용자 요청): 내 일반 채팅 말풍선의 모양·빛깔을 바꾼다 (착용 칸 bb. 그리기는 game/bubbles.ts). 글꼴은 바꾸지 않는다 (2026-11-21 건의 반영). 귓속말 말풍선은 그대로다. 자랑용이라 효과는 없다.
 // 값은 사용자 결정으로 높게 잡았다 (의견을 들어 보고 바꾸기로). 그때 라이브: 지갑 중앙 2만·상위 25% 10만, 1만짜리 샤샤샥을 21명 중 7명이 샀고 5만 이상 꾸미기는 산 사람이 사실상 없었다
 export const BUBBLES: ShopItem[] = [
@@ -433,7 +461,7 @@ export function sellPrice(item: ShopItem | undefined, prices?: Record<string, nu
 // 값을 냈는데 보유 등록이 안 된 구매를 마저 등록할지. own: 그 품목의 보관함 값(true 가짐 · false 가졌다가 팖 · 없음).
 // 판 것은 다시 주지 않는다. 다만 이 기기에서 방금 값을 내고 아직 등록을 못 끝낸 것(pendingHere)이면 준다: 판 품목을 다시 사다가 끊긴 경우
 export function shouldDeliver(own: unknown, pendingHere: boolean): boolean { return own === true ? false : own === false ? pendingHere : true; }
-export const ALL_ITEMS: ShopItem[] = [...HATS, ...PINS, ...WINGS, ...HANDS, ...NAME_COLORS, ...FX, ...TITLES, ...BUBBLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
+export const ALL_ITEMS: ShopItem[] = [...HATS, ...PINS, ...WINGS, ...HANDS, ...NAME_COLORS, ...FX, ...TITLES, ...BUBBLES, ...PET_GOODS, ...PET_HATS, ...PET_GLASSES, PET_NAME_FEE, TITLE_NAME_FEE, PET_FOOD, ...FISH_GOODS, SCROLL, BAT, ...PUSH_GOODS, ...GEAR_GOODS, ...ROD_GOODS, ICE_ROD, SKI_GLOVES, ...NET_GOODS, ...HOME_GOODS, AVATAR_FEE, NICK_FEE, DARK_BAT, AVATAR_TICKET, NICK_TICKET];
 const byId = new Map(ALL_ITEMS.map((i) => [i.id, i]));
 export function itemById(id: string): ShopItem | undefined { return byId.get(id); }
 // 보관함(users/{uid}/own)에 들어가는 품목인가 (소모품인 자동 낚시·미끼·자동 채집·펫 먹이·강화 주문서는 지갑에만 기록된다)
@@ -464,7 +492,8 @@ export interface Wallet { c: number; e: number; sp?: number; bait?: number; ar?:
 export interface GiftMark { f: string; fn: string; i: string; m?: string; at: number }
 export const GIFT_MSG_MAX = 40;
 // users/{uid}/eq: 착용 중인 모자(h), 이름표 색(nc), 이동 이펙트(fx), 펫(pt), 철벽 갑옷(pa), 푹신 갑옷(ta). players/{uid} 에도 같은 키로 실린다
-export interface Equip { h?: string | null; hp?: string | null; wg?: string | null; bl?: string | null; nc?: string | null; fx?: string | null; tt?: string | null; bb?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null; ph?: string | null; pg?: string | null; pns?: Record<string, string> | null }
+export interface Equip { h?: string | null; hp?: string | null; wg?: string | null; bl?: string | null; nc?: string | null; fx?: string | null; tt?: string | null; ttn?: string | null; bb?: string | null; pt?: string | null; pa?: boolean | null; ta?: boolean | null; nr?: boolean | null; sg?: boolean | null; ph?: string | null; pg?: string | null; pns?: Record<string, string> | null }
+// ttn: 작명 칭호의 글자 (2026-11-27. 8자까지. presence 에는 작명 칭호를 달고 있을 때만 싣는다)
 // ph·pg: 펫 모자·안경 (2026-11-20). pns: 펫 이름 (펫 id → 이름. presence 에는 데리고 있는 펫의 이름만 pn 으로 싣는다)
 // sg: 스키 장갑을 낀 상태 (프로필에만. presence 에는 안 싣는다. 규칙: 보유해야 켤 수 있다)
 // nr: 만렙(Lv10) 펫을 타지 않고 데리고 다닌다 (2026-11-12 건의 반영. 없으면 지금까지처럼 탄다). 걷기 속도 등 펫 효과는 타든 안 타든 같다: 모습만 바뀐다

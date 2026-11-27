@@ -1092,6 +1092,26 @@ await expect('게시판: 일반 사용자가 패치 노트 알림 칸 읽기', '
   await expect('날개: 갖지 않은 것 (접속 표시)', 'deny', () => ok.ref('players/OK/wg').set('wingangel'));
   await expect('풍선: 가진 것 (프로필과 접속 표시를 한 번에)', 'allow', () => ok.ref().update({ 'users/OK/eq/bl': 'balloon', 'players/OK/bl': 'balloon' }));
   await expect('착용 칸: 모르는 칸', 'deny', () => ok.ref('users/OK/eq/zz').set('balloon'));
+  // 작명 칭호의 글자 (2026-11-27): 작명 칭호를 가진 사람만, 8자까지, 닉네임과 같은 범위의 글자 + 낱말 사이 빈칸
+  await expect('작명 칭호: 갖지 않은 사람의 글자 (프로필)', 'deny', () => ok.ref('users/OK/eq/ttn').set('마와버스 주인'));
+  await expect('작명 칭호: 갖지 않은 사람의 글자 (접속 표시)', 'deny', () => ok.ref('players/OK/ttn').set('마와버스 주인'));
+  await root.ref('users/OK/own/tt-custom').set(true);
+  await expect('작명 칭호: 착용', 'allow', () => ok.ref().update({ 'users/OK/eq/tt': 'tt-custom', 'players/OK/tt': 'tt-custom' }));
+  await expect('작명 칭호: 글자 짓기 (프로필과 접속 표시를 한 번에)', 'allow', () => ok.ref().update({ 'users/OK/eq/ttn': '마와버스 주인', 'players/OK/ttn': '마와버스 주인' }));
+  await expect('작명 칭호: 영문·숫자', 'allow', () => ok.ref('users/OK/eq/ttn').set('GM 1'));
+  await expect('작명 칭호: 아홉 자', 'deny', () => ok.ref('users/OK/eq/ttn').set('아홉글자는안되는칭'));
+  await expect('작명 칭호: 빈 글자', 'deny', () => ok.ref('users/OK/eq/ttn').set(''));
+  await expect('작명 칭호: 빈칸으로 시작', 'deny', () => ok.ref('users/OK/eq/ttn').set(' 마와'));
+  await expect('작명 칭호: 이모지 (프로필)', 'deny', () => ok.ref('users/OK/eq/ttn').set('🏆우승'));
+  await expect('작명 칭호: 이모지 (접속 표시)', 'deny', () => ok.ref('players/OK/ttn').set('🏆우승'));
+  await expect('작명 칭호: 그림 기호', 'deny', () => ok.ref('users/OK/eq/ttn').set('★별'));
+  await expect('작명 칭호: 숫자 값', 'deny', () => ok.ref('users/OK/eq/ttn').set(123));
+  await expect('작명 칭호: 남이 내 글자를 바꾸기', 'deny', () => other.ref('users/OK/eq/ttn').set('남이쓴글'));
+  await expect('작명 칭호: 남이 내 접속 표시의 글자를 바꾸기', 'deny', () => other.ref('players/OK/ttn').set('남이쓴글'));
+  await expect('작명 칭호: 남이 내 글자를 지우기', 'deny', () => other.ref().update({ 'users/OK/eq/ttn': null, 'players/OK/ttn': null }));
+  await expect('작명 칭호: 관리자가 글자 지우기 (프로필과 접속 표시를 한 번에)', 'allow', () => admin.ref().update({ 'users/OK/eq/ttn': null, 'players/OK/ttn': null }));
+  await expect('작명 칭호: 지워진 뒤에 다시 짓기', 'allow', () => ok.ref().update({ 'users/OK/eq/ttn': '다시 지음', 'players/OK/ttn': '다시 지음' }));
+  await root.ref().update({ 'users/OK/eq/ttn': null, 'users/OK/eq/tt': null, 'players/OK/ttn': null, 'players/OK/tt': null, 'users/OK/own/tt-custom': null });
   await root.ref().update({ 'users/OK/eq/hp': null, 'users/OK/eq/bl': null, 'players/OK/hp': null, 'players/OK/bl': null });
   await expect('bubble skin: not owned', 'deny', () => ok.ref('players/OK/bb').set('bb-flame'));
   await root.ref('users/OK/own/bb-ink').set(true);

@@ -14,7 +14,7 @@ import type { WorldCtx, RemotePlayer } from './state';
 import { MAIN_MAP_ID, occupancyKey, playerMapId } from '../shared/maps';
 import { lastPosOf, mapSwitchUpdate } from './portal';
 import { snowActive } from '../shared/snowpenalty';
-import { batGuardField, ANON, type BatKind, cleanPetName } from '../shared/shop';
+import { batGuardField, ANON, type BatKind, cleanPetName, CUSTOM_TITLE_ID, cleanTitleName } from '../shared/shop';
 
 import { sfx, sfxAt, type Sfx } from './audio';
 // 남의 동작(이모트)에 붙는 소리: 밀치기·잠자리채·말랑이·삽질(도끼질)·끌기
@@ -22,11 +22,11 @@ const EMOTE_SFX: Record<number, Sfx> = { 10: 'push', 11: 'swing', 12: 'toss', 13
 
 // 착용 중인 꾸미기를 presence 에 싣는다 (짧은 키). 규칙이 "가진 것만" 허용하므로 보유 목록에 없는 건 뺀다 (어긋난 데이터로 입장이 막히지 않게)
 // pl: 데리고 있는 펫의 누적 먹이 (지갑 px 값. 규칙이 지갑과 대조). 펫이 없으면 싣지 않는다
-function cosmetics(p: _UP, petXp: (id: string) => number): Pick<PlayerState, 'h' | 'hp' | 'wg' | 'bl' | 'nc' | 'fx' | 'tt' | 'bb' | 'pt' | 'pl' | 'pa' | 'ta' | 'nr' | 'ph' | 'pg' | 'pn'> {
+function cosmetics(p: _UP, petXp: (id: string) => number): Pick<PlayerState, 'h' | 'hp' | 'wg' | 'bl' | 'nc' | 'fx' | 'tt' | 'ttn' | 'bb' | 'pt' | 'pl' | 'pa' | 'ta' | 'nr' | 'ph' | 'pg' | 'pn'> {
   const own = p.own || {};
   const has = (id?: string | null) => (id && own[id] ? id : null);
   const pt = has(p.eq?.pt);
-  return { h: has(p.eq?.h), hp: has(p.eq?.hp), wg: has(p.eq?.wg), bl: has(p.eq?.bl), nc: has(p.eq?.nc), fx: has(p.eq?.fx), tt: has(p.eq?.tt), bb: has(p.eq?.bb), pt, ...(pt && petXp(pt) > 0 ? { pl: petXp(pt) } : {}), pa: p.eq?.pa && own.pusharmor ? true : null, ta: p.eq?.ta && own.tossarmor ? true : null, nr: p.eq?.nr ? true : null,
+  return { h: has(p.eq?.h), hp: has(p.eq?.hp), wg: has(p.eq?.wg), bl: has(p.eq?.bl), nc: has(p.eq?.nc), fx: has(p.eq?.fx), tt: has(p.eq?.tt), ttn: (has(p.eq?.tt) === CUSTOM_TITLE_ID && cleanTitleName(p.eq?.ttn)) || null, bb: has(p.eq?.bb), pt, ...(pt && petXp(pt) > 0 ? { pl: petXp(pt) } : {}), pa: p.eq?.pa && own.pusharmor ? true : null, ta: p.eq?.ta && own.tossarmor ? true : null, nr: p.eq?.nr ? true : null,
     ph: pt ? has(p.eq?.ph) : null, pg: pt ? has(p.eq?.pg) : null, pn: (pt && cleanPetName(p.eq?.pns?.[pt])) || null }; // 펫 모자·안경·이름 (2026-11-20): 펫을 데리고 있을 때만
 }
 
@@ -415,7 +415,10 @@ export class Net {
     this.unsubs.push(onValue(ref(db, `users/${w.uid}`), (s) => {
       const v = s.val();
       if (!v) return;
+      const hadTitle = w.wallet?.titleName(); // 작명 칭호에 지어 둔 글자 (2026-11-27)
       w.profile = { ...w.profile, ...v };
+      // 작명 칭호는 그대로 가졌는데 글자만 없어졌다: 관리자가 지운 것이다 (Net.clearTitleName. 내가 팔 때는 보유도 같이 내려간다). 이 화면이 기억하던 글자는 위에서 같이 바뀌었다
+      if (hadTitle && w.wallet.owns(CUSTOM_TITLE_ID) && !w.wallet.titleName()) w.toast('관리자가 작명 칭호의 글자를 지웠습니다. 상점에서 다시 지을 수 있어요.', true);
       w.events.emit('profile');
     }));
   }
@@ -501,6 +504,10 @@ export class Net {
   // 관리자: 상대를 (x,y)로 보낸다 (광장으로 보내기). 규칙이 관리자만 허용
   sendTo(targetUid: string, x: number, y: number): Promise<void> {
     return set(ref(db, `players/${targetUid}/tp`), { f: this.w.uid, x, y, t: serverTimestamp() });
+  }
+  // 관리자: 남의 작명 칭호의 글자를 지운다 (2026-11-27). 프로필과 접속 표시를 한 번에: 그 사람 화면은 제 프로필을 구독하고 있어서(아래 subscribe 의 "프로필 변화") 기억하던 글자도 같이 지워진다
+  clearTitleName(targetUid: string): Promise<void> {
+    return update(ref(db), { [`users/${targetUid}/eq/ttn`]: null, [`players/${targetUid}/ttn`]: null });
   }
   push(targetUid: string, dx: number, dy: number, bat: BatKind = 0): Promise<boolean> {
     return sent(update(ref(db), { [`players/${targetUid}/push`]: { f: this.w.uid, dx, dy, t: serverTimestamp(), ...(bat ? { b: bat } : {}) }, ...this.batCost([{ uid: targetUid, kind: bat }], '밀치기') }));

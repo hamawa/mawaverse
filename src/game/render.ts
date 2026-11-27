@@ -49,6 +49,7 @@ export interface Entity {
   nameColor: string | null;
   fx: string | null;
   title?: string | null;       // 칭호 품목 id (닉네임 바로 위에 뜬다)
+  titleText?: string | null;   // 작명 칭호의 글자 (2026-11-27. 작명 칭호일 때만. 다듬은 글자)
   bubbleSkin?: string | null;  // 말풍선 꾸미기 품목 id (일반 채팅 말풍선에만. bubbles.ts)
   sit?: boolean;               // 앉아 있다: 다리를 가리고 조금 내려 그린다 (x, y 는 앉은 가구의 칸)
   dance?: number;              // 클럽에서 추는 춤 (1~9: 이모트 번호마다 다른 춤)
@@ -443,7 +444,7 @@ export function render(eng: Engine, st: RenderState): void {
   const autoBelow = (e: Entity): boolean => !!e.fishing && (!!e.fishing.auto || !!e.fishing.stars) && standsBelow(e.x, e.y, e.fishing.x, e.fishing.y); // 남쪽으로 던진 찌의 "자동 ★n" 은 이름표 아래에 붙는다
   const stackBottom = (e: Entity): number => {
     const [, feet] = eng.worldToScreen(0, e.y * TILE + TILE + (posByUid.get(e.uid)?.feet ?? 0));
-    return feet + 2 + 18 + (snowActive(e.snowBrokenAt, st.serverNow) ? 17 : 0) + (titleStyle(e.title) ? 16 : 0) + (autoBelow(e) ? 17 : 0);
+    return feet + 2 + 18 + (snowActive(e.snowBrokenAt, st.serverNow) ? 17 : 0) + (titleStyle(e.title, e.titleText) ? 16 : 0) + (autoBelow(e) ? 17 : 0);
   };
   // 힌트
   if (st.hint) {
@@ -475,7 +476,7 @@ export function render(eng: Engine, st: RenderState): void {
     // 눈사람을 부순 벌칙 칭호: 닉네임 바로 위에 딱 붙인다 (2026-11-18 사용자 요청. 전에는 머리 위였다). 칭호가 이름표 자리에 오고 이름표는 그만큼 내려간다 (캐릭터를 가리지 않게)
     if (snowActive(e.snowBrokenAt, st.serverNow)) { drawLabel(ctx, SNOW_PENALTY_TITLE, sx, under - 1, '#ffffff', 'rgba(185, 28, 28, 0.92)', 11, '#fecaca', fade); under += 17; }
     // 칭호 (상점): 닉네임 바로 위. 눈사람 칭호가 있으면 그 아래
-    const ts = titleStyle(e.title);
+    const ts = titleStyle(e.title, e.titleText);
     if (ts) { drawLabel(ctx, ts.text, sx, under - 1, ts.color, ts.bg, 10, ts.border, fade); under += 16; }
     // 이름표 효과(산 빛깔·흐르는 빛깔)는 닉네임에만 입힌다: 앞뒤의 표시는 기본 빛깔 그대로 (2026-11-23 건의)
     const side = e.nickPre || e.nickPost ? { pre: e.nickPre || '', post: e.nickPost || '', color: e.isMe ? '#ffe9a8' : '#ffffff' } : undefined;

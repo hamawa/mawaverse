@@ -1,7 +1,7 @@
 // 꾸미기 그리기: 모자 픽셀 아트, 이름표 색, 이동 이펙트 파티클. render.ts 와 상점 미리보기가 같이 쓴다
 import { FRAME_W, FRAME_H } from './sprites';
 import type { Dir } from '../shared/types';
-import { NAME_COLORS, TITLES, TITLE_NEEDS } from '../shared/shop';
+import { NAME_COLORS, TITLES, TITLE_NEEDS, CUSTOM_TITLE_ID } from '../shared/shop';
 
 // ---- 모자 ----
 // 16px 너비 픽셀 아트. 문자는 팔레트 키, '.' 은 투명. 맨 아랫줄이 머리 꼭대기(첫 불투명 줄)보다 overlap 만큼 아래에 온다
@@ -984,9 +984,11 @@ export function labelFlow(ctx: CanvasRenderingContext2D, color: string, x0: numb
   return g;
 }
 // 칭호의 빛깔: 값이 비쌀수록 눈에 띈다 (2026-11-18)
-export function titleStyle(id: string | null | undefined): { text: string; color: string; bg: string; border?: string } | null {
+// custom: 작명 칭호의 글자 (2026-11-27. 이미 다듬은 글자를 받는다: shop.ts cleanTitleName). 작명 칭호인데 글자가 없으면 그리지 않는다. 모양은 100만 급과 같다
+export function titleStyle(id: string | null | undefined, custom?: string | null): { text: string; color: string; bg: string; border?: string } | null {
   const it = id ? TITLES.find((t) => t.id === id) : undefined;
   if (!it) return null;
+  if (it.id === CUSTOM_TITLE_ID) return custom ? { text: custom, color: 'rainbow', bg: 'rgba(20, 6, 30, 0.85)', border: '#ffd84d' } : null;
   if (it.id === 'tt-xmas') return { text: it.name, color: '#fff6e0', bg: 'rgba(150, 24, 32, 0.88)', border: '#4cbf6a' }; // 크리스마스 한정 (2026-11-21): 값과 상관없이 빨강·초록
   if (it.id === 'tt-pink') return { text: it.name, color: '#fff0f7', bg: 'rgba(206, 70, 136, 0.88)', border: '#ffc2dd' };   // 핑크공주 (2026-11-25): 이름값을 하게 분홍
   if (TITLE_NEEDS[it.id]) return { text: it.name, color: '#ffe9a8', bg: 'rgba(90, 60, 0, 0.8)', border: '#ffd84d' };        // 달성 칭호: 값(1,000)과 상관없이 금빛 (15만짜리와 같은 모양)

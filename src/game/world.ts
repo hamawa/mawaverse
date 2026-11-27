@@ -63,7 +63,7 @@ import { fmtGold } from '../shared/mine';
 import { openDigMap } from './digui';
 import { fmtLeft } from '../shared/contest';
 import { openShop } from './shopui';
-import { MAWAPHONE_ID, batResultText, BAT_CHECK_MS, type BatKind, PET_NAME_FEE, PET_NAME_MAX, cleanPetName, rodTierOf, ROD_GOODS, fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, PET_IDS, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ } from '../shared/shop';
+import { MAWAPHONE_ID, batResultText, BAT_CHECK_MS, type BatKind, PET_NAME_FEE, PET_NAME_MAX, cleanPetName, rodTierOf, ROD_GOODS, fmtCoins, AVATAR_FEE, NICK_FEE, AVATAR_TICKET, NICK_TICKET, priceOf, PUSH_COOLDOWN_BY_TIER, pushTierOf, itemById, PET_IDS, petLevel, petRiding, petGuard, guardedOf, guardBrokenOf, assignBats, GUARD_BREAK_MS, SKI_GLOVES_ID, SKI_GLOVES_EQ, CUSTOM_TITLE_ID, TITLE_NAME_FEE, TITLE_NAME_MAX, cleanTitleName, titleNameError } from '../shared/shop';
 import { SnowfightState, snowGateAt, snowfightAction, SNOW_PACK_HINT, SNOW_THROW_HINT, type SnowGate } from './snowfight';
 import { TASK_FOOTPRINT, FOG_RADIUS } from '../shared/mafia';
 import { dirVec, frontTiles } from './area';
@@ -558,7 +558,7 @@ export class World implements WorldCtx {
       uid: this.uid, nickPre: (iGhost ? '👻 ' : '') + this.nickMarks(this.uid), nick: this.profile.nick, nickPost: (this.home.sleeping ? ' 😴' : '') + (this.home.shield > 0 ? ` 🐟${this.home.shield}` : '') + (this.guardBroken() ? ' 💥' : ''), avatar: this.profile.avatar, x: me.dispX, y: me.dispY, dir: mySeat ? this.seatFace(mySeat) : me.dir, moving: me.moving, sit: !!mySeat && !me.moving,
       moveT: me.moving ? Math.min(1, (now - me.moveStart) / me.moveDur) : 0, pose: myDance ? 'dance' : me.pose, poseAt: myDance ? now : me.poseAt, emoteId: myDance ? 0 : me.emoteId, dance: myDance || undefined, bubble: me.bubble,
       isMe: true, pushAt: me.pushAt, pushDir: me.pushDir, hitAt: me.hitAt, blockAt: me.blockAt,
-      fishing: this.fishing.view(), hat: this.profile.eq?.h || null, pin: this.wearing('hp'), wing: this.wearing('wg'), hand: this.wearing('bl'), nameColor: this.profile.eq?.nc || null, fx: this.myFx(now), title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null, bubbleSkin: this.profile.eq?.bb && this.profile.own?.[this.profile.eq.bb] ? this.profile.eq.bb : null,
+      fishing: this.fishing.view(), hat: this.profile.eq?.h || null, pin: this.wearing('hp'), wing: this.wearing('wg'), hand: this.wearing('bl'), nameColor: this.profile.eq?.nc || null, fx: this.myFx(now), title: this.profile.eq?.tt && this.profile.own?.[this.profile.eq.tt] ? this.profile.eq.tt : null, titleText: this.profile.eq?.tt === CUSTOM_TITLE_ID ? this.wallet.titleName() || null : null, bubbleSkin: this.profile.eq?.bb && this.profile.own?.[this.profile.eq.bb] ? this.profile.eq.bb : null,
       pet: this.pets.view(this.uid, loose ? null : this.myPet(), { x: me.x, y: me.y, fromX: me.fromX, fromY: me.fromY, moveStart: me.moveStart, moveDur: me.moveDur, moving: me.moving, dir: me.dir }, now, this.petRide.xp(), !!this.profile.eq?.nr),
       ghost: iGhost, mining: this.mine.active, snowBrokenAt: this.snowBrokenAt, snowReady: this.snowfight.packed,
       progress: this.home.chopProgress(now) ?? this.mine.progress(now), // 나무·금을 캐는 중: 머리 위 진행 막대 (2026-11-18)
@@ -577,7 +577,7 @@ export class World implements WorldCtx {
         pose: dance ? 'dance' : rp.pose, poseAt: dance ? now : rp.poseAt, emoteId: dance ? 0 : rp.emoteId, dance: dance || undefined, bubble: rp.bubble, isMe: false,
         pushAt: rp.pushAt, pushDir: rp.pushDir, hitAt: rp.hitAt, blockAt: rp.blockAt,
         fishing: rp.st.f && bobberNear(rp.toX, rp.toY, rp.st.f.x, rp.st.f.y) ? { x: rp.st.f.x, y: rp.st.f.y, bite: false, since: rp.fishAt, auto: !!rp.st.f.a, rod: rp.st.f.r || 0, stars: rp.st.f.s || 0 } : null,
-        hat: rp.st.h || null, pin: rp.st.hp || null, wing: rp.st.wg || null, hand: rp.st.bl || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null, title: rp.st.tt || null, bubbleSkin: rp.st.bb || null,
+        hat: rp.st.h || null, pin: rp.st.hp || null, wing: rp.st.wg || null, hand: rp.st.bl || null, nameColor: rp.st.nc || null, fx: rp.st.fx || null, title: rp.st.tt || null, titleText: rp.st.tt === CUSTOM_TITLE_ID ? this.titleTextOf(rp.st.ttn) : null, bubbleSkin: rp.st.bb || null,
         pet: this.pets.view(rp.uid, loose ? null : rp.st.pt, { x: rp.toX, y: rp.toY, fromX: rp.prevX, fromY: rp.prevY, moveStart: rp.moveStart, moveDur: rp.moveDur, moving: rp.moveStart > 0, dir: rp.st.d ?? 0 }, now, rp.st.pl || 0, !!rp.st.nr),
         ghost, mining: !!rp.st.mn, snowBrokenAt: rp.st.sn || 0,
       });
@@ -591,6 +591,14 @@ export class World implements WorldCtx {
   }
   // 내가 데리고 다니는 펫 (가진 것일 때만)
   private myPet(): string | null { const pt = this.profile.eq?.pt; return pt && this.profile.own?.[pt] ? pt : null; }
+  // 남의 작명 칭호의 글자 (2026-11-27): 접속 표시의 글자를 다듬어 쓴다. 화면을 그릴 때마다 불리므로 다듬은 것을 적어 둔다
+  private titleTexts = new Map<string, string | null>();
+  private titleTextOf(raw: unknown): string | null {
+    if (typeof raw !== 'string' || !raw) return null;
+    let t = this.titleTexts.get(raw);
+    if (t === undefined) { if (this.titleTexts.size > 200) this.titleTexts.clear(); t = cleanTitleName(raw) || null; this.titleTexts.set(raw, t); }
+    return t;
+  }
   // 머리핀 · 날개 · 손에 드는 것 (2026-11-26): 착용했고 가지고 있는 것만
   private wearing(key: 'hp' | 'wg' | 'bl'): string | null { const id = this.profile.eq?.[key]; return id && this.profile.own?.[id] ? id : null; }
 
@@ -1689,6 +1697,11 @@ export class World implements WorldCtx {
       if (!(await confirmModal(`${nick} 을(를) 광장으로 보낼까요?`))) return;
       try { await this.net.sendTo(uid, this.map.spawn.x, this.map.spawn.y); this.toast(`🏠 ${nick} 을(를) 광장으로 보냈습니다.`); } catch { this.toast('보내지 못했습니다.', true); }
     } });
+    // 관리자: 남의 작명 칭호의 글자를 지운다 (2026-11-27. 그 사람은 다시 지을 수 있다. 칭호 자체는 그대로 가진다)
+    if (this.isAdmin && rp && rp.st.tt === CUSTOM_TITLE_ID && rp.st.ttn) items.push({ label: '✏ 작명 칭호 지우기 (관리자)', danger: true, onClick: async () => {
+      if (!(await confirmModal(`${nick} 의 작명 칭호 “${cleanTitleName(rp.st.ttn)}” 을(를) 지울까요? 그 사람은 다시 지을 수 있습니다.`))) return;
+      try { await this.net.clearTitleName(uid); this.toast(`✏ ${nick} 의 작명 칭호를 지웠습니다.`); } catch { this.toast('지우지 못했습니다.', true); }
+    } });
     contextMenu(x, y, nick, items);
   }
   openMyMenu(x: number, y: number): void {
@@ -1885,6 +1898,7 @@ export class World implements WorldCtx {
       onlineList: () => [...this.players.values()].map((p) => ({ uid: p.uid, nick: p.st.n })),
       previewFx: (id) => this.previewFx(id),
       namePet: (id) => { void this.petNameFlow(id); },
+      nameTitle: () => { void this.titleNameFlow(); },
       // 달성 칭호의 조건 (2026-11-25): 내 도감의 마릿수를 더한다. 칭호 탭을 처음 열 때 한 번 읽는다
       catchTotals: async () => {
         const sum = async (path: string): Promise<number> => Object.values(((await get(ref(db, path))).val() as Record<string, { c?: number }> | null) || {}).reduce((s, e) => s + (e?.c || 0), 0);
@@ -1958,6 +1972,29 @@ export class World implements WorldCtx {
     if (name && fee > 0) await this.wallet.payFee(PET_NAME_FEE.id, fee);
     this.toast(name ? `${it.icon} 이제 이름은 “${name}”!${fee > 0 ? ` (-${fmtCoins(fee)})` : ''}` : `${it.icon} 이름을 없앴어요.`);
   }
+  // 작명 칭호의 글자 짓기 (2026-11-27): 상점의 작명 칭호 카드에서 (산 직후에도 바로 뜬다). 처음 짓는 것은 무료, 다시 바꿀 때마다 요금.
+  // 바뀐 뒤에 낸다 (실패했을 때 돈만 나가지 않게: 닉네임·펫 이름과 같다). 틀리게 지으면 고치는 데 요금이 드니 지을 때도 한 번 묻는다
+  private async titleNameFlow(): Promise<void> {
+    if (!this.wallet.owns(CUSTOM_TITLE_ID)) return;
+    const cur = this.wallet.titleName(), fee = cur ? priceOf(TITLE_NAME_FEE, this.config.prices) : 0;
+    // 안 되는 글자면 까닭을 알리고 적던 글자 그대로 다시 묻는다 (창이 닫혀 상점부터 다시 열지 않게)
+    let name = '', draft = cur;
+    for (;;) {
+      const v = await promptModal(cur ? `✏ 작명 칭호 바꾸기${fee > 0 ? ` (${fmtCoins(fee)})` : ''}` : '✏ 작명 칭호 짓기', `칭호 글자 (${TITLE_NAME_MAX}자까지. 이모지는 쓸 수 없어요)`, draft, TITLE_NAME_MAX);
+      if (v === null || this.stopped) return;
+      const err = titleNameError(v);
+      if (!err) { name = cleanTitleName(v); break; }
+      this.toast(err, true);
+      draft = v;
+    }
+    if (name === cur) return;
+    if (fee > 0 && this.wallet.balance < fee) { this.toast(`코인이 모자랍니다. 작명 칭호의 글자를 바꾸는 데는 ${fmtCoins(fee)} 이 듭니다.`, true); return; }
+    const next = fmtCoins(priceOf(TITLE_NAME_FEE, this.config.prices));
+    if (!(await confirmModal(cur ? `칭호를 “${name}”(으)로 바꿀까요? ${fmtCoins(fee)} 이 듭니다.` : `칭호를 “${name}”(으)로 지을까요? 다음에 바꿀 때는 ${next} 이 듭니다.`))) return;
+    if (!(await this.wallet.setTitleName(name))) { this.toast('칭호를 짓지 못했습니다. 잠시 후 다시 시도하세요.', true); return; }
+    if (fee > 0) await this.wallet.payFee(TITLE_NAME_FEE.id, fee);
+    this.toast(`✏ 이제 칭호는 “${name}”!${fee > 0 ? ` (-${fmtCoins(fee)})` : ''}`);
+  }
   private async showProfile(uid: string): Promise<void> {
     const rp = this.players.get(uid);
     // 2026-11-20 건의: 낚싯대·강화 성·칭호·집·갑옷도 보여 준다. 낚싯대 종류는 보유 목록(누구나 읽을 수 있다), 성은 presence 의 rs, 집은 homes 의 단계
@@ -1973,7 +2010,8 @@ export class World implements WorldCtx {
     const tier = rodTierOf(own), rod = tier > 0 ? ROD_GOODS[tier - 1] : null, rs = typeof rp?.st.rs === 'number' ? rp.st.rs : 0;
     const rodTxt = `낚싯대: ${rod ? `${rod.icon} ${rod.name}${rs > 0 ? ` ★${rs}` : ''}` : '기본 낚싯대'}${own.iceRod ? ' · 🧊 얼음 낚싯대' : ''}<br>`;
     const title = rp?.st.tt ? itemById(rp.st.tt) : null, home = homeTier(ht);
-    const more = `${title ? `칭호: ${title.icon} ${esc(title.name)}<br>` : ''}${home ? `집: ${home.icon} ${home.name}<br>` : ''}${rp?.st.pa || rp?.st.ta ? `갑옷: ${[rp?.st.pa ? '🛡 철벽' : '', rp?.st.ta ? '🧥 푹신' : ''].filter(Boolean).join(' · ')}<br>` : ''}`;
+    const titleName = !title ? '' : title.id === CUSTOM_TITLE_ID ? cleanTitleName(rp?.st.ttn) : title.name; // 작명 칭호는 지은 글자를 보여 준다 (글자가 없으면 줄을 뺀다)
+    const more = `${title && titleName ? `칭호: ${title.icon} ${esc(titleName)}<br>` : ''}${home ? `집: ${home.icon} ${home.name}<br>` : ''}${rp?.st.pa || rp?.st.ta ? `갑옷: ${[rp?.st.pa ? '🛡 철벽' : '', rp?.st.ta ? '🧥 푹신' : ''].filter(Boolean).join(' · ')}<br>` : ''}`;
     const body = el('div', { html: `<p><b>${esc(this.nickOf(uid))}</b></p><p class="muted">${rodTxt}${petTxt}${more}${fish}</p>` });
     modal('프로필', body, [{ label: '닫기', onClick: () => {} }]);
   }

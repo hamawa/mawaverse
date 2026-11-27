@@ -483,6 +483,11 @@ const giftMarkRule = (pre) => `newData.child('f').val() == auth.uid && auth.uid 
 const ownsStr = (pre) => `newData.isString() && root.child('${pre}users/' + $uid + '/own/' + newData.val()).val() === true`;
 const armorEq = (pre, item) => `newData.isBoolean() && (newData.val() === false || root.child('${pre}users/' + $uid + '/own/${item}').val() === true)`;
 const armorPl = (pre, item) => `newData.val() === true && root.child('${pre}users/' + $uid + '/own/${item}').val() === true`;
+// 작명 칭호의 글자 (2026-11-27): 8자까지, 닉네임과 같은 범위의 글자에 낱말 사이 빈칸만 더 받고(첫 글자는 빈칸이 아니다), 작명 칭호를 가진 사람만.
+// 범위는 src/shared/util.ts NICK_RANGES 와 같아야 한다 (tests/nick.test.mjs 가 대조). 파일에는 \uXXXX 로 적는다: JSON 의 이스케이프라 규칙이 읽을 때는 그 글자다
+// (q() 로 감싸면 글자 그대로 적혀 사람이 읽을 수 없다). 접속 표시(players/$uid/ttn)에는 같은 식을 손으로 넣는다
+const TITLE_NAME_CLASS = '!-\\u00A8\\u00AA-\\u00AC\\u00AF-\\u1FFF\\u2C00-\\u302F\\u3031-\\u303C\\u303E-\\u3296\\u3298\\u329A-\\uD7FF\\uF900-\\uFDFF\\uFF01-\\uFFEE';
+const titleNameRule = (pre) => `newData.isString() && newData.val().length >= 1 && newData.val().length <= 8 && newData.val().matches(/^[${TITLE_NAME_CLASS}][${TITLE_NAME_CLASS} ]*$/) && root.child('${pre}users/' + $uid + '/own/tt-custom').val() === true`;
 function ownEqLines(pre, ind) {
   return [
     // own 은 모두 읽을 수 있다(선물할 때 상대가 이미 가졌는지 확인). 남의 own·gifts·gift 쓰기는 "새 값이 있을 때"만 열고(.validate 가 선물 결제를 확인) 삭제는 본인만
@@ -497,6 +502,7 @@ function ownEqLines(pre, ind) {
     `${ind}  "nc": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "fx": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "tt": { ".validate": ${q(ownsStr(pre))} },`, // 칭호 (2026-11-18)
+    `${ind}  "ttn": { ".validate": "${titleNameRule(pre)}" },`, // 작명 칭호의 글자 (2026-11-27)
     `${ind}  "bb": { ".validate": ${q(ownsStr(pre))} },`, // 말풍선 꾸미기 (2026-11-20)
     `${ind}  "pt": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}  "pa": { ".validate": ${q(armorEq(pre, 'pusharmor'))} },`,
@@ -526,6 +532,7 @@ function playerCosLines(pre, ind) {
     `${ind}"ph": { ".validate": ${q(ownsStr(pre))} },`, // 펫 모자·안경·이름, 낚싯대 성 (2026-11-20)
     `${ind}"pg": { ".validate": ${q(ownsStr(pre))} },`,
     `${ind}"pn": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 8" },`,
+    `${ind}"ttn": { ".validate": "${titleNameRule(pre)}" },`, // 작명 칭호의 글자 (2026-11-27)
     `${ind}"rs": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 35" },`,
   ].join('\n');
 }

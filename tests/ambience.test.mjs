@@ -1206,3 +1206,39 @@ test('착용 칸: 머리핀 · 날개 · 손에 드는 것은 모자와 따로 �
   const world = read('../src/game/world.ts');
   assert.ok(world.indexOf('this.wallet.fixSlots();') > 0 && world.indexOf('this.wallet.fixSlots();') < world.indexOf('await this.net.join(spawn.x, spawn.y, dir);'));
 });
+
+test('작명 칭호: 150만 칭호 품목 하나와 글자 바꾸기 요금, 글자는 착용 칸 ttn 으로 오가고 100만 급과 같은 모양으로 그린다', async () => {
+  const S = await import('../src/shared/shop.ts');
+  const it = S.itemById(S.CUSTOM_TITLE_ID);
+  assert.ok(it && S.TITLES.includes(it) && it.kind === 'title' && it.price === 1500000 && it.id === 'tt-custom');
+  assert.equal(Math.max(...S.TITLES.map((t) => t.price)), it.price, '가장 비싼 칭호다');
+  assert.equal(S.canSell(it), true, '다른 칭호처럼 팔 수 있다');
+  assert.ok(S.TITLE_NAME_FEE.kind === 'use' && S.TITLE_NAME_FEE.price === 50000 && S.ALL_ITEMS.includes(S.TITLE_NAME_FEE) && !S.isOwnItem(S.TITLE_NAME_FEE.id), '글자 바꾸기는 소모품 결제 (관리자 가격표에 나온다)');
+  assert.equal(S.EQUIP_KEY.title, 'tt');
+  const read = (f) => readFileSync(new URL(f, import.meta.url), 'utf8');
+  // 그리기: 작명 칭호는 글자가 있을 때만, 무지개 글자로
+  const cos = read('../src/game/cosmetics.ts');
+  assert.ok(cos.includes("if (it.id === CUSTOM_TITLE_ID) return custom ? { text: custom, color: 'rainbow', bg: 'rgba(20, 6, 30, 0.85)', border: '#ffd84d' } : null;"));
+  assert.ok(cos.includes("if (it.price >= 1000000) return { text: it.name, color: 'rainbow', bg: 'rgba(20, 6, 30, 0.85)', border: '#ffd84d' };"), '100만 급의 모양이 바뀌면 작명 칭호도 같이');
+  assert.equal((read('../src/game/render.ts').match(/titleStyle\(e\.title, e\.titleText\)/g) || []).length, 2, '이름표 묶음의 높이와 그리기 양쪽이 글자를 넘긴다');
+  // 접속 표시: 작명 칭호를 달고 있을 때만 글자를 싣는다. 남의 것은 다듬어서 그린다
+  assert.ok(read('../src/game/net.ts').includes('ttn: (has(p.eq?.tt) === CUSTOM_TITLE_ID && cleanTitleName(p.eq?.ttn)) || null'));
+  const world = read('../src/game/world.ts');
+  assert.ok(world.includes('titleText: rp.st.tt === CUSTOM_TITLE_ID ? this.titleTextOf(rp.st.ttn) : null'));
+  // 칭호를 바꾸거나 벗으면 접속 표시의 글자도 같은 쓰기에서 내린다. 팔면 지은 글자도 지운다
+  const wallet = read('../src/game/wallet.ts');
+  assert.ok(wallet.includes("kind === 'title' ? { [`players/${this.w.uid}/ttn`]: (itemId === CUSTOM_TITLE_ID && cleanTitleName(eq.ttn)) || null }"));
+  assert.ok(wallet.includes('if (item.id === CUSTOM_TITLE_ID) upd[`users/${uid}/eq/ttn`] = null;'));
+  // 요금: 처음 짓는 것은 무료, 바꿀 때만. 바뀐 뒤에 낸다
+  const flow = world.slice(world.indexOf('private async titleNameFlow'), world.indexOf('private async showProfile'));
+  assert.ok(flow.includes('fee = cur ? priceOf(TITLE_NAME_FEE, this.config.prices) : 0'));
+  assert.ok(flow.indexOf('this.wallet.setTitleName(name)') > 0 && flow.indexOf('this.wallet.setTitleName(name)') < flow.indexOf('this.wallet.payFee(TITLE_NAME_FEE.id, fee)'));
+  assert.ok(flow.indexOf('titleNameError(v)') < flow.indexOf('confirmModal('), '안 되는 글자는 묻기 전에 알린다');
+  // 관리자: 프로필과 접속 표시의 글자를 한 번에 지운다. 지워진 사람의 화면은 제 프로필을 구독하고 있어 같이 바뀌고, 안내를 띄운다 (팔 때는 보유도 같이 내려가서 안내가 없다)
+  const net = read('../src/game/net.ts');
+  assert.ok(net.includes('update(ref(db), { [`users/${targetUid}/eq/ttn`]: null, [`players/${targetUid}/ttn`]: null })'));
+  assert.ok(net.includes('if (hadTitle && w.wallet.owns(CUSTOM_TITLE_ID) && !w.wallet.titleName()) w.toast('));
+  assert.ok(net.indexOf('const hadTitle = w.wallet?.titleName();') < net.indexOf('w.profile = { ...w.profile, ...v };'), '바뀌기 전의 글자를 먼저 적어 둔다');
+  // 안 되는 글자면 창을 닫지 않고 적던 글자로 다시 묻는다
+  assert.ok(flow.includes('draft = v;') && flow.includes('for (;;) {'));
+});

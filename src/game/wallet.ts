@@ -1,7 +1,7 @@
 import { ref, get, set, query, orderByChild, equalTo, onValue, runTransaction, update, serverTimestamp, increment } from 'firebase/database';
 import { db } from '../firebase/app';
 import { serverNow } from '../firebase/db';
-import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, itemById, canSell, shouldDeliver, type ShopItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
+import { type BatKind, cleanPetName, GOLD_COST, AUTO_MAX_MS, GIFT_MSG_MAX, ROD_MAX_STARS, KING_ROD_ID, ICE_ROD_ID, ICE_ROD_STARS, KING_CRAFT_GOLD, KING_ENHANCE_GOLD, KING_NEED_STARS, KING_BASE_STARS, KING_MAX_STARS, autoItemMs, autoKindOf, enhanceChance, foodCost, CUSTOM_TITLE_ID, cleanTitleName, EQUIP_KEY, SKI_GLOVES_EQ, isOwnItem, itemById, canSell, shouldDeliver, type ShopItem, type Wallet, type Equip, type CosmeticKind, type ToggleKey, type GiftMark, type RodFamily } from '../shared/shop';
 import { PICK_MAX, PICK_ITEM, pickCost, pickLevelOf, goldMax } from '../shared/mine';
 import { dayKey, kstDayStart } from '../shared/util';
 import { JACKPOT_SEED, jackpotAdd, slotResult, oddEvenPayout, type InstantKind } from '../shared/slots';
@@ -694,9 +694,11 @@ export class WalletMgr {
       const kind = item.kind as CosmeticKind, uid = this.w.uid, w = this.wallet;
       if (this.equipped(kind) === item.id) await this.equip(kind, null);
       const upd: Record<string, unknown> = { [`wallet/${uid}/c`]: increment(refund), [`wallet/${uid}/e`]: increment(refund), [`users/${uid}/own/${item.id}`]: false };
+      if (item.id === CUSTOM_TITLE_ID) upd[`users/${uid}/eq/ttn`] = null; // 작명 칭호를 팔면 지은 글자도 지운다 (다시 사면 처음 짓는 것은 다시 무료)
       for (const k of ['wt', 'we', 'md'] as const) if (w[k] !== undefined) upd[`wallet/${uid}/${k}`] = null; // 옛 칸이 남은 지갑이면 같이 지운다 (earn 과 같다)
       await update(ref(db), upd);
       this.w.profile.own = { ...(this.w.profile.own || {}), [item.id]: false };
+      if (item.id === CUSTOM_TITLE_ID && this.w.profile.eq) this.w.profile.eq = { ...this.w.profile.eq, ttn: null };
       if (this.pendingIs(item.id)) this.markPending(null);
       this.listeners.forEach((f) => f());
       return true;
@@ -751,7 +753,9 @@ export class WalletMgr {
     const eq: Equip = { ...(p.eq || {}), [key]: itemId };
     p.eq = eq;
     // 펫을 바꾸면 그 펫의 이름을 presence 에 싣는다. 펫을 집에 두면 펫 모자·안경·이름도 presence 에서 내린다 (프로필의 착용 값은 그대로)
-    const extra: Record<string, unknown> = kind === 'pet' ? { [`players/${this.w.uid}/pn`]: (itemId && cleanPetName(eq.pns?.[itemId])) || null, [`players/${this.w.uid}/ph`]: itemId && eq.ph && this.owns(eq.ph) ? eq.ph : null, [`players/${this.w.uid}/pg`]: itemId && eq.pg && this.owns(eq.pg) ? eq.pg : null } : {};
+    const extra: Record<string, unknown> = kind === 'pet' ? { [`players/${this.w.uid}/pn`]: (itemId && cleanPetName(eq.pns?.[itemId])) || null, [`players/${this.w.uid}/ph`]: itemId && eq.ph && this.owns(eq.ph) ? eq.ph : null, [`players/${this.w.uid}/pg`]: itemId && eq.pg && this.owns(eq.pg) ? eq.pg : null }
+      : kind === 'title' ? { [`players/${this.w.uid}/ttn`]: (itemId === CUSTOM_TITLE_ID && cleanTitleName(eq.ttn)) || null } // 작명 칭호를 달면 그 글자도 싣고, 다른 칭호로 바꾸거나 벗으면 내린다
+      : {};
     const pres = (kind === 'pethat' || kind === 'petglass') && !(eq.pt && this.owns(eq.pt)) ? null : itemId; // 펫이 없으면 presence 에는 싣지 않는다
     await update(ref(db), { [`users/${this.w.uid}/eq/${key}`]: itemId, [`players/${this.w.uid}/${key}`]: pres, ...extra }).catch(() => {});
     this.listeners.forEach((f) => f());
@@ -764,6 +768,27 @@ export class WalletMgr {
     if (nm) pns[petId] = nm; else delete pns[petId];
     try { await update(ref(db), { [`users/${this.w.uid}/eq/pns/${petId}`]: nm, ...(p.eq?.pt === petId ? { [`players/${this.w.uid}/pn`]: nm } : {}) }); } catch (e) { console.warn('펫 이름 실패', e); return false; }
     p.eq = { ...(p.eq || {}), pns };
+    this.listeners.forEach((f) => f());
+    return true;
+  }
+  // 작명 칭호의 글자 (2026-11-27): 프로필에 적고, 지금 그 칭호를 달고 있으면 presence 에도. 요금은 부른 쪽이 받는다 (world.titleNameFlow)
+  private ttnRaw: unknown = undefined;
+  private ttnClean = '';
+  private titleBusy = false;
+  titleName(): string {
+    if (!this.owns(CUSTOM_TITLE_ID)) return '';
+    const raw = this.w.profile.eq?.ttn;
+    if (raw !== this.ttnRaw) { this.ttnRaw = raw; this.ttnClean = cleanTitleName(raw); } // 화면을 그릴 때마다 불린다: 글자가 바뀌었을 때만 다듬는다
+    return this.ttnClean;
+  }
+  async setTitleName(name: string): Promise<boolean> {
+    const p = this.w.profile, nm = cleanTitleName(name), uid = this.w.uid;
+    if (!nm || this.titleBusy || !this.owns(CUSTOM_TITLE_ID)) return false;
+    this.titleBusy = true;
+    try { await update(ref(db), { [`users/${uid}/eq/ttn`]: nm, ...(p.eq?.tt === CUSTOM_TITLE_ID ? { [`players/${uid}/ttn`]: nm } : {}) }); }
+    catch (e) { console.warn('작명 칭호 실패', e); return false; }
+    finally { this.titleBusy = false; }
+    p.eq = { ...(p.eq || {}), ttn: nm };
     this.listeners.forEach((f) => f());
     return true;
   }

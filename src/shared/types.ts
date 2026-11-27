@@ -55,6 +55,7 @@ export interface PlayerState {
   fx?: string | null;   // 이동 이펙트
   bb?: string | null;   // 말풍선 꾸미기 (2026-11-20. 일반 채팅 말풍선의 모양·글꼴. game/bubbles.ts)
   tt?: string | null;   // 칭호 (2026-11-18. 닉네임 바로 위에 뜬다)
+  ttn?: string | null;  // 작명 칭호의 글자 (2026-11-27. 작명 칭호 tt-custom 을 달고 있을 때만. 8자까지)
   si?: boolean | null;  // 앉아 있다 (2026-11-18): 바라보는 쪽 옆 칸의 벤치·의자·소파 위에 그린다. 실제 자리(x, y)는 그대로
   pt?: string | null;   // 데리고 다니는 펫 (품목 id)
   ph?: string | null;   // 펫 모자 (2026-11-20)
